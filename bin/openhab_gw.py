@@ -7,20 +7,50 @@ from binascii import unhexlify
 from random import randint
 from pycomfoconnect import *
 import getopt
+import json
+
+# handle start arguments
+##
+inputs = None
+outputs = None
+zehnderPIN = None
+zehnderIP = None
+mqtt_broker_ = None
+mqtt_user_ = None
+mqtt_passw_ = None
+mqtt_topic_ = None
+##loglevel=logging.ERROR
+logfile=""
+logfileArg = ""
+lbhomedir = ""
+configfile = ""
+#opts, args = getopt.getopt(sys.argv[1:], 'f:l:c:h:', ['logfile=', 'loglevel=', 'configfile=', 'lbhomedir='])
+       
+with open('/opt/loxberry/config/plugins/comfoconnect/pluginconfig.json') as json_pcfg_file:
+	pcfg = json.load(json_pcfg_file)
+	##_LOGGER.debug("Plugin Config: " + str(pcfg))
+	cfg = pcfg['main']
+	zehnderPIN = cfg['zehnderPIN']
+	zehnderIP = cfg['zehnderIP']
+	mqtt_broker_ = cfg['mqtt_broker']
+	mqtt_user_ = cfg['mqtt_user']
+	mqtt_passw_ = cfg['mqtt_passw']
+	mqtt_topic_ = cfg['mqtt_topic']
+
 
 ## Configuration #######################################################################################################
 
 local_name = 'OpenHAB2 ComfoConnect Gateway'			# Name of the service
 local_uuid = bytes.fromhex('00000000000000000000000000000005')  # Can be what you want, used to differentiate devices (as only 1 simultaneously connected device is allowed)
 
-device_ip = "192.168.178.49"					# Look in your router administration and get the ip of the comfoconnect device and set it as static lease
+device_ip = zehnderIP					# Look in your router administration and get the ip of the comfoconnect device and set it as static lease
 device_uuid = bytes.fromhex('00000000001d10138001144fd71e1e20') # Get this from using discovery first by running the script with flag: -d <ip-address> and then configure it here
 pin = 0 							# Set PIN of vent unit !
 
-mqtt_broker = "192.168.178.42"					# Set your MQTT broker here
-mqtt_user = "loxberry"						# Set the MQTT user login
-mqtt_passw = "pueEY89l1TNaqTVx"						# Set the MQTT user password
-mqtt_topic = "Zehnder/ComfoAirQ450/"				# Set the MQTT root topic
+mqtt_broker = mqtt_broker_					# Set your MQTT broker here
+mqtt_user = mqtt_user_						# Set the MQTT user login
+mqtt_passw = mqtt_passw_						# Set the MQTT user password
+mqtt_topic = mqtt_topic_				# Set the MQTT root topic
 
 ## Start logger ########################################################################################################
 

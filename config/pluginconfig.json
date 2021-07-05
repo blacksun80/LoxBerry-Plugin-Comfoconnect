@@ -1,0 +1,18 @@
+{
+   "gpio" : {
+      "inputs" : {
+         "count" : "0"
+      },
+      "outputs" : {
+         "count" : "0"
+      }
+   },
+   "main" : {
+      "zehnderPIN" : "0000",
+	  "zehnderIP" : "192.168.178.49",
+	  "mqtt_broker" : "192.168.178.42",
+	  "mqtt_user" : "loxberry",
+	  "mqtt_passw" : "pueEY89l1TNaqTVx",
+	  "mqtt_topic" : "Zehnder/ComfoAirQ450/"
+   }
+}
