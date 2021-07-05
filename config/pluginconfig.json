@@ -10,6 +10,7 @@
    "main" : {
       "zehnderPIN" : "0000",
 	  "zehnderIP" : "192.168.178.49",
+	  "zehnder_uuid" : "00000000001d10138001144fd71e1e20",
 	  "mqtt_broker" : "192.168.178.42",
 	  "mqtt_user" : "loxberry",
 	  "mqtt_passw" : "pueEY89l1TNaqTVx",
