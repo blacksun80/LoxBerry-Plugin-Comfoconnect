@@ -1,0 +1,1 @@
+# LoxBerry-Plugin-Comfoconnect
