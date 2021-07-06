@@ -29,7 +29,7 @@ Nachdem das Plugin Comfoconnect installiert wurde, muss noch die pluginconfig.js
 	Im MQTT Plugin unter Incoming Overview sieht man, wie die Werte eintrudeln.
 	
 4. 	Mit STRG+C Plugin beenden
-5.	Damit das Plugin im Hintergrund läuft, das Plugin mittels '/usr/bin/python3 -u /opt/loxberry/bin/plugins/comfoconnect/openhab_gw.py >> /opt/loxberry/log/plugins/comfoconnect/comfoconnect.log &' starten
+5.	Damit das Plugin im Hintergrund läuft, das Plugin mittels 'nohup /usr/bin/python3 -u /opt/loxberry/bin/plugins/comfoconnect/openhab_gw.py >> /opt/loxberry/log/plugins/comfoconnect/comfoconnect.log &' starten
 
 6. 	Im Miniserver einen Virtuellen Ausgang anlegen, Bezeichung MQTT-Gateway, Adresse /dev/udp/192.168.178.42/11884
 	Für jede Lüftergeschwindigkeit einen 'Virtueller Ausgang Befehl' anlegen. Bei Befehl EIN 'Zehnder/ComfoAirQ450/ExecuteFunction x' eintragen
