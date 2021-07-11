@@ -70,9 +70,9 @@ my  $crontabtmp = "$lbplogdir/crontab.temp";
 # Read crontab
 ##########################################################################
 
-# my $crontab = new Config::Crontab;
-# $crontab->system(1); ## Wichtig, damit der User im File berücksichtigt wird
-# $crontab->read( -file => "$lbhomedir/system/cron/cron.d/$lbpplugindir" );
+my $crontab = new Config::Crontab;
+$crontab->system(1); ## Wichtig, damit der User im File berücksichtigt wird
+$crontab->read( -file => "$lbhomedir/system/cron/cron.d/$lbpplugindir" );
 
 
 ##########################################################################
@@ -270,12 +270,16 @@ sub form
 		{	
 			my $pid = `ps -ef | grep '[o]penhab_gw.py' | grep -v grep | awk '{print \$2}'`;
 			kill 9, $pid;
+			Cronjob("Uninstall");
+			unlink ("$installfolder/system/cron/cron.reboot/$pname");
 		}		
 		
 		if (($cgi->param('uuid') ne "" ) && ($cgi->param('iplanc') ne "") && ($cgi->param('pin') ne "")) {
-			system("nohup /usr/bin/python3 -u $installfolder/bin/plugins/comfoconnect/openhab_gw.py >> $installfolder/log/plugins/comfoconnect/shm/comfoconnect.log &");	
-		} else {
-			print $cgi->header(-status => "204 Skript kann ohne IP, PIN und UUID nicht gestartet werden!");
+			system("nohup /usr/bin/python3 -u $installfolder/bin/plugins/comfoconnect/openhab_gw.py >> $installfolder/log/plugins/comfoconnect/shm/comfoconnect.log &");
+
+			# Create Cronjob
+			Cronjob("Install");
+			system ("ln -s nohup /usr/bin/python3 -u /opt/loxberry/bin/plugins/comfoconnect/openhab_gw.py >> /opt/loxberry/log/plugins/comfoconnect/shm/comfoconnect.log & $installfolder/system/cron/cron.reboot/$pname");
 		}
 	}
 	
@@ -379,91 +383,91 @@ sub lbheader
   close(F);
 }
 
-# sub Cronjob 
-# {
-	# my $Job = shift;
+sub Cronjob 
+{
+	my $Job = shift;
 		
-	# # Remove Cronjob
-	# if ($Job eq "Uninstall")
-	# {
-		# if (-e $crontabtmp) {
-			# unlink $crontabtmp;
-		# }
+	# Remove Cronjob
+	if ($Job eq "Uninstall")
+	{
+		if (-e $crontabtmp) {
+			unlink $crontabtmp;
+		}
 	
-		# my ($comment) = $crontab->select( -type => 'comment', -data => '## Startup Smartmeter');
+		my ($comment) = $crontab->select( -type => 'comment', -data => '## Startup ComfoConnect');
 					
-		# #Schedule does not exist and should be removed --> nothing to do
-		# if (! $comment ) {
-			# return;
-		# }
+		#Schedule does not exist and should be removed --> nothing to do
+		if (! $comment ) {
+			return;
+		}
 		
-		# #We fully remove the old block
-		# if ($comment) {
-			# my ($block) = $crontab->block($comment);
-			# $crontab->remove($block);
-		# }
+		#We fully remove the old block
+		if ($comment) {
+			my ($block) = $crontab->block($comment);
+			$crontab->remove($block);
+		}
 		
-		# #We are finished, write the crontab
-		# $crontab->write($crontabtmp);
+		#We are finished, write the crontab
+		$crontab->write($crontabtmp);
 	
-		# if (installcrontab()) {
-			# return;
-		# } else {
-			# print $cgi->header(-status => "204 Cannot remove cronjob");
-			# exit(0);
-		# }
-	# }
+		if (installcrontab()) {
+			return;
+		} else {
+			print $cgi->header(-status => "204 Cannot remove cronjob");
+			exit(0);
+		}
+	}
 	
-	# # Install Cronjob
-	# if ($Job eq "Install")
-	# {
-		# #Check if Cronjob exist already
-		# my ($comment) = $crontab->select( -type => 'comment', -data => '## Startup Smartmeter');
+	# Install Cronjob
+	if ($Job eq "Install")
+	{
+		#Check if Cronjob exist already
+		my ($comment) = $crontab->select( -type => 'comment', -data => '## Startup ComfoConnect');
 		
-		# if ($comment) {
-			# return;
-		# }
+		if ($comment) {
+			return;
+		}
 		
-		# # Create the event
-		# my $event = new Config::Crontab::Event (
-		# -command => "$installfolder/bin/plugins/$psubfolder/fetch.pl > /dev/null 2>&1",
-		# -user => 'loxberry',
-		# -system => 1,
-		# );
+		# Create the event
+		my $event = new Config::Crontab::Event (
+		-command =>  "nohup /usr/bin/python3 -u $installfolder/bin/plugins/$psubfolder/openhab_gw.py >> $installfolder/log/plugins/$psubfolder/shm/comfoconnect.log &",
+		-user => 'loxberry',
+		-system => 1,
+		);
 		
-		# $event->datetime('@reboot');
+		$event->datetime('@reboot');
 		
-		# # Insert block and event to crontab
-		# my $block = new Config::Crontab::Block;
-		# $block->last( new Config::Crontab::Comment( -data => '## Startup Smartmeter') );
-		# $block->last($event);
-		# $crontab->last($block); 
+		# Insert block and event to crontab
+		my $block = new Config::Crontab::Block;
+		$block->last( new Config::Crontab::Comment( -data => '## Startup ComfoConnect') );
+		$block->last($event);
+		$crontab->last($block); 
 		
-		# $crontab->write($crontabtmp);
+		$crontab->write($crontabtmp);
 		
-		# if (installcrontab()) {
-			# return;
-		# } else {
-			# print $cgi->header(-status => "204 Cannot remove cronjob");
-			# exit(0);
-		# }
-	# }	
-	# return;
-# }
+		if (installcrontab()) {
+			return;
+		} else {
+			print $cgi->header(-status => "204 Cannot remove cronjob");
+			exit(0);
+		}
+	}	
+	return;
+}
 	
 	
-# sub installcrontab
-# {
-	# if (! -e $crontabtmp) {
-		# return (0);
-	# }
-	# qx ( $lbhomedir/sbin/installcrontab.sh $lbpplugindir $crontabtmp );
-	# if ($!) {
-		# print $cgi->header(-status => "500 Error activating new crontab");
-		# return(0);
-	# }
-	# return(1);
-# }
+sub installcrontab
+{
+	if (! -e $crontabtmp) {
+		return (0);
+	}
+	qx ( $lbhomedir/sbin/installcrontab.sh $lbpplugindir $crontabtmp );
+	if ($!) {
+		print $cgi->header(-status => "500 Error activating new crontab");
+		return(0);
+	}
+	return(1);
+}
 
 #####################################################
 # Footer
