@@ -6,32 +6,19 @@ Voraussetzungen:
 
 MQTT Gateway Plugin muss installiert sein.
 
-Nachdem das Plugin Comfoconnect installiert wurde, muss noch die pluginconfig.json im Ordner /opt/loxberry/config/comfoconnect parametriert werden.
-
 1.	Zuerst muss die UUID der Zehnder LAN Box C ermittelt werden.
-	Dazu über mittels putty diesen Befehl ausführen: /usr/bin/python3 -u /opt/loxberry/bin/plugins/comfoconnect/openhab_gw.py -d 'IP der LAN Box'
-		Beispiel: /usr/bin/python3 -u /opt/loxberry/bin/plugins/comfoconnect/openhab_gw.py -d 192.168.178.49
-		Ausgabe: Bridge found: 00000000001d10138001144fd71e1e20 (192.168.178.49)
-		
-		Diese ID nun in der pluginconfig.json in Abschnitt 'zehnder_uuid' einfügen
+	Dazu muss zuerst mindestens die IP und der PIN eingetragen werden. Standardmäßig ist der PIN der Lan C Box 0000. --> Speichern.
+	Danach über den Button "Nach Zehnder Lüftungsanlagen suchen" drücken. Die UUID wird ermittelt und ins Feld UUID eingetragen.
+	Schaut ungefähr so aus: 00000000001d10138001155fd71e1e20 
 	
-2.	zehnderPIN, zehnderIP, mqtt_broker, mqtt_user, mqttpassw und mqtt_topic befüllen.
-	mqtt_topic z. B. auf 'Zehnder/ComfoAirQ450/' festlegen. Dieses Topic muss man dann im MQTT Gateway Plugin subscriben. Das wird dort so angegeben: 'Zehnder/ComfoAirQ450/#'
-	
-3. 	Danach Plugin mittels '/usr/bin/python3 -u /opt/loxberry/bin/plugins/comfoconnect/openhab_gw.py' zum Testen starten
-	
-	Ausgabe:
-	subscriber connected
-	publisher connected
-	Waiting... Stop with CTRL+C
-	mode:41 speed:0 alt:1
+2. 	MQTT User, MQTT Passwort und MQTT Server aus dem Plugin MQTT Gateway ablesen und hier eintragen. Der Topicname wird durch Auswahl des Typ der Anlage erstellt.
+	Wählt man z. B. Zehnder ComfoAir Q350 aus, ist der MQTT Topic Name 'Zehnder/ComfoAirQ350/'
+	Dieses Topic muss man dann im MQTT Gateway Plugin subscriben. Das wird dort so angegeben: 'Zehnder/ComfoAirQ350/#'
+	--> Speichern.
 	
 	Im MQTT Plugin unter Incoming Overview sieht man, wie die Werte eintrudeln.
-	
-4. 	Mit STRG+C Plugin beenden
-5.	Damit das Plugin im Hintergrund läuft, das Plugin mittels 'nohup /usr/bin/python3 -u /opt/loxberry/bin/plugins/comfoconnect/openhab_gw.py >> /opt/loxberry/log/plugins/comfoconnect/comfoconnect.log &' starten
 
-6. 	Im Miniserver einen Virtuellen Ausgang anlegen, Bezeichung MQTT-Gateway, Adresse /dev/udp/192.168.178.42/11884
+3. 	Im Miniserver einen Virtuellen Ausgang anlegen, Bezeichung MQTT-Gateway, Adresse /dev/udp/192.168.178.42/11884
 	Für jede Lüftergeschwindigkeit einen 'Virtueller Ausgang Befehl' anlegen. Bei Befehl EIN 'Zehnder/ComfoAirQ450/ExecuteFunction x' eintragen
 
 	Zehnder/ComfoAirQ450/ExecuteFunction 0 = AWAY
