@@ -1,0 +1,177 @@
+<center>
+	<div style="background-color: rgba(255, 255, 200, 0.4); border-radius: 11px; border: 1px solid black; border-spacing: 15px; padding:10px; display:table; margin:0 auto;">
+		<i>
+			<TMPL_VAR NAME=T::MENU.BESCHREIBUNG>
+		</i>
+	</div>
+
+	<table border=0 cellpadding=10>
+		<tr>
+			<td>
+				<a id="btnrescan" data-icon="refresh" data-role="button" data-mini="true" href="javascript:location.reload(true)"><TMPL_VAR NAME=T::BUTTON.RESCAN></a>
+			</td>
+			<td>
+				<a id="btnshowlog" data-icon="search" data-role="button" data-mini="true" href="./logfiles.cgi" target="_blank"><TMPL_VAR NAME=T::BUTTON.SHOWLOGFILE></a>
+			</td>
+			<td>
+				<a  id="btnlog" data-icon="delete" data-role="button" data-mini="true" href="./index_legacy.cgi?clearcache=1"><TMPL_VAR NAME=T::BUTTON.CLEARCACHE></a>
+			</td>
+		</tr>
+	</table>
+</center>
+
+<form method="post" data-ajax="false" name="main_form" id="main_form" action="./index_legacy.cgi">
+	<input type="hidden" name="saveformdata" value="1">
+	<table border=0 width="100%" cellpadding="10">
+		<tr>
+			<td colspan=4>
+				<h2><TMPL_VAR NAME=T::FORMTABLE.GENERALSETTINGS></h2>
+			</td>
+		</tr>
+		<tr>
+			<td width="20%">
+			<label 
+				id="labelauto"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_KONFIG>
+			</label>
+			</td>
+			<td width="55%">
+				<select id="mqtttopic" name="mqtttopic" data-mini="true" data-native-menu="true">
+					<option value="1"><TMPL_VAR NAME=T::FORMTABLE.CBO1></option>
+					<option value="2"><TMPL_VAR NAME=T::FORMTABLE.CBO2></option>
+				</select>
+				<script>
+				// Select option depending on saved config
+				$( "#mqtttopic").val( "<TMPL_VAR NAME=mqtttopic>" );
+				</script>
+			</td>
+			<td width="5%" valign="middle">
+				&nbsp;
+			</td>
+			<td width="20%">
+				<font size="-1"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_HELP></font>
+			</td>
+		</tr>
+		
+		<tr> <!-- 2. Zeile -->	
+			<td valign="middle">
+				&nbsp;
+			</td>
+			<td>
+				<table>
+					<tbody>
+						<tr>
+							<td>
+								<label id="labeliplanc"><TMPL_VAR NAME=T::FORMTABLE.IPLANC></label>
+							</td>
+							<td>
+								<input id="iplanc" name="iplanc" type="text" data-validation="number" class="textfield" value="<TMPL_VAR NAME=IPLANC>">
+								<!-- data-validation-allowing="range[1;65000]"  -->
+								<!-- data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben."> -->
+							</td>
+							<td>
+								<label id="labelpin"><TMPL_VAR NAME=T::FORMTABLE.PIN></label>
+							</td>
+							<td>
+								<input id="pin" name="pin" type="text" data-validation="number" class="textfield" value="<TMPL_VAR NAME=PIN>">
+								<!-- data-validation-allowing="range[1;65000]"  -->
+								<!-- data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben." -->
+							</td>
+						</tr>
+						<tr>
+							<td>
+								<label id="labeluuid"><TMPL_VAR NAME=T::FORMTABLE.UUID></label>
+							</td>
+							<td colspan="3">
+								<input id="uuid" name="uuid" type="text" data-validation="number" class="textfield" value="<TMPL_VAR NAME=UUID>">
+								<!-- data-validation-allowing="range[1;65000]"  -->
+								<!-- data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben." -->
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</td>
+			<td valign="middle">
+				&nbsp;
+			</td>
+			<td>
+				<font size="-1"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_HELP2></font>
+			</td>
+		</tr>
+			
+		<tr> <!-- 3. Zeile -->
+			<td valign="top">
+				<label id="labelmqttsettings"><TMPL_VAR NAME=T::FORMTABLE.MQTTSETTINGS></label>
+			</td><td>
+			<table>
+				<tbody>
+					<tr>
+						<td>
+							<label id="labelmqttuser"><TMPL_VAR NAME=T::FORMTABLE.MQTTUSER></label>
+						</td>
+						<td>
+							<input id="mqttuser" name="mqttuser" type="text" data-validation="number" class="textfield" value="<TMPL_VAR NAME=mqttuser>">
+							<!-- data-validation-allowing="range[1;65000]"  -->
+							<!-- data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben." -->
+						</td>
+						<td>
+							<label id="labelmqttpass"><TMPL_VAR NAME=T::FORMTABLE.MQTTPASS></label>
+						</td>
+						<td>
+							<input id="mqttpass" name="mqttpass" type="text" value="<TMPL_VAR NAME=mqttpass>">
+							<!-- data-validation="number" class="textfield"  -->
+							<!-- data-validation-allowing="range[1;65000]" data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben." -->
+						</td>
+					</tr>
+					<tr>
+						<td>
+							<label id="labelmqttserver"><TMPL_VAR NAME=T::FORMTABLE.MQTTSERVER></label>
+						</td>
+						<td>
+							<input id="mqttserver" name="mqttserver" type="text" value="<TMPL_VAR NAME=mqttserver>">
+							<!-- data-validation="number" class="textfield"  -->
+							<!-- data-validation-allowing="range[1;65000]" data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben."  -->
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</tr>
+			
+		<TMPL_LOOP NAME=ROWS>
+		</TMPL_LOOP>
+
+		<tr>
+			<td>
+				&nbsp;
+			</td>
+			<td colspan=3>
+				<div id="form-error-message" class="form-error-message"></div>
+			</td>
+		</tr>
+	</table>
+
+	<p>
+		&nbsp;
+	</p>
+
+	<p>
+		<center>
+			<a id="btncancel" data-role="button" data-inline="true" data-mini="true" data-icon="delete"
+				href="/admin/index.cgi"><TMPL_VAR NAME=T::BUTTON.CANCEL>
+			</a>
+			<button type="submit" form="main_form" id="btnsubmit" data-role="button" data-inline="true"
+				data-mini="true" data-icon="check"><TMPL_VAR NAME=T::BUTTON.SAVE>
+			</button>
+		</center>
+	</p>
+</form>
+
+<script>
+	// Error messages
+	var $messages = $('#form-error-message');
+	$.validate({
+		modules : 'security',
+		scrollToTopOnError : true,
+		errorMessagePosition : $messages,
+	});
+</script>
+
