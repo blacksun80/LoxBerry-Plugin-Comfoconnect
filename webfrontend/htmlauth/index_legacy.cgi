@@ -154,6 +154,12 @@ if ( $cgi->url_param('clearcache') ) {
 }
 elsif ( $cgi->param('clearcache') ) {
 	$clearcache = quotemeta( $cgi->param('clearcache') );
+}	
+if ( $cgi->url_param('rescan') ) {
+	$rescan = quotemeta( $cgi->url_param('rescan') );
+}
+elsif ( $cgi->param('rescan') ) {
+	$rescan = quotemeta( $cgi->param('rescan') );
 }
 
 ##########################################################################
@@ -235,7 +241,7 @@ sub form
 	if ( $clearcache ) {
 		system("rm /var/run/shm/$psubfolder/* > /dev/null 2>&1");
 	}
-
+	
 	# If the form was saved, update config file
 	if ( $saveformdata ) {
 		$plugin_cfg->param( "MAIN.IPLANC", $cgi->param('iplanc') );
@@ -259,6 +265,18 @@ sub form
 			$plugin_cfg->param( "MAIN.MQTTTOPICNAME", substr($maintemplate->param('T::FORMTABLE.CBO2'),0,7) . "/" . $a . "/" );
 		}
 		$plugin_cfg->save;
+
+		if (scalar(grep{/openhab_gw.py/} `ps aux`))
+		{	
+			my $pid = `ps -ef | grep '[o]penhab_gw.py' | grep -v grep | awk '{print \$2}'`;
+			kill 9, $pid;
+		}		
+		
+		if (($cgi->param('uuid') ne "" ) && ($cgi->param('iplanc') ne "") && ($cgi->param('pin') ne "")) {
+			system("nohup /usr/bin/python3 -u $installfolder/bin/plugins/comfoconnect/openhab_gw.py >> $installfolder/log/plugins/comfoconnect/shm/comfoconnect.log &");	
+		} else {
+			print $cgi->header(-status => "204 Skript kann ohne IP, PIN und UUID nicht gestartet werden!");
+		}
 	}
 	
 	# The page title read from language file + our name
@@ -302,6 +320,27 @@ sub form
 	$maintemplate->param( MQTTSERVER	=> $plugin_cfg->param("MAIN.MQTTSERVER") );
 	$maintemplate->param( MQTTTOPIC		=> $plugin_cfg->param("MAIN.MQTTTOPIC") );
 	$maintemplate->param( ROWS => \@rows );
+
+	# # ReScan Zehnder UUID
+	if ( $rescan ) {
+		system("/usr/bin/python3 -u $installfolder/bin/plugins/comfoconnect/openhab_gw.py -d " . $maintemplate->param('IPLANC') . " > $installfolder/log/plugins/comfoconnect/shm/uuid.log");
+		
+		my $fileuuidlog = "$installfolder/log/plugins/comfoconnect/shm/uuid.log";
+		open (FH, $fileuuidlog) or die("File $fileuuidlog not found");
+		while (my $uuidsearch = <FH>)
+		{
+				if ($uuidsearch =~ /\b[a-f\d]{32}\b/)
+				{
+					$uuid = $&; # Inhalt nur die UUID
+					$maintemplate->param(UUID, $uuid);
+				}
+				# https://www.tutorialspoint.com/perl/perl_regular_expressions.htm	
+		}
+		close (FH);
+		if ($uuid == "") {
+			print $cgi->header(-status => "204 UUID kann nicht ermittelt werden, evtl. IP oder PIN falsch!");
+		}
+	}
 
 	# Print Template
 	print $maintemplate->output;
