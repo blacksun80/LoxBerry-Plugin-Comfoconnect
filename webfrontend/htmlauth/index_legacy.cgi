@@ -245,6 +245,19 @@ sub form
 		$plugin_cfg->param( "MAIN.MQTTPASS", $cgi->param('mqttpass') );
 		$plugin_cfg->param( "MAIN.MQTTSERVER", $cgi->param('mqttserver') );
 		$plugin_cfg->param( "MAIN.MQTTTOPIC", $cgi->param('mqtttopic') );
+		
+		# Aus 'Zehnder ComfoAir 350 wird der MQTT Topicname erstellt
+		# --> Zehnder/ComfoAir350/
+		
+		if ( $cgi->param('mqtttopic') == 1 ) {
+			$a = substr($maintemplate->param('T::FORMTABLE.CBO1'),8); # ComfoAir Q350
+			$a =~ tr/ //ds; # Leerzeichen entfernen
+			$plugin_cfg->param( "MAIN.MQTTTOPICNAME", substr($maintemplate->param('T::FORMTABLE.CBO1'),0,7) . "/" . $a . "/" );
+		} elsif ($cgi->param('mqtttopic') == 2 ) {
+			$a = substr($maintemplate->param('T::FORMTABLE.CBO2'),8); # ComfoAir Q450
+			$a =~ tr/ //ds; # Leerzeichen entfernen
+			$plugin_cfg->param( "MAIN.MQTTTOPICNAME", substr($maintemplate->param('T::FORMTABLE.CBO2'),0,7) . "/" . $a . "/" );
+		}
 		$plugin_cfg->save;
 	}
 	
@@ -288,7 +301,6 @@ sub form
 	$maintemplate->param( MQTTPASS 		=> $plugin_cfg->param("MAIN.MQTTPASS") );
 	$maintemplate->param( MQTTSERVER	=> $plugin_cfg->param("MAIN.MQTTSERVER") );
 	$maintemplate->param( MQTTTOPIC		=> $plugin_cfg->param("MAIN.MQTTTOPIC") );
-	
 	$maintemplate->param( ROWS => \@rows );
 
 	# Print Template

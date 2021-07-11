@@ -64,7 +64,8 @@
 								<label id="labeliplanc"><TMPL_VAR NAME=T::FORMTABLE.IPLANC></label>
 							</td>
 							<td>
-								<input id="iplanc" name="iplanc" type="text" data-validation="number" class="textfield" value="<TMPL_VAR NAME=IPLANC>">
+								<input id="iplanc" name="iplanc" type="text" class="textfield" value="<TMPL_VAR NAME=IPLANC>">
+								<!-- data-validation="number" -->
 								<!-- data-validation-allowing="range[1;65000]"  -->
 								<!-- data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben."> -->
 							</td>
@@ -82,7 +83,8 @@
 								<label id="labeluuid"><TMPL_VAR NAME=T::FORMTABLE.UUID></label>
 							</td>
 							<td colspan="3">
-								<input id="uuid" name="uuid" type="text" data-validation="number" class="textfield" value="<TMPL_VAR NAME=UUID>">
+								<input id="uuid" name="uuid" type="text" class="textfield" value="<TMPL_VAR NAME=UUID>">
+								<!-- data-validation="number"  -->
 								<!-- data-validation-allowing="range[1;65000]"  -->
 								<!-- data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben." -->
 							</td>
@@ -109,7 +111,8 @@
 							<label id="labelmqttuser"><TMPL_VAR NAME=T::FORMTABLE.MQTTUSER></label>
 						</td>
 						<td>
-							<input id="mqttuser" name="mqttuser" type="text" data-validation="number" class="textfield" value="<TMPL_VAR NAME=mqttuser>">
+							<input id="mqttuser" name="mqttuser" type="text" class="textfield" value="<TMPL_VAR NAME=mqttuser>">
+							<!-- data-validation="number"  -->
 							<!-- data-validation-allowing="range[1;65000]"  -->
 							<!-- data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben." -->
 						</td>
