@@ -68,18 +68,16 @@
 								<label id="labeliplanc"><TMPL_VAR NAME=T::FORMTABLE.IPLANC></label>
 							</td>
 							<td>
-								<input id="iplanc" name="iplanc" type="text" class="textfield" value="<TMPL_VAR NAME=IPLANC>" onChange="disable_rescan();">
-								<!-- data-validation="number" -->
-								<!-- data-validation-allowing="range[1;65000]"  -->
-								<!-- data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben."> -->
+								<input id="iplanc" name="iplanc" type="text" minlength="7" maxlength="15" size="15" pattern="^((\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.){3}(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])$" value="<TMPL_VAR NAME=IPLANC>">
 							</td>
 							<td>
 								<label id="labelpin"><TMPL_VAR NAME=T::FORMTABLE.PIN></label>
 							</td>
 							<td>
-								<input id="pin" name="pin" type="text" data-validation="number" class="textfield" value="<TMPL_VAR NAME=PIN>" onChange="disable_rescan();">
-								<!-- data-validation-allowing="range[1;65000]"  -->
-								<!-- data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben." -->
+								<input id="pin" name="pin" type="text" class="textfield" value="<TMPL_VAR NAME=PIN>"
+								data-validation="number"
+								data-validation-allowing="range[0000;9999]" 
+								data-validation-error-msg="PIN: Bitte einen gültigen PIN zwischen 0000 and 9999 eingeben.">
 							</td>
 						</tr>
 						<tr>
