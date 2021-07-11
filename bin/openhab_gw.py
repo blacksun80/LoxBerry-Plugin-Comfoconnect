@@ -8,27 +8,29 @@ from random import randint
 from pycomfoconnect import *
 import getopt
 import json
+import configparser
 
 # handle start arguments
 ##
 logfile=""
 logfileArg = ""
 lbhomedir = ""
-configfile = ""
+Config_File = ""
 #opts, args = getopt.getopt(sys.argv[1:], 'f:l:c:h:', ['logfile=', 'loglevel=', 'configfile=', 'lbhomedir='])
-       
-with open('/opt/loxberry/config/plugins/comfoconnect/pluginconfig.json') as json_pcfg_file:
-	pcfg = json.load(json_pcfg_file)
-	##_LOGGER.debug("Plugin Config: " + str(pcfg))
-	cfg = pcfg['main']
-	zehnderPIN = cfg['zehnderPIN']
-	zehnderIP = cfg['zehnderIP']
-	mqtt_broker_ = cfg['mqtt_broker']
-	mqtt_user_ = cfg['mqtt_user']
-	mqtt_passw_ = cfg['mqtt_passw']
-	mqtt_topic_ = cfg['mqtt_topic']
-	zehnder_uuid_ = cfg['zehnder_uuid']
 
+# Get configurations from file
+Config_File        = "/opt/loxberry/config/plugins/comfoconnect/comfoconnect.cfg"
+Config = configparser.ConfigParser()
+    
+Config.read(Config_File)	
+zehnderIP 		= Config.get('MAIN', 'IPLANC')
+zehnder_uuid_ 	= Config.get('MAIN', 'UUID')
+zehnderPIN 		= Config.get('MAIN', 'PIN')
+mqtt_broker_ 	= Config.get('MAIN', 'MQTTSERVER')
+mqtt_user_ 		= Config.get('MAIN', 'MQTTUSER')
+mqtt_passw_ 	= Config.get('MAIN', 'MQTTPASS')
+mqtt_topicname_ = Config.get('MAIN', 'MQTTTOPICNAME')
+	 
 ## Configuration #######################################################################################################
 
 local_name = 'OpenHAB2 ComfoConnect Gateway'			# Name of the service
@@ -42,7 +44,7 @@ pin = 0 							# Set PIN of vent unit !
 mqtt_broker = mqtt_broker_					# Set your MQTT broker here
 mqtt_user = mqtt_user_						# Set the MQTT user login
 mqtt_passw = mqtt_passw_						# Set the MQTT user password
-mqtt_topic = mqtt_topic_				# Set the MQTT root topic
+mqtt_topic = mqtt_topicname_				# Set the MQTT root topic
 
 ## Start logger ########################################################################################################
 
