@@ -57,5 +57,15 @@ echo "<INFO> Plugin CONFIG folder is: $PCONFIG"
 echo "<INFO> Plugin SBIN folder is: $PSBIN"
 echo "<INFO> Plugin BIN folder is: $PBIN"
 
+ARGV0=$0 # Zero argument is shell command
+ARGV1=$1 # First argument is temp folder during install
+ARGV2=$2 # Second argument is Plugin-Name for scipts etc.
+ARGV3=$3 # Third argument is Plugin installation folder
+ARGV4=$4 # Forth argument is Plugin version
+ARGV5=$5 # Fifth argument is Base folder of LoxBerry
+
+echo "<INFO> Rename htaccess to .htaccess"
+mv $ARGV5/webfrontend/htmlauth/plugins/$ARGV3/htaccess $ARGV5/webfrontend/htmlauth/plugins/$ARGV3/.htaccess
+
 # Exit with Status 0
 exit 0
