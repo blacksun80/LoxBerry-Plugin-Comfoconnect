@@ -271,15 +271,13 @@ sub form
 			my $pid = `ps -ef | grep '[o]penhab_gw.py' | grep -v grep | awk '{print \$2}'`;
 			kill 9, $pid;
 			Cronjob("Uninstall");
-			unlink ("$installfolder/system/cron/cron.reboot/$pname");
 		}		
 		
 		if (($cgi->param('uuid') ne "" ) && ($cgi->param('iplanc') ne "") && ($cgi->param('pin') ne "")) {
-			system("nohup /usr/bin/python3 -u $installfolder/bin/plugins/comfoconnect/openhab_gw.py >> $installfolder/log/plugins/comfoconnect/shm/comfoconnect.log &");
+			system("$installfolder/bin/plugins/$psubfolder/openhab_gw.py > /dev/null 2>&1 &");
 
 			# Create Cronjob
 			Cronjob("Install");
-			system ("ln -s nohup /usr/bin/python3 -u /opt/loxberry/bin/plugins/comfoconnect/openhab_gw.py >> /opt/loxberry/log/plugins/comfoconnect/shm/comfoconnect.log & $installfolder/system/cron/cron.reboot/$pname");
 		}
 	}
 	
@@ -430,7 +428,7 @@ sub Cronjob
 		
 		# Create the event
 		my $event = new Config::Crontab::Event (
-		-command =>  "nohup /usr/bin/python3 -u $installfolder/bin/plugins/$psubfolder/openhab_gw.py >> $installfolder/log/plugins/$psubfolder/shm/comfoconnect.log &",
+		-command =>  "$installfolder/bin/plugins/$psubfolder/openhab_gw.py > /dev/null 2>&1 &",
 		-user => 'loxberry',
 		-system => 1,
 		);
