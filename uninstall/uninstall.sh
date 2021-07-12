@@ -57,9 +57,5 @@ echo "<INFO> Plugin CONFIG folder is: $PCONFIG"
 echo "<INFO> Plugin SBIN folder is: $PSBIN"
 echo "<INFO> Plugin BIN folder is: $PBIN"
 
-pip3 uninstall -y pycomfoconnect
-apt-get remove -y python3-setuptools
-pip3 uninstall -y paho-mqtt
-
 # Exit with Status 0
 exit 0
