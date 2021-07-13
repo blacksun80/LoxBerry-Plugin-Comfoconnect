@@ -29,6 +29,8 @@ use File::HomeDir;
 use String::Escape qw( unquotemeta );
 use Cwd 'abs_path';
 use HTML::Template;
+use LoxBerry::System;
+use LoxBerry::JSON;
 #use warnings;
 #use strict;
 #no strict "refs"; # we need it for template system and for contructs like ${"skalar".$i} in loops
@@ -109,6 +111,26 @@ if (!-d "/var/run/shm/$psubfolder") {
 # Check for temporary log folder
 if (!-e "$installfolder/log/plugins/$psubfolder/shm") {
 	system("ln -s /var/run/shm/$psubfolder $installfolder/log/plugins/$psubfolder/shm > /dev/null 2>&1");
+}
+######################################################################
+# Read MQTT connection details and credentials from MQTT plugin
+######################################################################
+
+my $mqttplugindata = LoxBerry::System::plugindata("mqttgateway");
+$pluginfolder = $mqttplugindata->{'PLUGINDB_FOLDER'};
+
+if (($pluginfolder)) {
+	my $mqttconffile = "$installfolder/config/plugins/$pluginfolder/mqtt.json";
+	my $mqttcredfile = "$installfolder/config/plugins/$pluginfolder/cred.json";
+	
+	$jsonobj = LoxBerry::JSON->new();
+	$mqttconf = $jsonobj->open(filename => $mqttconffile);
+	$mqttcred = $jsonobj->open(filename => $mqttcredfile);
+	
+	# $maintemplate->param( MQTTUSER, $mqttcred->{'Credentials'}->{'brokeruser'});
+	# $maintemplate->param( MQTTPASS, $mqttcred->{'Credentials'}->{'brokerpass'});
+	# $maintemplate->param( MQTTSERVER, $mqttconf->{'Main'}->{'brokeraddress'});
+	# $maintemplate->param( UDPINPORT, $mqttconf->{'Main'}->{'udpinport'});
 }
 
 # Detect which IR Heads are connected
@@ -317,9 +339,13 @@ sub form
 	$maintemplate->param( IPLANC 		=> $plugin_cfg->param("MAIN.IPLANC") );
 	$maintemplate->param( PIN 			=> $plugin_cfg->param("MAIN.PIN") );
 	$maintemplate->param( UUID 			=> $plugin_cfg->param("MAIN.UUID") );
-	$maintemplate->param( MQTTUSER 		=> $plugin_cfg->param("MAIN.MQTTUSER") );
-	$maintemplate->param( MQTTPASS 		=> $plugin_cfg->param("MAIN.MQTTPASS") );
-	$maintemplate->param( MQTTSERVER	=> $plugin_cfg->param("MAIN.MQTTSERVER") );
+	$maintemplate->param( MQTTUSER, 	$mqttcred->{'Credentials'}->{'brokeruser'});
+	$maintemplate->param( MQTTPASS, 	$mqttcred->{'Credentials'}->{'brokerpass'});
+	$maintemplate->param( MQTTSERVER, 	$mqttconf->{'Main'}->{'brokeraddress'});
+	#$maintemplate->param( UDPINPORT, $mqttconf->{'Main'}->{'udpinport'});
+	#$maintemplate->param( MQTTUSER 		=> $plugin_cfg->param("MAIN.MQTTUSER") );
+	#$maintemplate->param( MQTTPASS 		=> $plugin_cfg->param("MAIN.MQTTPASS") );
+	#$maintemplate->param( MQTTSERVER	=> $plugin_cfg->param("MAIN.MQTTSERVER") );
 	$maintemplate->param( MQTTTOPIC		=> $plugin_cfg->param("MAIN.MQTTTOPIC") );
 	$maintemplate->param( ROWS => \@rows );
 
