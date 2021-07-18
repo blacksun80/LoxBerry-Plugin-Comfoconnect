@@ -68,9 +68,6 @@ my $log = LoxBerry::Log->new(name => 'ComfoConnect',);
 my $restart;
 my $arg;
 
-# nach Neuinstallation wieder entfernen
-$log->loglevel(6);
-
 LOGSTART("ComfoConnect Log");
 my $logfile = $log->filename();
 my $loglevel = $log->loglevel();

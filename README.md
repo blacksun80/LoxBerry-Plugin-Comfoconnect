@@ -20,9 +20,14 @@ Falls nicht, müssen die Logfiles überprüft werden. Logfiles kann man über de
 Die Steuerung der Lüftung muss ich noch anpassen. Sensoren können aber bereits ausgelesen werden.
 
 Im Miniserver einen Virtuellen Ausgang anlegen, Bezeichung MQTT-Gateway, Adresse /dev/udp/192.168.178.42/11884
-Für jede Lüftergeschwindigkeit einen 'Virtueller Ausgang Befehl' anlegen. Bei Befehl EIN 'ComfoConnect/???' eintragen
+Für jede Lüftergeschwindigkeit einen 'Virtueller Ausgang Befehl' anlegen. Bei Befehl EIN 'ComfoConnect/FAN_MODE' eintragen
 
-ComfoConnect/??? 0 = AWAY
-ComfoConnect/??? 1 = NORMAL
-ComfoConnect/??? 2 = HIGH
-ComfoConnect/??? 3 = MAX
+ComfoConnect/FAN_MODE 0
+ComfoConnect/FAN_MODE 1
+ComfoConnect/FAN_MODE 2
+ComfoConnect/FAN_MODE 3
+
+0 = AWAY
+1 = NORMAL
+2 = HIGH
+3 = MAX

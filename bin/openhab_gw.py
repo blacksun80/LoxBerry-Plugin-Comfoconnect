@@ -20,7 +20,7 @@ def on_connect(client, userdata, flags, rc):
     _LOGGER.info("Connection returned result: "+mqtt.connack_string(rc))
     
     client.subscribe(mqtt_topic + "#", qos=2)
-    #client.message_callback_add(mqtt_topic +"FAN_MODE", on_message_FAN_MODE)
+    client.message_callback_add(mqtt_topic + "FAN_MODE", on_message_CMD)
     client.message_callback_add(mqtt_topic + "FAN_MODE_AWAY", on_message_CMD)
     client.message_callback_add(mqtt_topic + "FAN_MODE_LOW", on_message_CMD)
     client.message_callback_add(mqtt_topic + "FAN_MODE_MEDIUM", on_message_CMD)
@@ -49,11 +49,11 @@ def on_disconnect(client, userdata, rc):
     _LOGGER.info("Disconnection returned result: "+mqtt.connack_string(rc))
 
 def on_message_CMD(client, userdata, msg):
-    inputaction.append([msg.topic, msg.qos, msg.payload])  # add command to action list
+    inputaction.append([msg.topic, msg.qos, str(msg.payload.decode("utf-8"))])  # add command to action list
 
-    _LOGGER.debug("from MQTT %s = %s\n" % (msg.topic , msg.payload))
-    _LOGGER.debug(list(inputaction))
-
+    _LOGGER.info("from MQTT %s = %s\n" % (msg.topic , msg.payload))
+    #_LOGGER.debug("from MQTT %s = %s\n" % (msg.topic , str(msg.payload.decode("utf-8"))))
+    _LOGGER.info(list(inputaction))
     pass
 
 def on_subscribe(client, userdata, mid, granted_qos):
@@ -234,7 +234,21 @@ def main():
                     value = inputaction[0][2]   # extract payload value oldest from list item
                     inputaction.pop(0)          # remove oldest list item from list
                     # now execute matching command
-                    if topic == mqtt_topic + "FAN_MODE_AWAY":
+                    if topic == mqtt_topic + "FAN_MODE":
+                            print (value)
+                            if int(value) == 0:
+                                comfoconnect.cmd_rmi_request(CMD_FAN_MODE_AWAY)
+                                _LOGGER.info("FAN_MODE_AWAY")
+                            elif int(value) == 1:
+                                comfoconnect.cmd_rmi_request(CMD_FAN_MODE_LOW)
+                                _LOGGER.info("FAN_MODE_LOW")
+                            elif int(value) == 2:
+                                comfoconnect.cmd_rmi_request(CMD_FAN_MODE_MEDIUM)
+                                _LOGGER.info("FAN_MODE_MEDIUM")
+                            elif int(value) == 3:
+                                comfoconnect.cmd_rmi_request(CMD_FAN_MODE_HIGH)
+                                _LOGGER.info("FAN_MODE_HIGH")
+                    elif topic == mqtt_topic + "FAN_MODE_AWAY":
                         comfoconnect.cmd_rmi_request(CMD_FAN_MODE_AWAY)  # Go to away mode
                         _LOGGER.info("FAN_MODE_AWAY")
                     elif topic == mqtt_topic + "FAN_MODE_LOW":
@@ -242,8 +256,10 @@ def main():
                         _LOGGER.info("FAN_MODE_LOW")
                     elif topic == mqtt_topic + "FAN_MODE_MEDIUM":
                         comfoconnect.cmd_rmi_request(CMD_FAN_MODE_MEDIUM)  #
+                        _LOGGER.info("FAN_MODE_MEDIUM")
                     elif topic == mqtt_topic + "FAN_MODE_HIGH":
                         comfoconnect.cmd_rmi_request(CMD_FAN_MODE_HIGH)  #
+                        _LOGGER.info("FAN_MODE_HIGH")
                     elif topic == mqtt_topic + "MODE_AUTO":
                         comfoconnect.cmd_rmi_request(CMD_MODE_AUTO)  #
                     elif topic == mqtt_topic + "MODE_MANUAL":
