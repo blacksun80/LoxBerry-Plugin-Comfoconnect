@@ -321,7 +321,7 @@ sub form
 
 	# ReScan Zehnder UUID
 	if ( $rescan ) {
-		system("/opt/loxberry/bin/plugins/comfoconnect/openhab_gw.py  --configfile /opt/loxberry/config/plugins/comfoconnect/comfoconnect.cfg --logfile /opt/loxberry/log/plugins/comfoconnect/comfoconnect.log --loglevel 6 --search");
+		system("$installfolder/bin/plugins/$psubfolder/openhab_gw.py  --configfile $installfolder/config/plugins/$psubfolder/comfoconnect.cfg --logfile $installfolder/log/plugins/$psubfolder/comfoconnect.log --loglevel 6 --search");
 
 		# if ($uuid == "") {
 			# print $cgi->header(-status => "204 UUID kann nicht ermittelt werden, evtl. IP oder PIN falsch!");

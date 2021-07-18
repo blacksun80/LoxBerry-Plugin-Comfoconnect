@@ -122,9 +122,6 @@ def main():
     loglevel=logging.ERROR
     search = False
 
-# Aufruf Skript
-#  /opt/loxberry/bin/plugins/comfoconnect/openhab_gw.py  --configfile /opt/loxberry/config/plugins/comfoconnect/comfoconnect.cfg --logfile /opt/loxberry/log/plugins/comfoconnect/shm/comfoconnect.log --loglevel 6
-
     opts, args = getopt.getopt(sys.argv[1:],"c:f:l:s:",['configfile=', 'logfile=', 'loglevel=', 'search'])
     for opt, args in opts:
         if opt in ("-c", "--configfile"):
