@@ -9,19 +9,6 @@
 			&nbsp;
 		</td>
 	</tr>
-	<table border=0 cellpadding=10>
-		<tr>
-			<td>
-				<a id="btnrescan" data-icon="refresh" data-role="button" data-mini="true" href="./index_legacy.cgi?rescan=1"><TMPL_VAR NAME=T::BUTTON.RESCAN></a>
-			</td>
-			<td>
-				<a id="btnshowlog" data-icon="search" data-role="button" data-mini="true" href="./logfiles.cgi" target="_blank"><TMPL_VAR NAME=T::BUTTON.SHOWLOGFILE></a>
-			</td>
-			<td>
-				<a  id="btnlog" data-icon="delete" data-role="button" data-mini="true" href="./index_legacy.cgi?clearcache=1"><TMPL_VAR NAME=T::BUTTON.CLEARCACHE></a>
-			</td>
-		</tr>
-	</table>
 </center>
 
 <form method="post" data-ajax="false" name="main_form" id="main_form" action="./index_legacy.cgi">
@@ -32,35 +19,13 @@
 				<h2><TMPL_VAR NAME=T::FORMTABLE.GENERALSETTINGS></h2>
 			</td>
 		</tr>
-		<tr>
-			<td width="20%">
+		<tr> <!-- 2. Zeile -->	
+			<td width="20%" valign="top">
 			<label 
 				id="labelauto"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_KONFIG>
 			</label>
 			</td>
 			<td width="55%">
-				<select id="mqtttopic" name="mqtttopic" data-mini="true" data-native-menu="true">
-					<option value="1"><TMPL_VAR NAME=T::FORMTABLE.CBO1></option>
-					<option value="2"><TMPL_VAR NAME=T::FORMTABLE.CBO2></option>
-				</select>
-				<script>
-				// Select option depending on saved config
-				$( "#mqtttopic").val( "<TMPL_VAR NAME=mqtttopic>" );
-				</script>
-			</td>
-			<td width="5%" valign="middle">
-				&nbsp;
-			</td>
-			<td width="20%">
-				<font size="-1"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_HELP></font>
-			</td>
-		</tr>
-		
-		<tr> <!-- 2. Zeile -->	
-			<td valign="middle">
-				&nbsp;
-			</td>
-			<td>
 				<table>
 					<tbody>
 						<tr>
@@ -68,8 +33,13 @@
 								<label id="labeliplanc"><TMPL_VAR NAME=T::FORMTABLE.IPLANC></label>
 							</td>
 							<td>
-								<input id="iplanc" name="iplanc" type="text" minlength="7" maxlength="15" size="15" pattern="^((\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.){3}(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])$" value="<TMPL_VAR NAME=IPLANC>">
+								<input id="iplanc" onChange="disable_rescan()" name="iplanc" type="text" minlength="7" maxlength="15" size="15" pattern="^((\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.){3}(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])$" value="<TMPL_VAR NAME=IPLANC>">
 							</td>
+							<td>
+								<a id="btnrescan" data-icon="refresh" data-role="button" data-mini="true" href="./index_legacy.cgi?rescan=1"><TMPL_VAR NAME=T::BUTTON.RESCAN></a>
+							</td>
+						</tr>
+						<tr>
 							<td>
 								<label id="labelpin"><TMPL_VAR NAME=T::FORMTABLE.PIN></label>
 							</td>
@@ -80,65 +50,15 @@
 								data-validation-error-msg="PIN: Bitte einen gültigen PIN zwischen 0000 and 9999 eingeben.">
 							</td>
 						</tr>
-						<tr>
-							<td>
-								<label id="labeluuid"><TMPL_VAR NAME=T::FORMTABLE.UUID></label>
-							</td>
-							<td colspan="3">
-								<input id="uuid" name="uuid" type="text" class="textfield" value="<TMPL_VAR NAME=UUID>">
-								<!-- data-validation="number"  -->
-								<!-- data-validation-allowing="range[1;65000]"  -->
-								<!-- data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben." -->
-							</td>
-						</tr>
 					</tbody>
 				</table>
 			</td>
-			<td valign="middle">
+			<td width="5%" valign="middle">
 				&nbsp;
 			</td>
-			<td>
+			<td width="20%">
 				<font size="-1"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_HELP2></font>
 			</td>
-		</tr>
-			
-		<tr> <!-- 3. Zeile -->
-			<td valign="top">
-				<label id="labelmqttsettings"><TMPL_VAR NAME=T::FORMTABLE.MQTTSETTINGS></label>
-			</td><td>
-			<table>
-				<tbody>
-					<tr>
-						<td>
-							<label id="labelmqttuser"><TMPL_VAR NAME=T::FORMTABLE.MQTTUSER></label>
-						</td>
-						<td>
-							<input id="mqttuser" name="mqttuser" type="text" class="textfield" value="<TMPL_VAR NAME=mqttuser>">
-							<!-- data-validation="number"  -->
-							<!-- data-validation-allowing="range[1;65000]"  -->
-							<!-- data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben." -->
-						</td>
-						<td>
-							<label id="labelmqttpass"><TMPL_VAR NAME=T::FORMTABLE.MQTTPASS></label>
-						</td>
-						<td>
-							<input id="mqttpass" name="mqttpass" type="text" value="<TMPL_VAR NAME=mqttpass>">
-							<!-- data-validation="number" class="textfield"  -->
-							<!-- data-validation-allowing="range[1;65000]" data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben." -->
-						</td>
-					</tr>
-					<tr>
-						<td>
-							<label id="labelmqttserver"><TMPL_VAR NAME=T::FORMTABLE.MQTTSERVER></label>
-						</td>
-						<td>
-							<input id="mqttserver" name="mqttserver" type="text" value="<TMPL_VAR NAME=mqttserver>">
-							<!-- data-validation="number" class="textfield"  -->
-							<!-- data-validation-allowing="range[1;65000]" data-validation-error-msg=" UDP Port: Bitte eine gültige Portnummer zwischen 1 and 65000 eingeben."  -->
-						</td>
-					</tr>
-				</tbody>
-			</table>
 		</tr>
 			
 		<TMPL_LOOP NAME=ROWS>
@@ -153,11 +73,15 @@
 			</td>
 		</tr>
 	</table>
-
-	<p>
+	<tr>
+		<td colspan=4>
+			<h2>MQQT</h2>
+		</td>
+	</tr>
+	<p class="<TMPL_VAR NAME=mqtthintclass>"><TMPL_VAR NAME=mqtthint></p>
+	<td>
 		&nbsp;
-	</p>
-
+	</td>
 	<p>
 		<center>
 			<a id="btncancel" data-role="button" data-inline="true" data-mini="true" data-icon="delete"
@@ -178,15 +102,14 @@
 		scrollToTopOnError : true,
 		errorMessagePosition : $messages,
 	});
-	
 	<!-- Button Rescan deaktivieren, falls keine IP und PIN eingegeben wurde. -->
 	disable_rescan();
 	
 	function disable_rescan() {
-		if (( $( "#iplanc" ).val() == "" ) || ($( "#pin" ).val() == "" )) {
+		if ( $( "#iplanc" ).val() != "" ) {
 				$( "#btnrescan" ).addClass('ui-disabled');
 		}
-		if (( $( "#iplanc" ).val() != "" ) && ($( "#pin" ).val() != "" )) {
+		if ( $( "#iplanc" ).val() == "" ) {
 			$( "#btnrescan" ).removeClass('ui-disabled');
 		}
 	}

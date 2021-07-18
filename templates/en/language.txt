@@ -1,29 +1,14 @@
 [MENU]
-BESCHREIBUNG="Mit diesem Plugin kann eine Lüftungsanlage Zehnder ComfoAir an Loxone angebunden werden. Voraussetzung: Es muss bereits eine Zehnder ComfoConnect LAN C Schnittstelle vorhanden sein."
+BESCHREIBUNG="Mit diesem Plugin kann eine Lüftungsanlage Zehnder ComfoAir an Loxone angebunden werden. Voraussetzung: Es muss bereits eine Zehnder ComfoConnect LAN C Schnittstelle vorhanden sein. Der Datenaustausch erfolgt über MQTT."
 
 [BUTTON]
-RESCAN="Nach Zehnder Lüftungsanlagen suchen"
-SHOWLOGFILE="Logfiles zeigen"
-CLEARCACHE="Cache löschen"
+RESCAN="Nach Zehnder Lüftungsanlage suchen"
 SAVE="Speichern"
 CANCEL="Abbrechen"
 
 [FORMTABLE]
 GENERALSETTINGS="Allgemeine Einstellungen"
 ZEHNDER_KONFIG="Zehnder Einstellungen:"
-ZEHNDER_HELP="Auswahl wird für das MQTT Topic verwendet."
-CBO1="Zehnder ComfoAir Q350"
-CBO2="Zehnder ComfoAir Q450"
 IPLANC="IP ComfoConnect LAN C:"
 PIN="PIN:"
-UUID="UUID:"
 ZEHNDER_HELP2="Hier die Einstellungen für die Verbindung zur Zehnder Lüftungsanlage festlegen."
-MQTTSETTINGS="MQTT Einstellungen:"
-MQTTUSER="MQTT User:"
-MQTTPASS="MQTT Passwort:"
-MQTTSERVER="MQTT Server:"
-
-[LOGFILETABLEROWS]
-ROWTITLE="I/R Lesekopf - Seriennummer:"
-LABEL="Logfile:"
-TITLE="Logfiles"

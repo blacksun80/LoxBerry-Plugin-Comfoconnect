@@ -31,6 +31,7 @@ use Cwd 'abs_path';
 use HTML::Template;
 use LoxBerry::System;
 use LoxBerry::JSON;
+use LoxBerry::IO;
 #use warnings;
 #use strict;
 #no strict "refs"; # we need it for template system and for contructs like ${"skalar".$i} in loops
@@ -127,10 +128,6 @@ if (($pluginfolder)) {
 	$mqttconf = $jsonobj->open(filename => $mqttconffile);
 	$mqttcred = $jsonobj->open(filename => $mqttcredfile);
 	
-	# $maintemplate->param( MQTTUSER, $mqttcred->{'Credentials'}->{'brokeruser'});
-	# $maintemplate->param( MQTTPASS, $mqttcred->{'Credentials'}->{'brokerpass'});
-	# $maintemplate->param( MQTTSERVER, $mqttconf->{'Main'}->{'brokeraddress'});
-	# $maintemplate->param( UDPINPORT, $mqttconf->{'Main'}->{'udpinport'});
 }
 
 # Detect which IR Heads are connected
@@ -258,45 +255,21 @@ exit;
 
 sub form 
 {
-
-	# # Clear Cache
-	if ( $clearcache ) {
-		system("rm /var/run/shm/$psubfolder/* > /dev/null 2>&1");
-	}
-	
 	# If the form was saved, update config file
 	if ( $saveformdata ) {
 		$plugin_cfg->param( "MAIN.IPLANC", $cgi->param('iplanc') );
 		$plugin_cfg->param( "MAIN.PIN", $cgi->param('pin') );
-		$plugin_cfg->param( "MAIN.UUID", $cgi->param('uuid') );
-		$plugin_cfg->param( "MAIN.MQTTUSER", $cgi->param('mqttuser') );
-		$plugin_cfg->param( "MAIN.MQTTPASS", $cgi->param('mqttpass') );
-		$plugin_cfg->param( "MAIN.MQTTSERVER", $cgi->param('mqttserver') );
-		$plugin_cfg->param( "MAIN.MQTTTOPIC", $cgi->param('mqtttopic') );
+		$plugin_cfg->param( "MAIN.MQTTUSER", $mqttcred->{'Credentials'}->{'brokeruser'});
+		$plugin_cfg->param( "MAIN.MQTTPASS", $mqttcred->{'Credentials'}->{'brokerpass'});
+		$plugin_cfg->param( "MAIN.MQTTSERVER", $mqttconf->{'Main'}->{'brokeraddress'});
+		$plugin_cfg->param( "MAIN.MQTTTOPIC", "ComfoConnect/" );
 		
-		# Aus 'Zehnder ComfoAir 350 wird der MQTT Topicname erstellt
-		# --> Zehnder/ComfoAir350/
-		
-		if ( $cgi->param('mqtttopic') == 1 ) {
-			$a = substr($maintemplate->param('T::FORMTABLE.CBO1'),8); # ComfoAir Q350
-			$a =~ tr/ //ds; # Leerzeichen entfernen
-			$plugin_cfg->param( "MAIN.MQTTTOPICNAME", substr($maintemplate->param('T::FORMTABLE.CBO1'),0,7) . "/" . $a . "/" );
-		} elsif ($cgi->param('mqtttopic') == 2 ) {
-			$a = substr($maintemplate->param('T::FORMTABLE.CBO2'),8); # ComfoAir Q450
-			$a =~ tr/ //ds; # Leerzeichen entfernen
-			$plugin_cfg->param( "MAIN.MQTTTOPICNAME", substr($maintemplate->param('T::FORMTABLE.CBO2'),0,7) . "/" . $a . "/" );
-		}
 		$plugin_cfg->save;
 
-		if (scalar(grep{/openhab_gw.py/} `ps aux`))
-		{	
-			my $pid = `ps -ef | grep '[o]penhab_gw.py' | grep -v grep | awk '{print \$2}'`;
-			kill 9, $pid;
-			Cronjob("Uninstall");
-		}		
-		
-		if (($cgi->param('uuid') ne "" ) && ($cgi->param('iplanc') ne "") && ($cgi->param('pin') ne "")) {
-			system("$installfolder/bin/plugins/$psubfolder/openhab_gw.py > /dev/null 2>&1 &");
+		Cronjob("Uninstall");
+        
+		if (($cgi->param('iplanc') ne "") && ($cgi->param('pin') ne "")) {
+			system("perl $installfolder/bin/plugins/$psubfolder/wrapper.pl  restart > /dev/null 2>&1 &");
 
 			# Create Cronjob
 			Cronjob("Install");
@@ -338,37 +311,41 @@ sub form
 	$maintemplate->param( LOGINNAME		=> $ENV{REMOTE_USER} );
 	$maintemplate->param( IPLANC 		=> $plugin_cfg->param("MAIN.IPLANC") );
 	$maintemplate->param( PIN 			=> $plugin_cfg->param("MAIN.PIN") );
-	$maintemplate->param( UUID 			=> $plugin_cfg->param("MAIN.UUID") );
-	$maintemplate->param( MQTTUSER, 	$mqttcred->{'Credentials'}->{'brokeruser'});
-	$maintemplate->param( MQTTPASS, 	$mqttcred->{'Credentials'}->{'brokerpass'});
-	$maintemplate->param( MQTTSERVER, 	$mqttconf->{'Main'}->{'brokeraddress'});
-	#$maintemplate->param( UDPINPORT, $mqttconf->{'Main'}->{'udpinport'});
-	#$maintemplate->param( MQTTUSER 		=> $plugin_cfg->param("MAIN.MQTTUSER") );
-	#$maintemplate->param( MQTTPASS 		=> $plugin_cfg->param("MAIN.MQTTPASS") );
-	#$maintemplate->param( MQTTSERVER	=> $plugin_cfg->param("MAIN.MQTTSERVER") );
-	$maintemplate->param( MQTTTOPIC		=> $plugin_cfg->param("MAIN.MQTTTOPIC") );
+	$maintemplate->param( TOPIC			=> $plugin_cfg->param("MAIN.MQTTTOPIC") . "#" ); 
+	# $maintemplate->param( UUID 			=> $plugin_cfg->param("MAIN.UUID") );
+	# $maintemplate->param( MQTTUSER, 	$mqttcred->{'Credentials'}->{'brokeruser'});
+	# $maintemplate->param( MQTTPASS, 	$mqttcred->{'Credentials'}->{'brokerpass'});
+	# $maintemplate->param( MQTTSERVER, 	$mqttconf->{'Main'}->{'brokeraddress'});
+	# $maintemplate->param( MQTTTOPIC		=> $plugin_cfg->param("MAIN.MQTTTOPIC") );
 	$maintemplate->param( ROWS => \@rows );
 
-	# # ReScan Zehnder UUID
+	# ReScan Zehnder UUID
 	if ( $rescan ) {
-		system("/usr/bin/python3 -u $installfolder/bin/plugins/comfoconnect/openhab_gw.py -d " . $maintemplate->param('IPLANC') . " > $installfolder/log/plugins/comfoconnect/shm/uuid.log");
-		
-		my $fileuuidlog = "$installfolder/log/plugins/comfoconnect/shm/uuid.log";
-		open (FH, $fileuuidlog) or die("File $fileuuidlog not found");
-		while (my $uuidsearch = <FH>)
-		{
-				if ($uuidsearch =~ /\b[a-f\d]{32}\b/)
-				{
-					$uuid = $&; # Inhalt nur die UUID
-					$maintemplate->param(UUID, $uuid);
-				}
-				# https://www.tutorialspoint.com/perl/perl_regular_expressions.htm	
-		}
-		close (FH);
-		if ($uuid == "") {
-			print $cgi->header(-status => "204 UUID kann nicht ermittelt werden, evtl. IP oder PIN falsch!");
-		}
+		system("/opt/loxberry/bin/plugins/comfoconnect/openhab_gw.py  --configfile /opt/loxberry/config/plugins/comfoconnect/comfoconnect.cfg --logfile /opt/loxberry/log/plugins/comfoconnect/comfoconnect.log --loglevel 6 --search");
+
+		# if ($uuid == "") {
+			# print $cgi->header(-status => "204 UUID kann nicht ermittelt werden, evtl. IP oder PIN falsch!");
+		# }
 	}
+
+    ##
+    #handle Template and render index page
+    ##
+    # handle MQTT details
+    my $mqttsubscription = $plugin_cfg->param("MAIN.MQTTTOPIC") . "#";
+    #my $mqttcred = LoxBerry::IO::mqtt_connectiondetails();
+    my $mqtthint = "Alle Daten werden per MQTT übertragen. Die Subscription dafür lautet <span class='mono'>
+                                    $mqttsubscription</span> und wird im MQTT Gateway Plugin automatisch eingetragen.";
+    my $mqtthintclass = "hint";
+
+    if(!$mqttcred){
+        $mqtthint = "MQTT Gateway Plugin wurde nicht gefunden oder ist nicht konfiguriert.
+                                    Das Plugin ComfoConnect funktioniert nur mit korrekt installiertem MQTT Gateway Plugin";
+        $mqtthintclass = "notityRedMqtt";
+    }
+
+    $maintemplate->param("mqtthint" => $mqtthint);
+    $maintemplate->param("mqtthintclass" => $mqtthintclass);
 
 	# Print Template
 	print $maintemplate->output;
@@ -454,7 +431,7 @@ sub Cronjob
 		
 		# Create the event
 		my $event = new Config::Crontab::Event (
-		-command =>  "$installfolder/bin/plugins/$psubfolder/openhab_gw.py > /dev/null 2>&1 &",
+		-command =>  "$installfolder/bin/plugins/$psubfolder/wrapper.pl  restart > /dev/null 2>&1 &",
 		-user => 'loxberry',
 		-system => 1,
 		);
