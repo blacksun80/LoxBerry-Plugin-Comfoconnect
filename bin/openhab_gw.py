@@ -27,6 +27,8 @@ def on_connect(client, userdata, flags, rc):
     client.message_callback_add(mqtt_topic + "FAN_MODE_HIGH", on_message_CMD)
     client.message_callback_add(mqtt_topic + "MODE_AUTO", on_message_CMD)
     client.message_callback_add(mqtt_topic + "MODE_MANUAL", on_message_CMD)
+    client.message_callback_add(mqtt_topic + "BOOST_MODE_START", on_message_CMD)
+    client.message_callback_add(mqtt_topic + "BOOST_MODE_END", on_message_CMD)
     client.message_callback_add(mqtt_topic + "VENTMODE_SUPPLY", on_message_CMD)
     client.message_callback_add(mqtt_topic + "VENTMODE_BALANCE", on_message_CMD)
     client.message_callback_add(mqtt_topic + "TEMPPROF_NORMAL", on_message_CMD)
@@ -46,6 +48,7 @@ def on_connect(client, userdata, flags, rc):
     client.message_callback_add(mqtt_topic + "SENSOR_HUMP_ON", on_message_CMD)
 
 def on_disconnect(client, userdata, rc):
+    client.loop_stop()
     _LOGGER.info("Disconnection returned result: "+mqtt.connack_string(rc))
 
 def on_message_CMD(client, userdata, msg):
@@ -99,6 +102,13 @@ def bridge_discovery(ip, debug, search):
     return bridge
 
 def callback_sensor(var, value):
+    # for x in unknown:
+        # if var == x:
+            # print ("unknown:")
+            # print (x)
+            # print (var)
+            # return
+            
     (rc, mid) = client.publish(mqtt_topic + sensor_name[var], value)
 
     _LOGGER.debug("rc: " + str(rc) + "   mid: " + str(mid))
@@ -110,15 +120,12 @@ def callback_sensor(var, value):
     _LOGGER.debug("---------")
     _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_name[var], value))
 
-    pass
-
 def main():
-    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, inputaction, search
+    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, inputaction, search, unknown
     
     connected_flag = 0
     connected_flag_old = 0
     inputaction = []
-    debug = False
     loglevel=logging.ERROR
     search = False
 
@@ -133,6 +140,11 @@ def main():
             loglevel = map_loglevel(args)
         elif opt in ("-s", "--search"):
             search = True
+    
+    if loglevel == 10: # Level Debug
+        debug = True
+    else:
+        debug = False
     
     # Get configurations from file
     Config = configparser.ConfigParser()
@@ -180,22 +192,33 @@ def main():
 
     comfoconnect = ComfoConnect(bridge, local_uuid, local_name, pin)
     comfoconnect.callback_sensor = callback_sensor
-
+    
+    # Connect to the broker
     try:
-        # Connect to the bridge
+        _LOGGER.info("Connecting to MQTT Broker...")
+        client.connect(mqttBroker, 1883)
+    except Exception as e:
+        _LOGGER.exception(str(e))
+        _LOGGER.critical("Not connected to MQTT Broker")
+        exit(1)
+    client.loop_start()
+
+    # Connect to the bridge
+    try:
         _LOGGER.info("Connect to the bridge")
         comfoconnect.connect(True)  # Disconnect existing clients.
 
     except Exception as e:
         _LOGGER.exception(str(e))
+        _LOGGER.critical("Not connected to bridge")
         exit(1)
 
 #    unknown types investigation
-#    unknown = [33, 37, 53, 71, 82, 85, 86, 87, 144, 145, 146, 208, 211, 212, 216, 217, 218, 219, 224, 226, 228, 321, 325, 337, 338, 341, 369, 370, 371, 372, 384, 386, 400, 401, 402, 416, 417, 418, 419]
-#    for x in unknown:
-#         comfoconnect.register_sensor(x)
-#         _LOGGER.debug("Unknown Sensor No.: %d" % x)
-
+    # unknown = [33, 37, 53, 82, 85, 86, 87, 145, 146, 208, 211, 212, 216, 217, 218, 219, 224, 226, 228, 321, 325, 337, 338, 341, 369, 370, 371, 372, 384, 386, 400, 401, 402, 416, 417, 418, 419]
+    # for y in unknown:
+        # comfoconnect.register_sensor(y)
+        # _LOGGER.debug("Unknown Sensor No.: %d" % y)
+        
 #    Register sensors ################################################################################################
     for x in sensor_name:
         comfoconnect.register_sensor(x)
@@ -203,28 +226,11 @@ def main():
 
     ## Executing functions #############################################################################################
 
+    connected_flag=True
+
     try:
         print('Running... Stop with CTRL+C')
         while True:
-            connected_flag_old = connected_flag             # update old flag state
-            connected_flag = comfoconnect.is_connected()    # update flag status
-            if connected_flag != connected_flag_old:        # check if flag has changed
-                if connected_flag:                          # yes, it has
-                    _LOGGER.info("Connected to ComfoConnect ...")
-                    # Connect to the broker
-                    try:
-                        _LOGGER.info("Connect to MQTT Broker")
-                        client.connect(mqttBroker, 1883)
-                    except Exception as e:
-                        _LOGGER.exception(str(e))
-                        pass
-                    client.loop_start()
-
-                else:
-                    print('Not connected to ComfoConnect ...')
-                    client.loop_stop()
-                    client.disconnect()
-
             if connected_flag:
                 # ---------------------------------------------------------------------------------------
                 # Process action list, do one command each itteration until list is empty
@@ -234,36 +240,52 @@ def main():
                     value = inputaction[0][2]   # extract payload value oldest from list item
                     inputaction.pop(0)          # remove oldest list item from list
                     # now execute matching command
+                    print ("was zu tun")
                     if topic == mqtt_topic + "FAN_MODE":
-                            print (value)
-                            if int(value) == 0:
-                                comfoconnect.cmd_rmi_request(CMD_FAN_MODE_AWAY)
-                                _LOGGER.info("FAN_MODE_AWAY")
-                            elif int(value) == 1:
-                                comfoconnect.cmd_rmi_request(CMD_FAN_MODE_LOW)
-                                _LOGGER.info("FAN_MODE_LOW")
-                            elif int(value) == 2:
-                                comfoconnect.cmd_rmi_request(CMD_FAN_MODE_MEDIUM)
-                                _LOGGER.info("FAN_MODE_MEDIUM")
-                            elif int(value) == 3:
-                                comfoconnect.cmd_rmi_request(CMD_FAN_MODE_HIGH)
-                                _LOGGER.info("FAN_MODE_HIGH")
+                        if int(value) == 0:
+                            comfoconnect.cmd_rmi_request(CMD_FAN_MODE_AWAY)
+                            _LOGGER.info("FAN_MODE_AWAY")
+                        elif int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_FAN_MODE_LOW)
+                            _LOGGER.info("FAN_MODE_LOW")
+                        elif int(value) == 2:
+                            comfoconnect.cmd_rmi_request(CMD_FAN_MODE_MEDIUM)
+                            _LOGGER.info("FAN_MODE_MEDIUM")
+                        elif int(value) == 3:
+                            comfoconnect.cmd_rmi_request(CMD_FAN_MODE_HIGH)
+                            _LOGGER.info("FAN_MODE_HIGH")
                     elif topic == mqtt_topic + "FAN_MODE_AWAY":
-                        comfoconnect.cmd_rmi_request(CMD_FAN_MODE_AWAY)  # Go to away mode
-                        _LOGGER.info("FAN_MODE_AWAY")
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_FAN_MODE_AWAY)  # Go to away mode
+                            _LOGGER.info("FAN_MODE_AWAY")
                     elif topic == mqtt_topic + "FAN_MODE_LOW":
-                        comfoconnect.cmd_rmi_request(CMD_FAN_MODE_LOW)  #
-                        _LOGGER.info("FAN_MODE_LOW")
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_FAN_MODE_LOW)  #
+                            _LOGGER.info("FAN_MODE_LOW")
                     elif topic == mqtt_topic + "FAN_MODE_MEDIUM":
-                        comfoconnect.cmd_rmi_request(CMD_FAN_MODE_MEDIUM)  #
-                        _LOGGER.info("FAN_MODE_MEDIUM")
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_FAN_MODE_MEDIUM)  #
+                            _LOGGER.info("FAN_MODE_MEDIUM")
                     elif topic == mqtt_topic + "FAN_MODE_HIGH":
-                        comfoconnect.cmd_rmi_request(CMD_FAN_MODE_HIGH)  #
-                        _LOGGER.info("FAN_MODE_HIGH")
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_FAN_MODE_HIGH)  #
+                            _LOGGER.info("FAN_MODE_HIGH")
                     elif topic == mqtt_topic + "MODE_AUTO":
-                        comfoconnect.cmd_rmi_request(CMD_MODE_AUTO)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_MODE_AUTO)  #
+                            _LOGGER.info("MODE_AUTO")
                     elif topic == mqtt_topic + "MODE_MANUAL":
-                        comfoconnect.cmd_rmi_request(CMD_MODE_MANUAL)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_MODE_MANUAL)  #
+                            _LOGGER.info("MODE_MANUAL")
+                    elif topic == mqtt_topic + "BOOST_MODE_START":
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_BOOST_MODE_START)  #
+                            _LOGGER.info("BOOST_MODE_START")
+                    elif topic == mqtt_topic + "BOOST_MODE_END":
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_BOOST_MODE_END)  #
+                            _LOGGER.info("BOOST_MODE_END")
                     elif topic == mqtt_topic + "VENTMODE_SUPPLY":
                         comfoconnect.cmd_rmi_request(CMD_VENTMODE_SUPPLY)  #
                     elif topic == mqtt_topic + "VENTMODE_BALANCE":
@@ -298,12 +320,15 @@ def main():
                         comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_AUTO)  #
                     elif topic == mqtt_topic + "SENSOR_HUMP_ON":
                         comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_ON)  #
-
-            sleep(1)
+            else:
+                _LOGGER.critical("Not connected to ComfoConnect ...")
+        sleep(1)
     except KeyboardInterrupt:
         pass
 
     ## Closing the session #############################################################################################
+    client.loop_stop()
+    client.disconnect()
     comfoconnect.disconnect()
 
 def map_loglevel(loxlevel):
