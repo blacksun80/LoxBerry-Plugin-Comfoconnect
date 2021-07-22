@@ -162,7 +162,7 @@ def main():
     mqtt_user 		= Config.get('MAIN', 'MQTTUSER')                        # Set the MQTT user login
     mqtt_passw   	= Config.get('MAIN', 'MQTTPASS')                        # Set the MQTT user password
     mqtt_topic  	= Config.get('MAIN', 'MQTTTOPIC')                       # Set the MQTT root topic
-    mqtt_port       = Config.get('MAIN', 'MQTTPORT')                        # Set the MQTT Port
+    mqtt_port       = int(Config.get('MAIN', 'MQTTPORT'))                        # Set the MQTT Port
 
     client                      = mqtt.Client("ComfoConnect", clean_session=True)
     client.on_subscribe         = on_subscribe
