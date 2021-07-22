@@ -27,9 +27,13 @@ def on_connect(client, userdata, flags, rc):
     client.message_callback_add(mqtt_topic + "FAN_MODE_HIGH", on_message_CMD)
     client.message_callback_add(mqtt_topic + "MODE_AUTO", on_message_CMD)
     client.message_callback_add(mqtt_topic + "MODE_MANUAL", on_message_CMD)
+    client.message_callback_add(mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN_1", on_message_CMD)
+    client.message_callback_add(mqtt_topic + "START_EXHAUST_FAN", on_message_CMD)
+    client.message_callback_add(mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN_1", on_message_CMD)
     client.message_callback_add(mqtt_topic + "BOOST_MODE_START", on_message_CMD)
     client.message_callback_add(mqtt_topic + "BOOST_MODE_END", on_message_CMD)
     client.message_callback_add(mqtt_topic + "VENTMODE_SUPPLY", on_message_CMD)
+    client.message_callback_add(mqtt_topic + "VENTMODE_EXTRACT", on_message_CMD)
     client.message_callback_add(mqtt_topic + "VENTMODE_BALANCE", on_message_CMD)
     client.message_callback_add(mqtt_topic + "TEMPPROF_NORMAL", on_message_CMD)
     client.message_callback_add(mqtt_topic + "TEMPPROF_COOL", on_message_CMD)
@@ -158,7 +162,7 @@ def main():
     pin     		= Config.get('MAIN', 'PIN')                             # Set PIN of vent unit !
     
     # Configuration mqtt#######################################################################################################
-    mqttBroker   	= Config.get('MAIN', 'MQTTSERVER')                      # Set your MQTT broker here
+    mqtt_broker   	= Config.get('MAIN', 'MQTTSERVER')                      # Set your MQTT broker here
     mqtt_user 		= Config.get('MAIN', 'MQTTUSER')                        # Set the MQTT user login
     mqtt_passw   	= Config.get('MAIN', 'MQTTPASS')                        # Set the MQTT user password
     mqtt_topic  	= Config.get('MAIN', 'MQTTTOPIC')                       # Set the MQTT root topic
@@ -196,8 +200,8 @@ def main():
     
     # Connect to the broker
     try:
-        _LOGGER.info("Connecting to MQTT Broker...")
-        client.connect(mqttBroker, mqtt_port)
+        _LOGGER.info("Connecting to MQTT Broker " + str(mqtt_broker) + ":" + str(mqtt_port))
+        client.connect(mqtt_broker, mqtt_port)
     except Exception as e:
         _LOGGER.exception(str(e))
         _LOGGER.critical("Not connected to MQTT Broker")
@@ -279,6 +283,18 @@ def main():
                         if int(value) == 1:
                             comfoconnect.cmd_rmi_request(CMD_MODE_MANUAL)  #
                             _LOGGER.info("MODE_MANUAL")
+                    elif topic == mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN_1":
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_VENTMODE_STOP_SUPPLY_FAN_1)  #
+                            _LOGGER.info("VENTMODE_STOP_SUPPLY_FAN_1")
+                    elif topic == mqtt_topic + "START_EXHAUST_FAN":
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_START_EXHAUST_FAN)  #
+                            _LOGGER.info("START_EXHAUST_FAN")
+                    elif topic == mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN_1":
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_VENTMODE_STOP_EXHAUST_FAN_1)  #
+                            _LOGGER.info("VENTMODE_STOP_EXHAUST_FAN_1")
                     elif topic == mqtt_topic + "BOOST_MODE_START":
                         if int(value) == 1:
                             comfoconnect.cmd_rmi_request(CMD_BOOST_MODE_START)  #
@@ -316,11 +332,17 @@ def main():
                     elif topic == mqtt_topic + "SENSOR_HUMC_ON":
                         comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_ON)  #
                     elif topic == mqtt_topic + "SENSOR_HUMP_OFF":
-                        comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_OFF)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_OFF)  #
+                            _LOGGER.info("SENSOR_HUMP_OFF")
                     elif topic == mqtt_topic + "SENSOR_HUMP_AUTO":
-                        comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_AUTO)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_AUTO)  #
+                            _LOGGER.info("SENSOR_HUMP_AUTO")
                     elif topic == mqtt_topic + "SENSOR_HUMP_ON":
-                        comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_ON)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_ON)  #
+                            _LOGGER.info("SENSOR_HUMP_ON")
             else:
                 _LOGGER.critical("Not connected to ComfoConnect ...")
         sleep(1)

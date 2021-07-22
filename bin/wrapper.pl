@@ -92,19 +92,25 @@ $miniservers	= $cfg->param("BASE.MINISERVERS");
 $clouddns	= $cfg->param("BASE.CLOUDDNS");
 
 foreach $arg (@ARGV) {
-    if (($arg eq "restart") || ($arg eq "start")) {
-        
-        if ($arg eq "restart") {
-            
-            if (scalar(grep{/openhab_gw.py/} `ps aux`)) {
-                LOGINF "openhab_gw.py already running.";
-                LOGINF "Stopping ComfoConnect...";
-                system("pkill -f $installfolder/bin/plugins/$psubfolder/openhab_gw.py >> $logfile 2>&1");
-            }
+    if (($arg eq "restart") || ($arg eq "start") || ($arg eq "search")) {
+
+        if (scalar(grep{/openhab_gw.py/} `ps aux`)) {
+            LOGINF "openhab_gw.py already running.";
+            LOGINF "Stopping ComfoConnect...";
+            system("pkill -f $installfolder/bin/plugins/$psubfolder/openhab_gw.py >> $logfile 2>&1");
         }
-        LOGINF "Starting ComfoConnect...";
-        system("$installfolder/bin/plugins/$psubfolder/openhab_gw.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.cfg --logfile $logfile --loglevel $loglevel > /dev/null 2>&1 &");
-        exit(0);
+
+        if (($arg eq "restart") || ($arg eq "start")) {
+            LOGINF "Starting ComfoConnect...";
+            system("$installfolder/bin/plugins/$psubfolder/openhab_gw.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.cfg --logfile $logfile --loglevel $loglevel > /dev/null 2>&1 &");
+            exit(0);
+        }
+
+        if ($arg eq "search") {
+            LOGINF "Suche Lüftungsanlage...";
+            system("$installfolder/bin/plugins/$psubfolder/openhab_gw.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.cfg --logfile $logfile --loglevel $loglevel --search > /dev/null 2>&1");
+            exit(0);
+        }
     }
 }
 

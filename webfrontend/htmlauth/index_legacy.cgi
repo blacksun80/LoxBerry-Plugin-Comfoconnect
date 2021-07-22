@@ -244,6 +244,16 @@ exit;
 
 sub form 
 {
+	# ReScan Zehnder UUID
+	if ( $rescan ) {
+		system("perl $installfolder/bin/plugins/$psubfolder/wrapper.pl search > /dev/null 2>&1");
+        
+		$plugin_cfg 	= new Config::Simple("$installfolder/config/plugins/$psubfolder/comfoconnect.cfg") or die $plugin_cfg->error();
+		# if ($uuid == "") {
+			# print $cgi->header(-status => "204 UUID kann nicht ermittelt werden, evtl. IP oder PIN falsch!");
+		# }
+	}
+    
 	# If the form was saved, update config file
     if ( $saveformdata ) {
 		$plugin_cfg->param( "MAIN.IPLANC", $cgi->param('iplanc') );
@@ -301,16 +311,6 @@ sub form
 	$maintemplate->param( IPLANC 		=> $plugin_cfg->param("MAIN.IPLANC") );
 	$maintemplate->param( PIN 			=> $plugin_cfg->param("MAIN.PIN") );
 	$maintemplate->param( TOPIC			=> $plugin_cfg->param("MAIN.MQTTTOPIC") . "#" ); 
-	$maintemplate->param( ROWS => \@rows );
-
-	# ReScan Zehnder UUID
-	if ( $rescan ) {
-		system("$installfolder/bin/plugins/$psubfolder/openhab_gw.py  --configfile $installfolder/config/plugins/$psubfolder/comfoconnect.cfg --logfile $installfolder/log/plugins/$psubfolder/comfoconnect.log --loglevel 6 --search");
-
-		# if ($uuid == "") {
-			# print $cgi->header(-status => "204 UUID kann nicht ermittelt werden, evtl. IP oder PIN falsch!");
-		# }
-	}
 
     ##
     #handle Template and render index page
@@ -329,6 +329,8 @@ sub form
 
     $maintemplate->param("mqtthint" => $mqtthint);
     $maintemplate->param("mqtthintclass" => $mqtthintclass);
+
+	$maintemplate->param( ROWS => \@rows );
 
 	# Print Template
 	print $maintemplate->output;
