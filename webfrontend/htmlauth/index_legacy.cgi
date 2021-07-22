@@ -117,18 +117,7 @@ if (!-e "$installfolder/log/plugins/$psubfolder/shm") {
 # Read MQTT connection details and credentials from MQTT plugin
 ######################################################################
 
-my $mqttplugindata = LoxBerry::System::plugindata("mqttgateway");
-$pluginfolder = $mqttplugindata->{'PLUGINDB_FOLDER'};
-
-if (($pluginfolder)) {
-	my $mqttconffile = "$installfolder/config/plugins/$pluginfolder/mqtt.json";
-	my $mqttcredfile = "$installfolder/config/plugins/$pluginfolder/cred.json";
-	
-	$jsonobj = LoxBerry::JSON->new();
-	$mqttconf = $jsonobj->open(filename => $mqttconffile);
-	$mqttcred = $jsonobj->open(filename => $mqttcredfile);
-	
-}
+my  $mqttcred = LoxBerry::IO::mqtt_connectiondetails();
 
 # Detect which IR Heads are connected
 # my @heads = split(/\n/,`ls /dev/serial/smartmeter/*`);
@@ -256,14 +245,14 @@ exit;
 sub form 
 {
 	# If the form was saved, update config file
-	if ( $saveformdata ) {
+    if ( $saveformdata ) {
 		$plugin_cfg->param( "MAIN.IPLANC", $cgi->param('iplanc') );
 		$plugin_cfg->param( "MAIN.PIN", $cgi->param('pin') );
-		$plugin_cfg->param( "MAIN.MQTTUSER", $mqttcred->{'Credentials'}->{'brokeruser'});
-		$plugin_cfg->param( "MAIN.MQTTPASS", $mqttcred->{'Credentials'}->{'brokerpass'});
-		$plugin_cfg->param( "MAIN.MQTTSERVER", $mqttconf->{'Main'}->{'brokeraddress'});
+		$plugin_cfg->param( "MAIN.MQTTUSER", $mqttcred->{brokeruser});
+		$plugin_cfg->param( "MAIN.MQTTPASS", $mqttcred->{brokerpass});
+		$plugin_cfg->param( "MAIN.MQTTSERVER", $mqttcred->{brokerhost});
+		$plugin_cfg->param( "MAIN.MQTTPORT", $mqttcred->{brokerport});
 		$plugin_cfg->param( "MAIN.MQTTTOPIC", "ComfoConnect/" );
-		
 		$plugin_cfg->save;
 
 		Cronjob("Uninstall");
@@ -312,11 +301,6 @@ sub form
 	$maintemplate->param( IPLANC 		=> $plugin_cfg->param("MAIN.IPLANC") );
 	$maintemplate->param( PIN 			=> $plugin_cfg->param("MAIN.PIN") );
 	$maintemplate->param( TOPIC			=> $plugin_cfg->param("MAIN.MQTTTOPIC") . "#" ); 
-	# $maintemplate->param( UUID 			=> $plugin_cfg->param("MAIN.UUID") );
-	# $maintemplate->param( MQTTUSER, 	$mqttcred->{'Credentials'}->{'brokeruser'});
-	# $maintemplate->param( MQTTPASS, 	$mqttcred->{'Credentials'}->{'brokerpass'});
-	# $maintemplate->param( MQTTSERVER, 	$mqttconf->{'Main'}->{'brokeraddress'});
-	# $maintemplate->param( MQTTTOPIC		=> $plugin_cfg->param("MAIN.MQTTTOPIC") );
 	$maintemplate->param( ROWS => \@rows );
 
 	# ReScan Zehnder UUID
@@ -333,7 +317,6 @@ sub form
     ##
     # handle MQTT details
     my $mqttsubscription = $plugin_cfg->param("MAIN.MQTTTOPIC") . "#";
-    #my $mqttcred = LoxBerry::IO::mqtt_connectiondetails();
     my $mqtthint = "Alle Daten werden per MQTT übertragen. Die Subscription dafür lautet <span class='mono'>
                                     $mqttsubscription</span> und wird im MQTT Gateway Plugin automatisch eingetragen.";
     my $mqtthintclass = "hint";

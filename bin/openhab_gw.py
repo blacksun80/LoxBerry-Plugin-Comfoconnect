@@ -162,6 +162,7 @@ def main():
     mqtt_user 		= Config.get('MAIN', 'MQTTUSER')                        # Set the MQTT user login
     mqtt_passw   	= Config.get('MAIN', 'MQTTPASS')                        # Set the MQTT user password
     mqtt_topic  	= Config.get('MAIN', 'MQTTTOPIC')                       # Set the MQTT root topic
+    mqtt_port       = Config.get('MAIN', 'MQTTPORT')                        # Set the MQTT Port
 
     client                      = mqtt.Client("ComfoConnect", clean_session=True)
     client.on_subscribe         = on_subscribe
@@ -196,7 +197,7 @@ def main():
     # Connect to the broker
     try:
         _LOGGER.info("Connecting to MQTT Broker...")
-        client.connect(mqttBroker, 1883)
+        client.connect(mqttBroker, mqtt_port)
     except Exception as e:
         _LOGGER.exception(str(e))
         _LOGGER.critical("Not connected to MQTT Broker")
