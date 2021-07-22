@@ -10,6 +10,7 @@ import getopt
 import json
 import configparser
 from mqtt_strings import sensor_name
+from mqtt_data import sensor_data
 import logging
 
 def on_publish(client, userdata, mid):
@@ -105,6 +106,15 @@ def bridge_discovery(ip, debug, search):
         
     return bridge
 
+def to_little(val):
+    little_hex = bytearray.fromhex(val)
+    little_hex.reverse()
+    #print("Byte array format:", little_hex)
+
+    str_little = ''.join(format(x, '02x') for x in little_hex)
+
+    return str_little
+
 def callback_sensor(var, value):
     # for x in unknown:
         # if var == x:
@@ -112,8 +122,15 @@ def callback_sensor(var, value):
             # print (x)
             # print (var)
             # return
-            
-    (rc, mid) = client.publish(mqtt_topic + sensor_name[var], value)
+
+    if (var == 81 or var == 82 or var == 86 or var == 87):
+        value=int(to_little(value), base=16)
+        if value == 4294967295:
+            value = -1
+    elif 'CONV' in sensor_data[var]:
+        value = eval(sensor_data[var]['CONV'] % (value))
+
+    (rc, mid) = client.publish(mqtt_topic + sensor_data[var]['NAME'], value)
 
     _LOGGER.debug("rc: " + str(rc) + "   mid: " + str(mid))
     _LOGGER.debug("%s = %s" % (var, value))
@@ -122,7 +139,7 @@ def callback_sensor(var, value):
     _LOGGER.debug("Var: " + str(var))
     _LOGGER.debug(sensor_name[var])
     _LOGGER.debug("---------")
-    _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_name[var], value))
+    _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_data[var]['NAME'], value))
 
 def main():
     global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, inputaction, search, unknown
@@ -225,7 +242,7 @@ def main():
         # _LOGGER.debug("Unknown Sensor No.: %d" % y)
         
 #    Register sensors ################################################################################################
-    for x in sensor_name:
+    for x in sensor_data:
         comfoconnect.register_sensor(x)
         _LOGGER.debug("Register Sensor No.: %d" % x)
 
