@@ -51,6 +51,8 @@ def on_connect(client, userdata, flags, rc):
     client.message_callback_add(mqtt_topic + "SENSOR_HUMP_OFF", on_message_CMD)
     client.message_callback_add(mqtt_topic + "SENSOR_HUMP_AUTO", on_message_CMD)
     client.message_callback_add(mqtt_topic + "SENSOR_HUMP_ON", on_message_CMD)
+    client.message_callback_add(mqtt_topic + "BOOST_MODE_X", on_message_CMD)
+    client.message_callback_add(mqtt_topic + "BOOST_MODE_DELAY", on_message_CMD)
 
 def on_disconnect(client, userdata, rc):
     client.loop_stop()
@@ -115,6 +117,12 @@ def to_little(val):
 
     return str_little
 
+def to_big(val):
+    val=int(val)
+    big_hex = val.to_bytes(2, byteorder='little').hex()
+    big_hex = bytearray.fromhex(big_hex)
+    return big_hex
+
 def callback_sensor(var, value):
     # for x in unknown:
         # if var == x:
@@ -142,13 +150,14 @@ def callback_sensor(var, value):
     _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_data[var]['NAME'], value))
 
 def main():
-    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, inputaction, search, unknown
+    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, inputaction, search, unknown, boost_mode_delay
     
     connected_flag = 0
     connected_flag_old = 0
     inputaction = []
     loglevel=logging.ERROR
     search = False
+    boost_mode_delay = b'\x84\x03'
 
     opts, args = getopt.getopt(sys.argv[1:],"c:f:l:s:",['configfile=', 'logfile=', 'loglevel=', 'search'])
     for opt, args in opts:
@@ -178,6 +187,22 @@ def main():
     device_ip		= Config.get('MAIN','IPLANC')                           # Look in your router administration and get the ip of the comfoconnect device and set it as static lease
     pin     		= Config.get('MAIN', 'PIN')                             # Set PIN of vent unit !
     
+    _LOGGER = setup_logger("COMFOCONNECT")
+    _LOGGER.debug("logfile: " + logfileArg)
+    _LOGGER.info("loglevel: " + logging.getLevelName(_LOGGER.level))
+
+#   Connect to Comfocontrol device  #####################################################################################
+#   Detect Bridge
+    if search:
+        bridge = bridge_discovery(device_ip, debug, search)
+        _LOGGER.info("Bridge gefunden")
+        Config.set('MAIN','IPLANC', bridge.host)
+        _LOGGER.info("IP Adresse in Configfile gesichert")
+        # save to a file
+        with open(configfile, 'w') as config_file:
+            Config.write(config_file)
+        exit(0)
+        
     # Configuration mqtt#######################################################################################################
     mqtt_broker   	= Config.get('MAIN', 'MQTTSERVER')                      # Set your MQTT broker here
     mqtt_user 		= Config.get('MAIN', 'MQTTUSER')                        # Set the MQTT user login
@@ -194,21 +219,6 @@ def main():
     client.username_pw_set(mqtt_user,mqtt_passw)
     client.reconnect_delay_set(min_delay=1, max_delay=30)
 
-    _LOGGER = setup_logger("COMFOCONNECT")
-    _LOGGER.debug("logfile: " + logfileArg)
-    _LOGGER.info("loglevel: " + logging.getLevelName(_LOGGER.level))
-
-#   Connect to Comfocontrol device  #####################################################################################
-#   Detect Bridge
-    if search:
-        bridge = bridge_discovery(device_ip, debug, search)
-        _LOGGER.info("Bridge gefunden")
-        Config.set('MAIN','IPLANC', bridge.host)
-        _LOGGER.info("IP Adresse in Configfile gesichert")
-        # save to a file
-        with open(configfile, 'w') as config_file:
-            Config.write(config_file)
-        exit(0)
         
     bridge = bridge_discovery(device_ip, debug, search)
 
@@ -360,6 +370,15 @@ def main():
                         if int(value) == 1:
                             comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_ON)  #
                             _LOGGER.info("SENSOR_HUMP_ON")
+                    elif topic == mqtt_topic + "BOOST_MODE_DELAY":
+                            boost_mode_delay=to_big(value)
+                            print ("Delay in hex: " + str(boost_mode_delay))
+                            _LOGGER.info("BOOST_MODE_DELAY" + str(value) + " sec")
+                    elif topic == mqtt_topic + "BOOST_MODE_X":
+                        if int(value) == 1:
+                            print ("Boost Mode Delay: " + str(boost_mode_delay))
+                            comfoconnect.cmd_rmi_request(b'\x84\x15\x01\x06\x00\x00\x00\x00' + boost_mode_delay + b'\x00\x00\x03')  #
+                            _LOGGER.info("BOOST_MODE_X")
             else:
                 _LOGGER.critical("Not connected to ComfoConnect ...")
         sleep(1)
