@@ -27,15 +27,15 @@ sensor_data = {
     81: {
         'NAME' : 'FAN_NEXT_CHANGE'
         },
-    # 82: {
-        # 'NAME' : 'BYPASS_NEXT_CHANGE'
-        # },
-    # 86: {
-        # 'NAME' : 'SUPPLY_NEXT_CHANGE'
-        # },
-    # 87: {
-        # 'NAME' : 'EXHAUST_NEXT_CHANGE'
-        # },
+    82: {
+        'NAME' : 'BYPASS_NEXT_CHANGE'
+        },
+    86: {
+        'NAME' : 'SUPPLY_NEXT_CHANGE'
+        },
+    87: {
+        'NAME' : 'EXHAUST_NEXT_CHANGE'
+        },
     117: {
         'NAME' : 'FAN_EXHAUST_DUTY'
         },
@@ -63,9 +63,9 @@ sensor_data = {
     130: {
         'NAME' : 'POWER_TOTAL'
         },
-    # 144: {
-        # 'NAME' : 'PREHEATER_POWER_TOTAL_YEAR'
-        # },
+    144: {
+        'NAME' : 'PREHEATER_POWER_TOTAL_YEAR'
+        },
     145: {
         'NAME' : 'PREHEATER_POWER_TOTAL'
         },
@@ -85,13 +85,13 @@ sensor_data = {
     210: {
         'NAME' : 'HEATING_SEASON'
         },
-    # 211: {
-        # 'NAME' : 'COOLING_SEASON'
-        # },
-    # 212: {
-        # 'NAME' : 'TARGET_TEMPERATURE',
-        # 'CONV'  :   "%i / 10"
-        # },
+    211: {
+        'NAME' : 'COOLING_SEASON'
+        },
+    212: {
+        'NAME' : 'TARGET_TEMPERATURE',
+        'CONV'  :   "%i / 10"
+        },
     213: {
         'NAME' : 'AVOIDED_HEATING_CURRENT'
         },
@@ -110,9 +110,9 @@ sensor_data = {
     218: {
         'NAME' : 'AVOIDED_COOLING_TOTAL'
         },
-    # 219: {
-        # 'NAME' : 'AVOIDED_COOLING_CURRENT_TARGET'
-        # },
+    219: {
+        'NAME' : 'AVOIDED_COOLING_CURRENT_TARGET'
+        },
     221: {
         'NAME' : 'TEMPERATURE_SUPPLY',
         'CONV'  :   "%i / 10"
@@ -123,9 +123,9 @@ sensor_data = {
     227: {
         'NAME' : 'BYPASS_STATE'
         },
-    # 228: {
-        # 'NAME' : 'FROSTPROTECT_UNBALANCE'
-        # },
+    228: {
+        'NAME' : 'FROSTPROTECT_UNBALANCE'
+        },
     274: {
         'NAME' : 'TEMPERATURE_EXTRACT',
         'CONV'  :   "%i / 10"
@@ -138,10 +138,10 @@ sensor_data = {
         'NAME' : 'TEMPERATURE_OUTDOOR',
         'CONV'  :   "%i / 10"
         },
-    # 277: {
-        # 'NAME' : 'TEMPERATURE_AFTER_PREHEATER',
-        # 'CONV'  :   "%i / 10"
-        # },
+    277: {
+        'NAME' : 'TEMPERATURE_AFTER_PREHEATER',
+        'CONV'  :   "%i / 10"
+        },
     290: {
         'NAME' : 'HUMIDITY_EXTRACT'
         },
@@ -151,9 +151,9 @@ sensor_data = {
     292: {
         'NAME' : 'HUMIDITY_OUTDOOR'
         },
-    # 293: {
-        # 'NAME' : 'HUMIDITY_AFTER_PREHEATER'
-        # },
+    293: {
+        'NAME' : 'HUMIDITY_AFTER_PREHEATER'
+        },
     294: {
         'NAME' : 'HUMIDITY_SUPPLY'
         },

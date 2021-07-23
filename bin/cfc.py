@@ -9,7 +9,6 @@ from pycomfoconnect import *
 import getopt
 import json
 import configparser
-from mqtt_strings import sensor_name
 from mqtt_data import sensor_data
 import logging
 
@@ -145,7 +144,7 @@ def callback_sensor(var, value):
     _LOGGER.debug(mqtt_topic)
     _LOGGER.debug(value)
     _LOGGER.debug("Var: " + str(var))
-    _LOGGER.debug(sensor_name[var])
+    _LOGGER.debug(sensor_data[var]['NAME'])
     _LOGGER.debug("---------")
     _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_data[var]['NAME'], value))
 

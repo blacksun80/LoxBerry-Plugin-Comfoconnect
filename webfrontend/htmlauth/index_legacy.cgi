@@ -119,31 +119,6 @@ if (!-e "$installfolder/log/plugins/$psubfolder/shm") {
 
 my  $mqttcred = LoxBerry::IO::mqtt_connectiondetails();
 
-# Detect which IR Heads are connected
-# my @heads = split(/\n/,`ls /dev/serial/smartmeter/*`);
-
-# Save a config set if it not already exists
-# foreach (@heads) {
-	# $serial = $_;
-	# $serial =~ s%/dev/serial/smartmeter/%%g;
-	# if ( !$plugin_cfg->param("$serial.DEVICE") ) {
-		# $plugin_cfg->param("$serial.NAME", "$serial");
-		# $plugin_cfg->param("$serial.SERIAL", "$serial");
-		# $plugin_cfg->param("$serial.DEVICE", "$_");
-		# $plugin_cfg->param("$serial.METER", "0");
-		# $plugin_cfg->param("$serial.PROTOCOL", "");
-		# $plugin_cfg->param("$serial.STARTBAUDRATE", "");
-		# $plugin_cfg->param("$serial.BAUDRATE", "");
-		# $plugin_cfg->param("$serial.TIMEOUT", "");
-		# $plugin_cfg->param("$serial.DELAY", "");
-		# $plugin_cfg->param("$serial.HANDSHAKE", "");
-		# $plugin_cfg->param("$serial.DATABITS", "");
-		# $plugin_cfg->param("$serial.STOPBITS", "");
-		# $plugin_cfg->param("$serial.PARITY", "");
-	# }
-# }
-# $plugin_cfg->save;
-
 # Set parameters coming in - get over post
 if ( $cgi->url_param('lang') ) {
 	$lang = quotemeta( $cgi->url_param('lang') );
