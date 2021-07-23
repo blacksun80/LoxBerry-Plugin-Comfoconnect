@@ -64,8 +64,5 @@ ARGV3=$3 # Third argument is Plugin installation folder
 ARGV4=$4 # Forth argument is Plugin version
 ARGV5=$5 # Fifth argument is Base folder of LoxBerry
 
-echo "<INFO> Rename htaccess to .htaccess"
-mv $ARGV5/webfrontend/htmlauth/plugins/$ARGV3/htaccess $ARGV5/webfrontend/htmlauth/plugins/$ARGV3/.htaccess
-
 # Exit with Status 0
 exit 0
