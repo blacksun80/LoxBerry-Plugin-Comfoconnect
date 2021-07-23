@@ -43,24 +43,6 @@ CMD_READ_CONFIG                     = b'\x87\x15\x01'
 CMD_READ_HRU                        = b'\x01\x01\x01\x10\x08'
 CMD_BOOST_MODE_START                = b'\x84\x15\x01\x06\x00\x00\x00\x00\x58\x02\x00\x00\x03'   # BOOST MODE 10 MIN
 CMD_BOOST_MODE_END                  = b'\x85\x15\x01\x06'
-CMD_VENTMODE_SUPPLY                 = b'\x84\x15\x06\x01\x00\x00\x00\x00\x10\x0e\x00\x00\x01'   # SUPPLY ONLY !!!
-CMD_VENTMODE_EXTRACT                = b'\x84\x15\x06\x01\x00\x00\x00\x00\x10\x0e\x00\x00\x02'    # EXTRACT ONLY !!!
-CMD_VENTMODE_BALANCE                = b'\x85\x15\06\01'                                          # BALANCE MODE AGAIN !!!
-CMD_TEMPPROF_NORMAL                 = b'\x84\x15\x03\x01\x00\x00\x00\x00\xff\xff\xff\xff\x00'   # NORMAL TEMP PROFILE
-CMD_TEMPPROF_COOL                   = b'\x84\x15\x03\x01\x00\x00\x00\x00\xff\xff\xff\xff\x01'   # COOL TEMP PROFILE
-CMD_TEMPROF_WARM                    = b'\x84\x15\x03\x01\x00\x00\x00\x00\xff\xff\xff\xff\x02'   # WARM TEMP PROFILE
-CMD_BYPASS_ON                       = b'\x84\x15\x02\x01\x00\x00\x00\x00\x10\x0e\x00\x00\x01'   # BYPASS ASTIVATED
-CMD_BYPASS_OFF                      = b'\x84\x15\x02\x01\x00\x00\x00\x00\x10\x0e\x00\x00\x02'   # BYPASS DEACTIVATED
-CMD_BYPASS_AUTO                     = b'\x85\x15\x02\x01'                                   # BYPASS AUTO
-CMD_SENS_TEMP_OFF                   = b'\x03\x1d\x01\x04\x00'                                 # SENSOR VENT: TEMP PASSIVE OFF
-CMD_SENS_TEMP_AUTO                  = b'\x03\x1d\x01\x04\x01'                                  # SENSOR VENT: TEMP PASSIVE AUTO ONLY
-CMD_SENS_TEMP_ON                    = b'\x03\x1d\x01\x04\x02'                                # SENSOR VENT: TEMP PASSIVE ON
-CMD_SENS_HUMC_OFF                   = b'\x03\x1d\x01\x06\x00'                                 # SENSOR VENT: HUMIDITY COMFORT OFF
-CMD_SENS_HUMC_AUTO                  = b'\x03\x1d\x01\x06\x01'                                  # SENSOR VENT: HUMIDITY COMFORT AUTO ONLY
-CMD_SENS_HUMC_ON                    = b'\x03\x1d\x01\x06\x02'                                # SENSOR VENT: HUMIDITY COMFORT ON
-CMD_SENS_HUMP_OFF                   = b'\x03\x1d\x01\x07\x00'                                 # SENSOR VENT: HUMIDITY PROTECTION OFF
-CMD_SENS_HUMP_AUTO                  = b'\x03\x1d\x01\x07\x01'                                  # SENSOR VENT: HUMIDITY PROTECTION AUTO
-CMD_SENS_HUMP_ON                    = b'\x03\x1d\x01\x07\x02'                                # SENSOR VENT: HUMIDITY PROTECTION ON
 
 # Sensor locations
 SENSOR_TEMPERATURE_SUPPLY = 221
