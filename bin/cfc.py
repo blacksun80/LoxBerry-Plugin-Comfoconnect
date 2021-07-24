@@ -52,6 +52,10 @@ def on_connect(client, userdata, flags, rc):
     client.message_callback_add(mqtt_topic + "SENSOR_HUMP_ON", on_message_CMD)
     client.message_callback_add(mqtt_topic + "BOOST_MODE_X", on_message_CMD)
     client.message_callback_add(mqtt_topic + "BOOST_MODE_DELAY", on_message_CMD)
+    client.message_callback_add(mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN_1_TIME", on_message_CMD)
+    client.message_callback_add(mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN_1_TIME", on_message_CMD)
+    client.message_callback_add(mqtt_topic + "BYPASS_ON_TIME", on_message_CMD)
+    client.message_callback_add(mqtt_topic + "BYPASS_OFF_TIME", on_message_CMD)
 
 def on_disconnect(client, userdata, rc):
     client.loop_stop()
@@ -149,7 +153,7 @@ def callback_sensor(var, value):
     _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_data[var]['NAME'], value))
 
 def main():
-    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, inputaction, search, unknown, boost_mode_delay
+    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, inputaction, search, unknown, boost_mode_delay, ventmode_stop_supply_fan_1_time, ventmode_stop_exhaust_fan_1_time, bypass_on_time
     
     connected_flag = 0
     connected_flag_old = 0
@@ -157,6 +161,10 @@ def main():
     loglevel=logging.ERROR
     search = False
     boost_mode_delay = b'\x84\x03'
+    ventmode_stop_supply_fan_1_time = b'\x10\x0e'
+    ventmode_stop_exhaust_fan_1_time = b'\x10\x0e'
+    bypass_on_time = b'\x10\x0e'
+    bypass_off_time = b'\x10\x0e'
 
     opts, args = getopt.getopt(sys.argv[1:],"c:f:l:s:",['configfile=', 'logfile=', 'loglevel=', 'search'])
     for opt, args in opts:
@@ -271,7 +279,6 @@ def main():
                     value = inputaction[0][2]   # extract payload value oldest from list item
                     inputaction.pop(0)          # remove oldest list item from list
                     # now execute matching command
-                    print ("was zu tun")
                     if topic == mqtt_topic + "FAN_MODE":
                         if int(value) == 0:
                             comfoconnect.cmd_rmi_request(CMD_FAN_MODE_AWAY)
@@ -291,72 +298,70 @@ def main():
                             _LOGGER.info("FAN_MODE_AWAY")
                     elif topic == mqtt_topic + "FAN_MODE_LOW":
                         if int(value) == 1:
-                            comfoconnect.cmd_rmi_request(CMD_FAN_MODE_LOW)  #
+                            comfoconnect.cmd_rmi_request(CMD_FAN_MODE_LOW)
                             _LOGGER.info("FAN_MODE_LOW")
                     elif topic == mqtt_topic + "FAN_MODE_MEDIUM":
                         if int(value) == 1:
-                            comfoconnect.cmd_rmi_request(CMD_FAN_MODE_MEDIUM)  #
+                            comfoconnect.cmd_rmi_request(CMD_FAN_MODE_MEDIUM)
                             _LOGGER.info("FAN_MODE_MEDIUM")
                     elif topic == mqtt_topic + "FAN_MODE_HIGH":
                         if int(value) == 1:
-                            comfoconnect.cmd_rmi_request(CMD_FAN_MODE_HIGH)  #
+                            comfoconnect.cmd_rmi_request(CMD_FAN_MODE_HIGH)
                             _LOGGER.info("FAN_MODE_HIGH")
                     elif topic == mqtt_topic + "MODE_AUTO":
                         if int(value) == 1:
-                            comfoconnect.cmd_rmi_request(CMD_MODE_AUTO)  #
+                            comfoconnect.cmd_rmi_request(CMD_MODE_AUTO)
                             _LOGGER.info("MODE_AUTO")
                     elif topic == mqtt_topic + "MODE_MANUAL":
                         if int(value) == 1:
-                            comfoconnect.cmd_rmi_request(CMD_MODE_MANUAL)  #
+                            comfoconnect.cmd_rmi_request(CMD_MODE_MANUAL)
                             _LOGGER.info("MODE_MANUAL")
-                    elif topic == mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN_1":
-                        if int(value) == 1:
-                            comfoconnect.cmd_rmi_request(CMD_VENTMODE_STOP_SUPPLY_FAN_1)  #
-                            _LOGGER.info("VENTMODE_STOP_SUPPLY_FAN_1")
                     elif topic == mqtt_topic + "START_EXHAUST_FAN":
                         if int(value) == 1:
-                            comfoconnect.cmd_rmi_request(CMD_START_EXHAUST_FAN)  #
+                            comfoconnect.cmd_rmi_request(CMD_START_EXHAUST_FAN)
                             _LOGGER.info("START_EXHAUST_FAN")
-                    elif topic == mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN_1":
-                        if int(value) == 1:
-                            comfoconnect.cmd_rmi_request(CMD_VENTMODE_STOP_EXHAUST_FAN_1)  #
-                            _LOGGER.info("VENTMODE_STOP_EXHAUST_FAN_1")
                     elif topic == mqtt_topic + "BOOST_MODE_START":
                         if int(value) == 1:
-                            comfoconnect.cmd_rmi_request(CMD_BOOST_MODE_START)  #
+                            comfoconnect.cmd_rmi_request(CMD_BOOST_MODE_START)
                             _LOGGER.info("BOOST_MODE_START")
                     elif topic == mqtt_topic + "BOOST_MODE_END":
                         if int(value) == 1:
-                            comfoconnect.cmd_rmi_request(CMD_BOOST_MODE_END)  #
+                            comfoconnect.cmd_rmi_request(CMD_BOOST_MODE_END)
                             _LOGGER.info("BOOST_MODE_END")
                     elif topic == mqtt_topic + "VENTMODE_SUPPLY":
-                        comfoconnect.cmd_rmi_request(CMD_VENTMODE_SUPPLY)  #
+                        comfoconnect.cmd_rmi_request(CMD_VENTMODE_SUPPLY)  # Command fehlt in der const.py
                     elif topic == mqtt_topic + "VENTMODE_BALANCE":
-                        comfoconnect.cmd_rmi_request(CMD_VENTMODE_BALANCE)  #
+                        comfoconnect.cmd_rmi_request(CMD_VENTMODE_BALANCE)  ## Command fehlt in der const.py
                     elif topic == mqtt_topic + "TEMPPROF_NORMAL":
-                        comfoconnect.cmd_rmi_request(CMD_TEMPPROF_NORMAL)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_TEMPPROF_NORMAL)
                     elif topic == mqtt_topic + "TEMPPROF_COOL":
-                        comfoconnect.cmd_rmi_request(CMD_TEMPPROF_COOL)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_TEMPPROF_COOL)  #
                     elif topic == mqtt_topic + "TEMPPROF_WARM":
-                        comfoconnect.cmd_rmi_request(CMD_TEMPPROF_WARM)  #
-                    elif topic == mqtt_topic + "BYPASS_ON":
-                        comfoconnect.cmd_rmi_request(CMD_BYPASS_ON)  #
-                    elif topic == mqtt_topic + "BYPASS_OFF":
-                        comfoconnect.cmd_rmi_request(CMD_BYPASS_OFF)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_TEMPPROF_WARM)  #
                     elif topic == mqtt_topic + "BYPASS_AUTO":
-                        comfoconnect.cmd_rmi_request(CMD_BYPASS_AUTO)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_BYPASS_AUTO)  #
                     elif topic == mqtt_topic + "SENSOR_TEMP_OFF":
-                        comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_OFF)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_OFF)  #
                     elif topic == mqtt_topic + "SENSOR_TEMP_AUTO":
-                        comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_AUTO)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_AUTO)  #
                     elif topic == mqtt_topic + "SENSOR_TEMP_ON":
-                        comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_ON)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_ON)  #
                     elif topic == mqtt_topic + "SENSOR_HUMC_OFF":
-                        comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_OFF)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_OFF)  #
                     elif topic == mqtt_topic + "SENSOR_HUMC_AUTO":
-                        comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_AUTO)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_AUTO)  #
                     elif topic == mqtt_topic + "SENSOR_HUMC_ON":
-                        comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_ON)  #
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_ON)  #
                     elif topic == mqtt_topic + "SENSOR_HUMP_OFF":
                         if int(value) == 1:
                             comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_OFF)  #
@@ -370,14 +375,45 @@ def main():
                             comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_ON)  #
                             _LOGGER.info("SENSOR_HUMP_ON")
                     elif topic == mqtt_topic + "BOOST_MODE_DELAY":
-                            boost_mode_delay=to_big(value)
-                            print ("Delay in hex: " + str(boost_mode_delay))
-                            _LOGGER.info("BOOST_MODE_DELAY" + str(value) + " sec")
+                        boost_mode_delay=to_big(value)
+                        _LOGGER.debug("BOOST_MODE_DELAY hex: " + str(boost_mode_delay))
+                        _LOGGER.info("BOOST_MODE_DELAY " + str(value) + " sec")
                     elif topic == mqtt_topic + "BOOST_MODE_X":
                         if int(value) == 1:
-                            print ("Boost Mode Delay: " + str(boost_mode_delay))
-                            comfoconnect.cmd_rmi_request(b'\x84\x15\x01\x06\x00\x00\x00\x00' + boost_mode_delay + b'\x00\x00\x03')  #
+                            comfoconnect.cmd_rmi_request(b'\x84\x15\x01\x06\x00\x00\x00\x00' + boost_mode_delay + b'\x00\x00\x03')
                             _LOGGER.info("BOOST_MODE_X")
+                    elif topic == mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN_1_TIME":
+                        ventmode_stop_supply_fan_1_time=to_big(value)
+                        _LOGGER.debug("VENTMODE_STOP_SUPPLY_FAN_1_TIME hex " + str(ventmode_stop_supply_fan_1_time))
+                        _LOGGER.info("VENTMODE_STOP_SUPPLY_FAN_1_TIME " + str(value) + " sec")
+                    elif topic == mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN_1":
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(b'\x84\x15\x07\x01\x00\x00\x00\x00' + ventmode_stop_supply_fan_1_time + b'\x00\x00\x01')
+                            _LOGGER.info("VENTMODE_STOP_SUPPLY_FAN_1")
+                    elif topic == mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN_1_TIME":
+                        ventmode_stop_exhaust_fan_1_time=to_big(value)
+                        _LOGGER.debug("VENTMODE_STOP_EXHAUST_FAN_1_TIME in hex: " + str(ventmode_stop_exhaust_fan_1_time))
+                        _LOGGER.info("VENTMODE_STOP_EXHAUST_FAN_1_TIME " + str(value) + " sec")
+                    elif topic == mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN_1":
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(b'\x84\x15\x06\x01\x00\x00\x00\x00' + ventmode_stop_exhaust_fan_1_time + b'\x00\x00\x01')
+                            _LOGGER.info("VENTMODE_STOP_EXHAUST_FAN_1")
+                    elif topic == mqtt_topic + "BYPASS_ON_TIME":
+                        bypass_on_time=to_big(value)
+                        _LOGGER.debug("BYPASS_ON_TIME in hex: " + str(bypass_on_time))
+                        _LOGGER.info("BYPASS_ON_TIME " + str(value) + " sec")
+                    elif topic == mqtt_topic + "BYPASS_ON":
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_on_time + b'\x00\x00\x01')
+                            _LOGGER.info("BYPASS_ON")
+                    elif topic == mqtt_topic + "BYPASS_OFF_TIME":
+                        bypass_off_time=to_big(value)
+                        _LOGGER.debug("BYPASS_OFF_TIME in hex: " + str(bypass_off_time))
+                        _LOGGER.info("BYPASS_OFF_TIME " + str(value) + " sec")
+                    elif topic == mqtt_topic + "BYPASS_OFF":
+                        if int(value) == 1:
+                            comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_off_time + b'\x00\x00\x02')
+                            _LOGGER.info("BYPASS_OFF")
             else:
                 _LOGGER.critical("Not connected to ComfoConnect ...")
         sleep(1)
