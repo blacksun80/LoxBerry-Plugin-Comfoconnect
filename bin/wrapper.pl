@@ -102,13 +102,13 @@ foreach $arg (@ARGV) {
 
         if (($arg eq "restart") || ($arg eq "start")) {
             LOGINF "Starting ComfoConnect...";
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.cfg --logfile $logfile --loglevel $loglevel > /dev/null 2>&1 &");
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>&1 &");
             exit(0);
         }
 
         if ($arg eq "search") {
             LOGINF "Suche Lüftungsanlage...";
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.cfg --logfile $logfile --loglevel $loglevel --search > /dev/null 2>&1");
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --search > /dev/null 2>&1");
             exit(0);
         }
     }

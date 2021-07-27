@@ -32,6 +32,7 @@ use HTML::Template;
 use LoxBerry::System;
 use LoxBerry::JSON;
 use LoxBerry::IO;
+use LoxBerry::Web;
 #use warnings;
 #use strict;
 #no strict "refs"; # we need it for template system and for contructs like ${"skalar".$i} in loops
@@ -41,14 +42,12 @@ use LoxBerry::IO;
 ##########################################################################
 my  $cgi = new CGI;
 my  $cfg;
-my  $plugin_cfg;
 my  $lang;
 my  $installfolder;
 my  $languagefile;
 my  $version;
 my  $home = File::HomeDir->my_home;
 my  $psubfolder;
-my  $pname;
 my  $languagefileplugin;
 my  %TPhrases;
 my  @heads;
@@ -77,6 +76,8 @@ my $crontab = new Config::Crontab;
 $crontab->system(1); ## Wichtig, damit der User im File berücksichtigt wird
 $crontab->read( -file => "$lbhomedir/system/cron/cron.d/$lbpplugindir" );
 
+#my $log = LoxBerry::Log->new(name => 'CGI',);
+LOGSTART("ComfoConnect CGI");
 
 ##########################################################################
 # Read Settings
@@ -102,8 +103,15 @@ $installfolder	= $cfg->param("BASE.INSTALLFOLDER");
 $lang		= $cfg->param("BASE.LANG");
 
 # Read plugin config
-$plugin_cfg 	= new Config::Simple("$installfolder/config/plugins/$psubfolder/comfoconnect.cfg") or die $plugin_cfg->error();
-$pname          = $plugin_cfg->param("MAIN.SCRIPTNAME");
+my $cfgfile = "$lbpconfigdir/comfoconnect.json";
+LOGINF $cfgfile;
+
+my $jsonobj = LoxBerry::JSON->new();
+my $pcfg = $jsonobj->open(filename => $cfgfile);
+    if (!$pcfg) {
+        LOGERR "No configfile found";
+        exit;
+    }
 
 # Create temp folder if not already exist
 if (!-d "/var/run/shm/$psubfolder") {
@@ -151,7 +159,7 @@ elsif ( $cgi->param('rescan') ) {
 
 # Header # At the moment not in HTML::Template format
 #$headertemplate = HTML::Template->new(filename => "$installfolder/templates/system/$lang/header.html");
-
+  
 # Main
 $maintemplate = HTML::Template->new(
 	filename => "$installfolder/templates/plugins/$psubfolder/multi/main.html",
@@ -223,23 +231,33 @@ sub form
 	if ( $rescan ) {
 		system("perl $installfolder/bin/plugins/$psubfolder/wrapper.pl search > /dev/null 2>&1");
         
-		$plugin_cfg 	= new Config::Simple("$installfolder/config/plugins/$psubfolder/comfoconnect.cfg") or die $plugin_cfg->error();
-		# if ($uuid == "") {
-			# print $cgi->header(-status => "204 UUID kann nicht ermittelt werden, evtl. IP oder PIN falsch!");
-		# }
+        
+        my $cfgfile = "$lbpconfigdir/comfoconnect.json";
+        LOGINF $cfgfile;
+
+        my $jsonobj = LoxBerry::JSON->new();
+        my $pcfg = $jsonobj->open(filename => $cfgfile);
+        
+    if (!$pcfg) {
+        LOGERR "No configfile found";
+        exit;
+    }
+    # if ($uuid == "") {
+        # print $cgi->header(-status => "204 UUID kann nicht ermittelt werden, evtl. IP oder PIN falsch!");
+    # }
 	}
     
 	# If the form was saved, update config file
     if ( $saveformdata ) {
-		$plugin_cfg->param( "MAIN.IPLANC", $cgi->param('iplanc') );
-		$plugin_cfg->param( "MAIN.PIN", $cgi->param('pin') );
-		$plugin_cfg->param( "MAIN.MQTTUSER", $mqttcred->{brokeruser});
-		$plugin_cfg->param( "MAIN.MQTTPASS", $mqttcred->{brokerpass});
-		$plugin_cfg->param( "MAIN.MQTTSERVER", $mqttcred->{brokerhost});
-		$plugin_cfg->param( "MAIN.MQTTPORT", $mqttcred->{brokerport});
-		$plugin_cfg->param( "MAIN.MQTTTOPIC", "ComfoConnect/" );
-		$plugin_cfg->save;
-
+        $pcfg->{'MAIN'}->{'IPLANC'} = $cgi->param('iplanc');
+        $pcfg->{'MAIN'}->{'PIN'} = $cgi->param('pin');
+        $pcfg->{'MAIN'}->{'MQTTUSER'} = $mqttcred->{brokeruser};
+        $pcfg->{'MAIN'}->{'MQTTPASS'} = $mqttcred->{brokerpass};
+        $pcfg->{'MAIN'}->{'MQTTSERVER'} = $mqttcred->{brokerhost};
+        $pcfg->{'MAIN'}->{'MQTTPORT'} = $mqttcred->{brokerport};
+        $pcfg->{'MAIN'}->{'MQTTTOPIC'} = "ComfoConnect/";
+        $jsonobj->write();
+        
 		Cronjob("Uninstall");
         
 		if (($cgi->param('iplanc') ne "") && ($cgi->param('pin') ne "")) {
@@ -249,9 +267,6 @@ sub form
 			Cronjob("Install");
 		}
 	}
-	
-	# The page title read from language file + our name
-	#$template_title = $phrase->param("TXT0000") . ": " . $pname;
 	
 	# Navbar
 	our %navbar;
@@ -283,15 +298,15 @@ sub form
 	$maintemplate->param( PSUBFOLDER	=> $psubfolder );
 	$maintemplate->param( HOST 			=> $ENV{HTTP_HOST} );
 	$maintemplate->param( LOGINNAME		=> $ENV{REMOTE_USER} );
-	$maintemplate->param( IPLANC 		=> $plugin_cfg->param("MAIN.IPLANC") );
-	$maintemplate->param( PIN 			=> $plugin_cfg->param("MAIN.PIN") );
-	$maintemplate->param( TOPIC			=> $plugin_cfg->param("MAIN.MQTTTOPIC") . "#" ); 
+	$maintemplate->param( IPLANC 		=> $pcfg->{'MAIN'}->{'IPLANC'});
+    $maintemplate->param( PIN 		    => $pcfg->{'MAIN'}->{'PIN'});
+    $maintemplate->param( TOPIC 		=> $pcfg->{'MAIN'}->{'MQTTTOPIC'} . "#");
 
     ##
     #handle Template and render index page
     ##
     # handle MQTT details
-    my $mqttsubscription = $plugin_cfg->param("MAIN.MQTTTOPIC") . "#";
+    my $mqttsubscription =  $pcfg->{'MAIN'}->{'MQTTTOPIC'} . "#";
     my $mqtthint = "Alle Daten werden per MQTT übertragen. Die Subscription dafür lautet <span class='mono'>
                                     $mqttsubscription</span> und wird im MQTT Gateway Plugin automatisch eingetragen.";
     my $mqtthintclass = "hint";
@@ -335,6 +350,7 @@ sub lbheader
       $helptext = $helptext . $_;
     }
   close(F);
+  
   open(F,"$installfolder/templates/system/$lang/header.html") || die "Missing template system/$lang/header.html";
     while (<F>) 
     {

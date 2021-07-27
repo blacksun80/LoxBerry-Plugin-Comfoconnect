@@ -1,0 +1,12 @@
+{
+   "MAIN" : {
+      "IPLANC" : "",
+      "MQTTPASS" : "",
+      "MQTTPORT" : "",
+      "MQTTSERVER" : "",
+      "MQTTTOPIC" : "ComfoConnect/",
+      "MQTTUSER" : "",
+      "PIN" : "0000",
+      "SKRIPTNAME" : "comfoconnect"
+   }
+}
