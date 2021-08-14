@@ -102,17 +102,6 @@ $cfg	 	= new Config::Simple("$home/config/system/general.cfg") or die $cfg->erro
 $installfolder	= $cfg->param("BASE.INSTALLFOLDER");
 $lang		= $cfg->param("BASE.LANG");
 
-# Read plugin config
-my $cfgfile = "$lbpconfigdir/comfoconnect.json";
-LOGINF $cfgfile;
-
-my $jsonobj = LoxBerry::JSON->new();
-my $pcfg = $jsonobj->open(filename => $cfgfile);
-    if (!$pcfg) {
-        LOGERR "No configfile found";
-        exit;
-    }
-
 # Create temp folder if not already exist
 if (!-d "/var/run/shm/$psubfolder") {
 	system("mkdir -p /var/run/shm/$psubfolder > /dev/null 2>&1");
@@ -230,32 +219,34 @@ sub form
 	# ReScan Zehnder UUID
 	if ( $rescan ) {
 		system("perl $installfolder/bin/plugins/$psubfolder/wrapper.pl search > /dev/null 2>&1");
-        
-        
-        my $cfgfile = "$lbpconfigdir/comfoconnect.json";
-        LOGINF $cfgfile;
+    }
+    
+    # Read plugin config
+    my $cfgfile = "$lbpconfigdir/comfoconnect.json";
+    LOGINF $cfgfile;
 
-        my $jsonobj = LoxBerry::JSON->new();
-        my $pcfg = $jsonobj->open(filename => $cfgfile);
+    my $jsonobj = LoxBerry::JSON->new();
+    my $pcfg = $jsonobj->open(filename => $cfgfile);
         
     if (!$pcfg) {
         LOGERR "No configfile found";
         exit;
     }
-    # if ($uuid == "") {
-        # print $cgi->header(-status => "204 UUID kann nicht ermittelt werden, evtl. IP oder PIN falsch!");
-    # }
-	}
     
+    # Speichere die MQTT Credentials
+    $pcfg->{'MAIN'}->{'MQTTUSER'} = $mqttcred->{brokeruser};
+    $pcfg->{'MAIN'}->{'MQTTPASS'} = $mqttcred->{brokerpass};
+    $pcfg->{'MAIN'}->{'MQTTSERVER'} = $mqttcred->{brokerhost};
+    $pcfg->{'MAIN'}->{'MQTTPORT'} = $mqttcred->{brokerport};
+    $pcfg->{'MAIN'}->{'MQTTTOPIC'} = "ComfoConnect/";
+    # use Data::Dumper;               # Perl core module
+    # print Dumper($pcfg);
+    $jsonobj->write();
+
 	# If the form was saved, update config file
     if ( $saveformdata ) {
         $pcfg->{'MAIN'}->{'IPLANC'} = $cgi->param('iplanc');
         $pcfg->{'MAIN'}->{'PIN'} = $cgi->param('pin');
-        $pcfg->{'MAIN'}->{'MQTTUSER'} = $mqttcred->{brokeruser};
-        $pcfg->{'MAIN'}->{'MQTTPASS'} = $mqttcred->{brokerpass};
-        $pcfg->{'MAIN'}->{'MQTTSERVER'} = $mqttcred->{brokerhost};
-        $pcfg->{'MAIN'}->{'MQTTPORT'} = $mqttcred->{brokerport};
-        $pcfg->{'MAIN'}->{'MQTTTOPIC'} = "ComfoConnect/";
         $jsonobj->write();
         
 		Cronjob("Uninstall");
@@ -301,7 +292,7 @@ sub form
 	$maintemplate->param( IPLANC 		=> $pcfg->{'MAIN'}->{'IPLANC'});
     $maintemplate->param( PIN 		    => $pcfg->{'MAIN'}->{'PIN'});
     $maintemplate->param( TOPIC 		=> $pcfg->{'MAIN'}->{'MQTTTOPIC'} . "#");
-
+    
     ##
     #handle Template and render index page
     ##
@@ -407,7 +398,7 @@ sub Cronjob
 		
 		# Create the event
 		my $event = new Config::Crontab::Event (
-		-command =>  "$installfolder/bin/plugins/$psubfolder/wrapper.pl  restart > /dev/null 2>&1 &",
+		-command =>  "$installfolder/bin/plugins/$psubfolder/wrapper.pl start > /dev/null 2>&1 &",
 		-user => 'loxberry',
 		-system => 1,
 		);

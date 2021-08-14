@@ -210,8 +210,6 @@ def main():
     # Configuration #######################################################################################################
     local_name      = 'ComfoConnect Gateway'                                # Name of the service
     local_uuid      = bytes.fromhex('00000000000000000000000000000005')     # Can be what you want, used to differentiate devices (as only 1 simultaneously connected device is allowed)
-    # device_ip		= Config.get('MAIN','IPLANC')                           # Look in your router administration and get the ip of the comfoconnect device and set it as static lease
-    # pin     		= Config.get('MAIN', 'PIN')                             # Set PIN of vent unit !
     
 #   Connect to Comfocontrol device  #####################################################################################
 #   Detect Bridge
@@ -223,16 +221,9 @@ def main():
         _LOGGER.info("IP Adresse in Configfile gesichert")
         # save to a file
         with open(configfile, 'w') as outfile:
-            json.dump(pcfg, outfile)
+            json.dump(pcfg, outfile, ensure_ascii=True, indent=4)
         exit(0)
         
-    # Configuration mqtt#######################################################################################################
-    # mqtt_broker   	= Config.get('MAIN', 'MQTTSERVER')                      # Set your MQTT broker here
-    # mqtt_user 		= Config.get('MAIN', 'MQTTUSER')                        # Set the MQTT user login
-    # mqtt_passw   	= Config.get('MAIN', 'MQTTPASS')                        # Set the MQTT user password
-    # mqtt_topic  	= Config.get('MAIN', 'MQTTTOPIC')                       # Set the MQTT root topic
-    # mqtt_port       = int(Config.get('MAIN', 'MQTTPORT'))                        # Set the MQTT Port
-
     client                      = mqtt.Client("ComfoConnect", clean_session=True)
     client.on_subscribe         = on_subscribe
     client.on_publish           = on_publish

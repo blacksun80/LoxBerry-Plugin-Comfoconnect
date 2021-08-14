@@ -96,12 +96,20 @@ foreach $arg (@ARGV) {
 
         if (scalar(grep{/cfc.py/} `ps aux`)) {
             LOGINF "cfc.py already running.";
-            LOGINF "Stopping ComfoConnect...";
+            LOGINF "Stoppe ComfoConnect...";
             system("pkill -f $installfolder/bin/plugins/$psubfolder/cfc.py >> $logfile 2>&1");
         }
 
-        if (($arg eq "restart") || ($arg eq "start")) {
-            LOGINF "Starting ComfoConnect...";
+        if ($arg eq "restart") {
+            LOGINF "Starte ComfoConnect...";
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>&1 &");
+            exit(0);
+        }
+        
+        if ($arg eq "start") {
+            LOGINF "Starte ComfoConnect...";
+            LOGINF "Warte bis der Loxberry bereit ist";
+            sleep(20);
             system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>&1 &");
             exit(0);
         }
