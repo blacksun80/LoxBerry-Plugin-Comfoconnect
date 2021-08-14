@@ -326,7 +326,7 @@ def main():
                         if int(value) == 1:
                             comfoconnect.cmd_rmi_request(CMD_START_EXHAUST_FAN)
                             _LOGGER.info("START_EXHAUST_FAN")
-                   elif topic == mqtt_topic + "BOOST_MODE_END":
+                    elif topic == mqtt_topic + "BOOST_MODE_END":
                         if int(value) == 1:
                             comfoconnect.cmd_rmi_request(CMD_BOOST_MODE_END)
                             _LOGGER.info("BOOST_MODE_END")
