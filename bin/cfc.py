@@ -63,6 +63,7 @@ def on_disconnect(client, userdata, rc):
     _LOGGER.info("Disconnection returned result: "+mqtt.connack_string(rc))
 
 def on_message_CMD(client, userdata, msg):
+    global boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time
     _LOGGER.info("message gekommen")
     _LOGGER.info("from MQTT %s = %s\n" % (msg.topic , str(msg.payload.decode("utf-8"))))
     
