@@ -336,7 +336,7 @@ def main():
         mqtt_port       = int(pcfg['MAIN']['MQTTPORT'])                         # Set the MQTT Port
 
         device_ip		= pcfg['MAIN']['IPLANC']                                # Look in your router administration and get the ip of the comfoconnect device and set it as static lease
-        pin     		= pcfg['MAIN']['PIN']                                   # Set PIN of vent unit !
+        pin     		= int(pcfg['MAIN']['PIN'])                              # Set PIN of vent unit !
 
     except Exception as e:
         _LOGGER.exception(str(e))
@@ -371,7 +371,14 @@ def main():
         
     bridge = bridge_discovery(device_ip, debug, search)
 
-    comfoconnect = ComfoConnect(bridge, local_uuid, local_name, pin)
+    # Connect to the bridge
+    try:
+        _LOGGER.info("Connecting to the " + local_name + " - PIN: " + str(pin))
+        comfoconnect = ComfoConnect(bridge, local_uuid, local_name, pin)
+
+    except Exception as e:
+        _LOGGER.exception(str(e))
+        
     comfoconnect.callback_sensor = callback_sensor
     
     # Connect to the broker
