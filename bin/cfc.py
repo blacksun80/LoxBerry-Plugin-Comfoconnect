@@ -17,8 +17,10 @@ def on_publish(client, userdata, mid):
     pass
 
 def on_connect(client, userdata, flags, rc):
-    _LOGGER.info("Connection returned result: "+mqtt.connack_string(rc))
-    
+    if rc==0:
+        _LOGGER.info("Connection returned result: "+mqtt.connack_string(rc))
+    else:
+        _LOGGER.error("Disconnection returned result: "+mqtt.connack_string(rc))
     client.subscribe(mqtt_topic + "#", qos=2)
     client.message_callback_add(mqtt_topic + "FAN_MODE", on_message_CMD)
     client.message_callback_add(mqtt_topic + "FAN_MODE_AWAY", on_message_CMD)
@@ -61,9 +63,10 @@ def on_connect(client, userdata, flags, rc):
 
 def on_disconnect(client, userdata, rc):
     # Closing the session #############################################################################################
-    client.loop_stop()
-    comfoconnect.disconnect()
-    _LOGGER.info("Disconnection returned result: "+mqtt.connack_string(rc))
+    if rc==0:
+        _LOGGER.info("Disconnection returned result: "+mqtt.connack_string(rc))
+    else:
+        _LOGGER.error("Disconnection returned result: "+mqtt.connack_string(rc))
 
 def on_message_CMD(client, userdata, msg):
     global boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time
