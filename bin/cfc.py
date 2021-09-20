@@ -325,8 +325,7 @@ def callback_sensor(var, value):
     elif 'CONV' in sensor_data[var]:
         value = eval(sensor_data[var]['CONV'] % (value))
 
-    (rc, mid) = client.publish(mqtt_topic + sensor_data[var]['NAME'], value)
-
+    (rc, mid) = client.publish(mqtt_topic + sensor_data[var]['NAME'], value, qos=2)
     _LOGGER.debug("rc: " + str(rc) + "   mid: " + str(mid))
     _LOGGER.debug("%s = %s" % (var, value))
     _LOGGER.debug(mqtt_topic)
