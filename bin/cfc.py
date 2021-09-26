@@ -115,7 +115,7 @@ def on_message_CMD(client, userdata, msg):
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_MODE_MANUAL)
             _LOGGER.info("MODE_MANUAL")
-    elif topic == mqtt_topic + "TEMPPROF":
+    elif topic == mqtt_topic + "MODE":
         if int(value) == 0:
             comfoconnect.cmd_rmi_request(CMD_MODE_MANUAL)
             _LOGGER.info("MODE_MANUAL")
