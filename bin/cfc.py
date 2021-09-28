@@ -310,6 +310,9 @@ def to_big(val):
     big_hex = bytearray.fromhex(big_hex)
     return big_hex
 
+def on_log(client, userdata, level, buf):
+    _LOGGER.debug("Paho: " + buf)
+
 def callback_sensor(var, value):
     # for x in unknown:
         # if var == x:
@@ -362,7 +365,7 @@ def main():
         elif opt in ("-s", "--search"):
             search = True
     
-    if loglevel == 10: # Level Debug
+    if loglevel == 7: # Level Debug
         debug = True
     else:
         debug = False
@@ -412,6 +415,7 @@ def main():
     client.on_publish           = on_publish
     client.on_connect           = on_connect
     client.on_disconnect        = on_disconnect
+    client.on_log               = on_log
     
     client.username_pw_set(mqtt_user,mqtt_passw)
     client.reconnect_delay_set(min_delay=1, max_delay=30)
