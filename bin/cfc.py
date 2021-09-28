@@ -161,7 +161,17 @@ def on_message_CMD(client, userdata, msg):
     elif topic == mqtt_topic + "SENSOR_TEMP_ON":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_ON)  #
-    elif topic == mqtt_topic + "SENSOR_HUMC_OFF":
+     elif topic == mqtt_topic + "SENSOR_TEMP":
+        if int(value) == 0:
+            comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_AUTO)
+            _LOGGER.info("SENSOR_TEMP_AUTO")
+        elif int(value) == 1:
+            comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_ON)
+            _LOGGER.info("SENSOR_TEMP_ON")
+        elif int(value) == 2:
+            comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_OFF)
+            _LOGGER.info("TEMPPROF_WARM")
+    elif topic == mqtt_topic + "SENSOR_TEMP_OFF":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_OFF)  #
     elif topic == mqtt_topic + "SENSOR_HUMC_AUTO":
