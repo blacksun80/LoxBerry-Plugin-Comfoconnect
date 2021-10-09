@@ -102,7 +102,8 @@ foreach $arg (@ARGV) {
 
         if ($arg eq "restart") {
             LOGINF "Starte ComfoConnect...";
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>&1 &");
+            #system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>&1 
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel 2> $logfile &");
             exit(0);
         }
         
@@ -110,7 +111,8 @@ foreach $arg (@ARGV) {
             LOGINF "Starte ComfoConnect...";
             LOGINF "Warte bis der Loxberry bereit ist";
             sleep(20);
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>&1 &");
+            #system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>&1 &");
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel 2> $logfile &");
             exit(0);
         }
 
