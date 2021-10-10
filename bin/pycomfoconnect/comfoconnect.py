@@ -209,7 +209,7 @@ class ComfoConnect(object):
         except KeyError:
             return None
 
-    def _get_reply(self, confirm_type=None, timeout=5, use_queue=True):
+    def _get_reply(self, confirm_type=None, timeout=30, use_queue=True):
         """Pops a message of the queue, optionally looking for a specific type."""
 
         start = time.time()
@@ -261,7 +261,8 @@ class ComfoConnect(object):
                 else:
                     # We got a message with an incorrect type. Hopefully, this doesn't happen to often,
                     # since we just put it back on the queue.
-                    self._queue.put(message)
+                    # self._queue.put(message)
+                    pass
 
             if time.time() - start > timeout:
                 raise ValueError('Timeout waiting for response.')
