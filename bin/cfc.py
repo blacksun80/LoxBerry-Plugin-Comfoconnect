@@ -12,6 +12,8 @@ import configparser
 from mqtt_data import sensor_data
 import logging
 
+interval = [0 for x in range(300)]
+
 def on_publish(client, userdata, mid):
     _LOGGER.debug("Published Data - mid: "+str(mid))
     pass
@@ -70,7 +72,6 @@ def on_disconnect(client, userdata, rc):
 
 def on_message_CMD(client, userdata, msg):
     global boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time
-    _LOGGER.info("message gekommen")
     _LOGGER.info("from MQTT %s = %s\n" % (msg.topic , str(msg.payload.decode("utf-8"))))
     
     topic = msg.topic
@@ -330,7 +331,7 @@ def callback_sensor(var, value):
             # print (x)
             # print (var)
             # return
-
+    
     if (var == 81 or var == 82 or var == 86 or var == 87):
         value=int(to_little(value), base=16)
         if value == 4294967295:
@@ -338,15 +339,13 @@ def callback_sensor(var, value):
     elif 'CONV' in sensor_data[var]:
         value = eval(sensor_data[var]['CONV'] % (value))
 
-    (rc, mid) = client.publish(mqtt_topic + sensor_data[var]['NAME'], value, qos=2)
-    _LOGGER.debug("rc: " + str(rc) + "   mid: " + str(mid))
-    _LOGGER.debug("%s = %s" % (var, value))
-    _LOGGER.debug(mqtt_topic)
-    _LOGGER.debug(value)
-    _LOGGER.debug("Var: " + str(var))
-    _LOGGER.debug(sensor_data[var]['NAME'])
-    _LOGGER.debug("---------")
-    _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_data[var]['NAME'], value))
+    # Nur bei ?nderungen und nach Ablauf der PUSH Zeit, parametriert in mqtt_data.py
+    if (time.time() > interval[var]):
+        (rc, mid) = client.publish(mqtt_topic + sensor_data[var]['NAME'], value, qos=2)
+        interval[var] = time.time() + sensor_data[var]['PUSH']
+        
+        _LOGGER.info("Sensorname: " + sensor_data[var]['NAME'] + " " + "Variable " + str(var) + " Wert: " + str(value) + " PUSH: " + str(sensor_data[var]['PUSH']) + " sek.")
+        _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_data[var]['NAME'], value))
 
 def main():
     global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, inputaction, search, unknown, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, comfoconnect
