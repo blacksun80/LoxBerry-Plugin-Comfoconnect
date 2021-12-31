@@ -1,36 +1,28 @@
 sensor_data = {
     16: {
-        'NAME' : 'AWAY',
-        'PUSH'  :  0
+        'NAME' : 'AWAY'
         },
     49: {
-        'NAME' : 'OPERATING_MODE_BIS',
-        'PUSH'  :  0
+        'NAME' : 'OPERATING_MODE_BIS'
         },
     56: {
-        'NAME' : 'OPERATING_MODE',
-        'PUSH'  :  0
+        'NAME' : 'OPERATING_MODE'
         },
     65: {
         'NAME' : 'FAN_SPEED_MODE',
-        'CONV'  :   'str(%i)[-1:]',
-        'PUSH'  :  0
+        'CONV'  :   'str(%i)[-1:]'
         },
     66: {
-        'NAME' : 'BYPASS_MODE',
-        'PUSH'  :  0
+        'NAME' : 'BYPASS_MODE'
         },
     67: {
-        'NAME' : 'PROFILE_TEMPERATURE',
-        'PUSH'  :  0
+        'NAME' : 'PROFILE_TEMPERATURE'
         },
     70: {
-        'NAME' : 'FAN_MODE_SUPPLY',
-        'PUSH'  :  0
+        'NAME' : 'FAN_MODE_SUPPLY'
         },
     71: {
-        'NAME' : 'FAN_MODE_EXHAUST',
-        'PUSH'  :  0
+        'NAME' : 'FAN_MODE_EXHAUST'
         },
     81: {
         'NAME' : 'FAN_NEXT_CHANGE',
@@ -156,16 +148,13 @@ sensor_data = {
         'PUSH'  :  3
         },
     225: {
-        'NAME' : 'COMFORTCONTROL_MODE',
-        'PUSH'  :  0
+        'NAME' : 'COMFORTCONTROL_MODE'
         },
     227: {
-        'NAME' : 'BYPASS_STATE',
-        'PUSH'  :  0
+        'NAME' : 'BYPASS_STATE'
         },
     228: {
-        'NAME' : 'FROSTPROTECT_UNBALANCE',
-        'PUSH'  :  0
+        'NAME' : 'FROSTPROTECT_UNBALANCE'
         },
     274: {
         'NAME' : 'TEMPERATURE_EXTRACT',

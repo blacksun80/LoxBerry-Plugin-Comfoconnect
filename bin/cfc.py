@@ -339,13 +339,19 @@ def callback_sensor(var, value):
     elif 'CONV' in sensor_data[var]:
         value = eval(sensor_data[var]['CONV'] % (value))
 
-    # Nur bei ?nderungen und nach Ablauf der PUSH Zeit, parametriert in mqtt_data.py
-    if (time.time() > interval[var]):
+    # Senden an den MQTT Broker nur bei Änderungen und nach Ablauf der PUSH Zeit, parametriert in mqtt_data.py
+    if 'PUSH' in sensor_data[var]:
+        if (time.time() > interval[var]):
+            (rc, mid) = client.publish(mqtt_topic + sensor_data[var]['NAME'], value, qos=2)
+            interval[var] = time.time() + sensor_data[var]['PUSH']
+            
+            _LOGGER.info("Sensorname: " + sensor_data[var]['NAME'] + ", " + "Variable " + str(var) + ", Wert: " + str(value) + ", PUSH: " + str(sensor_data[var]['PUSH']) + " sek.")
+            _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_data[var]['NAME'], value))
+    else:
         (rc, mid) = client.publish(mqtt_topic + sensor_data[var]['NAME'], value, qos=2)
-        interval[var] = time.time() + sensor_data[var]['PUSH']
-        
-        _LOGGER.info("Sensorname: " + sensor_data[var]['NAME'] + " " + "Variable " + str(var) + " Wert: " + str(value) + " PUSH: " + str(sensor_data[var]['PUSH']) + " sek.")
+        _LOGGER.info("Sensorname: " + sensor_data[var]['NAME'] + ", " + "Variable " + str(var) + ", Wert: " + str(value))
         _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_data[var]['NAME'], value))
+    
 
 def main():
     global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, inputaction, search, unknown, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, comfoconnect
