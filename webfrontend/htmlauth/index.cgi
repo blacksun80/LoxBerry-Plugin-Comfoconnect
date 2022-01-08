@@ -252,7 +252,7 @@ sub form
 		Cronjob("Uninstall");
         
 		if (($cgi->param('iplanc') ne "") && ($cgi->param('pin') ne "")) {
-			system("perl $installfolder/bin/plugins/$psubfolder/wrapper.pl  restart > /dev/null 2>&1 &");
+			system("perl $installfolder/bin/plugins/$psubfolder/wrapper.pl  restart > /dev/null 2>&1");
 
 			# Create Cronjob
 			Cronjob("Install");
