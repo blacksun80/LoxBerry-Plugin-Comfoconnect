@@ -345,12 +345,19 @@ def callback_sensor(var, value):
             (rc, mid) = client.publish(mqtt_topic + sensor_data[var]['NAME'], value, qos=2)
             interval[var] = time.time() + sensor_data[var]['PUSH']
             
-            _LOGGER.info("Sensorname: " + sensor_data[var]['NAME'] + ", " + "Variable " + str(var) + ", Wert: " + str(value) + ", PUSH: " + str(sensor_data[var]['PUSH']) + " sek.")
-            _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_data[var]['NAME'], value))
+            if (rc == 0):
+                _LOGGER.info("Erfolgreich published, RC=" + str(rc) + " Sensorname: " + sensor_data[var]['NAME'] + ", " + "Variable " + str(var) + ", Wert: " + str(value) + ", PUSH: " + str(sensor_data[var]['PUSH']) + " sek.")
+                _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_data[var]['NAME'], value))
+            else:
+                _LOGGER.error("Fehler published, RC=" + str(rc) + " Sensorname: " + sensor_data[var]['NAME'] + ", " + "Variable " + str(var) + ", Wert: " + str(value) + ", PUSH: " + str(sensor_data[var]['PUSH']) + " sek.")
     else:
         (rc, mid) = client.publish(mqtt_topic + sensor_data[var]['NAME'], value, qos=2)
-        _LOGGER.info("Sensorname: " + sensor_data[var]['NAME'] + ", " + "Variable " + str(var) + ", Wert: " + str(value))
-        _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_data[var]['NAME'], value))
+        
+        if (rc == 0):
+            _LOGGER.info("Erfolgreich published, RC=" + str(rc) + " Sensorname: " + sensor_data[var]['NAME'] + ", " + "Variable " + str(var) + ", Wert: " + str(value))
+            _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_data[var]['NAME'], value))
+        else:
+            _LOGGER.error("Fehler published, RC=" + str(rc) + " Sensorname: " + sensor_data[var]['NAME'] + ", " + "Variable " + str(var) + ", Wert: " + str(value))
     
 
 def main():
@@ -500,7 +507,7 @@ def setup_logger(name):
     
     logging.captureWarnings(1)
     logger = logging.getLogger(name)
-    handler = logging.StreamHandler()
+    handler = logging.StreamHandler(sys.stdout)
 
     logger.addHandler(handler)
     logger.setLevel(loglevel)
