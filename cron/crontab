@@ -10,5 +10,3 @@ PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 
 # m h dom mon dow user  command
 
-## Startup ComfoConnect
-@reboot					loxberry	/opt/loxberry/bin/plugins/comfoconnect/wrapper.pl start > /dev/null 2>&1 &
