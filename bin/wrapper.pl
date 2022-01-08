@@ -25,8 +25,9 @@ use Cwd 'abs_path';
 use Getopt::Long;
 use LoxBerry::System;
 use LoxBerry::Log;
-#use warnings;
-#use strict;
+
+use warnings;
+use strict;
 no strict "refs"; # we need it for template system and for contructs like ${"skalar".$i} in loops
 no strict "subs"; # we need it for template system and for contructs like ${"skalar".$i} in loops
 
@@ -64,7 +65,7 @@ my  @lines;
 my  $i;
 my  $verbose;
 my  $force;
-my $log = LoxBerry::Log->new(name => 'ComfoConnect',);
+my $log = LoxBerry::Log->new(name => 'ComfoConnect', addtime => 1,);
 my $restart;
 my $arg;
 
@@ -72,10 +73,10 @@ LOGSTART("ComfoConnect Log");
 my $logfile = $log->filename();
 my $loglevel = $log->loglevel();
 
-if ($loglevel == 7) {
+if ($loglevel == 6) {
+    $log->stdout(0);
+    $log->stderr(0);
     LOGINF "Debugging is enabled! This will produce A LOT messages in your logfile!";
-    $log->stdout(1);
-    $log->stderr(1);
 }
 
 ##########################################################################
@@ -102,8 +103,7 @@ foreach $arg (@ARGV) {
 
         if ($arg eq "restart") {
             LOGINF "Starte ComfoConnect...";
-            #system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>&1 
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel 2> $logfile &");
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>>$logfile &");
             exit(0);
         }
         
@@ -111,8 +111,7 @@ foreach $arg (@ARGV) {
             LOGINF "Starte ComfoConnect...";
             LOGINF "Warte bis der Loxberry bereit ist";
             sleep(20);
-            #system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>&1 &");
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel 2> $logfile &");
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>&1 &");
             exit(0);
         }
 
