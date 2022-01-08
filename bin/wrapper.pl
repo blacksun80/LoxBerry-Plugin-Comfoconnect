@@ -73,9 +73,9 @@ LOGSTART("ComfoConnect Log");
 my $logfile = $log->filename();
 my $loglevel = $log->loglevel();
 
-if ($loglevel == 6) {
-    $log->stdout(0);
-    $log->stderr(0);
+if ($loglevel == 7) {
+    $log->stdout(1);
+    $log->stderr(1);
     LOGINF "Debugging is enabled! This will produce A LOT messages in your logfile!";
 }
 
@@ -111,13 +111,13 @@ foreach $arg (@ARGV) {
             LOGINF "Starte ComfoConnect...";
             LOGINF "Warte bis der Loxberry bereit ist";
             sleep(20);
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>&1 &");
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>>$logfile &");
             exit(0);
         }
 
         if ($arg eq "search") {
             LOGINF "Suche Lüftungsanlage...";
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --search > /dev/null 2>&1");
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --search > /dev/null 2>>$logfile");
             exit(0);
         }
     }
