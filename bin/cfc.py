@@ -72,7 +72,7 @@ def on_disconnect(client, userdata, rc):
 
 def on_message_CMD(client, userdata, msg):
     global boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time
-    _LOGGER.info("from MQTT %s = %s\n" % (msg.topic , str(msg.payload.decode("utf-8"))))
+    _LOGGER.info("from MQTT %s = %s" % (msg.topic , str(msg.payload.decode("utf-8"))))
     
     topic = msg.topic
     qos = msg.qos
@@ -82,161 +82,231 @@ def on_message_CMD(client, userdata, msg):
     if topic == mqtt_topic + "FAN_MODE":
         if int(value) == 0:
             comfoconnect.cmd_rmi_request(CMD_FAN_MODE_AWAY)
-            _LOGGER.info("FAN_MODE_AWAY")
+            _LOGGER.info("Befehl FAN_MODE_AWAY an Lüftungsanlage gesendet")
         elif int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_FAN_MODE_LOW)
-            _LOGGER.info("FAN_MODE_LOW")
+            _LOGGER.info("Befehl FAN_MODE_LOW an Lüftungsanlage gesendet")
         elif int(value) == 2:
             comfoconnect.cmd_rmi_request(CMD_FAN_MODE_MEDIUM)
-            _LOGGER.info("FAN_MODE_MEDIUM")
+            _LOGGER.info("Befehl FAN_MODE_MEDIUM an Lüftungsanlage gesendet")
         elif int(value) == 3:
             comfoconnect.cmd_rmi_request(CMD_FAN_MODE_HIGH)
-            _LOGGER.info("FAN_MODE_HIGH")
+            _LOGGER.info("Befehl FAN_MODE_HIGH an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("FAN_MODE: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Werte 0, 1, 2, 3")
     elif topic == mqtt_topic + "FAN_MODE_AWAY":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_FAN_MODE_AWAY)  # Go to away mode
-            _LOGGER.info("FAN_MODE_AWAY")
+            _LOGGER.info("Befehl FAN_MODE_AWAY an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("FAN_MODE_AWAY: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "FAN_MODE_LOW":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_FAN_MODE_LOW)
-            _LOGGER.info("FAN_MODE_LOW")
+            _LOGGER.info("Befehl FAN_MODE_LOW an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("FAN_MODE_LOW: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "FAN_MODE_MEDIUM":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_FAN_MODE_MEDIUM)
-            _LOGGER.info("FAN_MODE_MEDIUM")
+            _LOGGER.info("Befehl FAN_MODE_MEDIUM an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("FAN_MODE_MEDIUM: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "FAN_MODE_HIGH":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_FAN_MODE_HIGH)
-            _LOGGER.info("FAN_MODE_HIGH")
+            _LOGGER.info("Befehl FAN_MODE_HIGH an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("FAN_MODE_HIGH: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "MODE_AUTO":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_MODE_AUTO)
-            _LOGGER.info("MODE_AUTO")
+            _LOGGER.info("Befehl MODE_AUTO an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("MODE_AUTO: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "MODE_MANUAL":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_MODE_MANUAL)
-            _LOGGER.info("MODE_MANUAL")
+            _LOGGER.info("Befehl MODE_MANUAL an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("MODE_MANUAL: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "MODE":
         if int(value) == 0:
             comfoconnect.cmd_rmi_request(CMD_MODE_MANUAL)
-            _LOGGER.info("MODE_MANUAL")
+            _LOGGER.info("Befehl MODE_MANUAL an Lüftungsanlage gesendet")
         elif int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_MODE_AUTO)
-            _LOGGER.info("MODE_AUTO")      
+            _LOGGER.info("Befehl MODE_AUTO an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("MODE: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Werte 1, 2")
     elif topic == mqtt_topic + "START_EXHAUST_FAN":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_START_EXHAUST_FAN)
-            _LOGGER.info("START_EXHAUST_FAN")
+            _LOGGER.info("Befehl START_EXHAUST_FAN an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("START_EXHAUST_FAN: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "BOOST_MODE_END":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_BOOST_MODE_END)
-            _LOGGER.info("BOOST_MODE_END")
+            _LOGGER.info("Befehl BOOST_MODE_END an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("BOOST_MODE_END: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "TEMPPROF_NORMAL":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_TEMPPROF_NORMAL)
+            _LOGGER.info("Befehl TEMPPROF_NORMAL an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("TEMPPROF_NORMAL: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "TEMPPROF_COOL":
         if int(value) == 1:
-            comfoconnect.cmd_rmi_request(CMD_TEMPPROF_COOL)  #
+            comfoconnect.cmd_rmi_request(CMD_TEMPPROF_COOL)
+            _LOGGER.info("Befehl TEMPPROF_COOL an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("TEMPPROF_COOL: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "TEMPPROF_WARM":
         if int(value) == 1:
-            comfoconnect.cmd_rmi_request(CMD_TEMPPROF_WARM)  #
+            comfoconnect.cmd_rmi_request(CMD_TEMPPROF_WARM)
+            _LOGGER.info("Befehl TEMPPROF_WARM an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("TEMPPROF_WARM: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "TEMPPROF":
         if int(value) == 0:
             comfoconnect.cmd_rmi_request(CMD_TEMPPROF_NORMAL)
-            _LOGGER.info("TEMPPROF_NORMAL")
+            _LOGGER.info("Befehl TEMPPROF_NORMAL an Lüftungsanlage gesendet")
         elif int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_TEMPPROF_COOL)
-            _LOGGER.info("TEMPPROF_COOL")
+            _LOGGER.info("Befehl TEMPPROF_COOL an Lüftungsanlage gesendet")
         elif int(value) == 2:
             comfoconnect.cmd_rmi_request(CMD_TEMPPROF_WARM)
-            _LOGGER.info("TEMPPROF_WARM")
+            _LOGGER.info("Befehl TEMPPROF_WARM an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("TEMPPROF: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Werte 0, 1, 2")
     elif topic == mqtt_topic + "BYPASS_AUTO":
         if int(value) == 1:
-            comfoconnect.cmd_rmi_request(CMD_BYPASS_AUTO)  #
+            comfoconnect.cmd_rmi_request(CMD_BYPASS_AUTO)
+            _LOGGER.info("Befehl BYPASS_AUTO an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("BYPASS_AUTO: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "SENSOR_TEMP_OFF":
         if int(value) == 1:
-            comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_OFF)  #
+            comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_OFF)
+            _LOGGER.info("Befehl SENSOR_TEMP_OFF an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("SENSOR_TEMP_OFF: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "SENSOR_TEMP_AUTO":
         if int(value) == 1:
-            comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_AUTO)  #
+            comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_AUTO)
+            _LOGGER.info("Befehl SENSOR_TEMP_AUTO an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("SENSOR_TEMP_AUTO: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "SENSOR_TEMP_ON":
         if int(value) == 1:
-            comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_ON)  #
+            comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_ON)
+            _LOGGER.info("Befehl SENSOR_TEMP_ON an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("SENSOR_TEMP_ON: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "SENSOR_TEMP":
         if int(value) == 0:
             comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_AUTO)
-            _LOGGER.info("SENSOR_TEMP_AUTO")
+            _LOGGER.info("Befehl SENSOR_TEMP_AUTO an Lüftungsanlage gesendet")
         elif int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_ON)
-            _LOGGER.info("SENSOR_TEMP_ON")
+            _LOGGER.info("Befehl SENSOR_TEMP_ON an Lüftungsanlage gesendet")
         elif int(value) == 2:
             comfoconnect.cmd_rmi_request(CMD_SENSOR_TEMP_OFF)
-            _LOGGER.info("SENSOR_TEMP_OFF")
+            _LOGGER.info("Befehl SENSOR_TEMP_OFF an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("SENSOR_TEMP: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Werte 0, 1, 2")
     elif topic == mqtt_topic + "SENSOR_HUMC_OFF":
         if int(value) == 1:
-            comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_OFF)  #
+            comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_OFF)
+            _LOGGER.info("Befehl SENSOR_HUMC_OFF an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("SENSOR_HUMC_OFF: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "SENSOR_HUMC_AUTO":
         if int(value) == 1:
-            comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_AUTO)  #
+            comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_AUTO)
+            _LOGGER.info("Befehl SENSOR_HUMC_AUTO an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("SENSOR_HUMC_AUTO: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "SENSOR_HUMC_ON":
         if int(value) == 1:
-            comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_ON)  #
+            comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_ON)
+            _LOGGER.info("Befehl SENSOR_HUMC_ON an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("SENSOR_HUMC_ON: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "SENSOR_HUMC":
         if int(value) == 0:
             comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_AUTO)
-            _LOGGER.info("SENSOR_HUMC_AUTO")
+            _LOGGER.info("Befehl SENSOR_HUMC_AUTO an Lüftungsanlage gesendet")
         elif int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_ON)
-            _LOGGER.info("SENSOR_HUMC_ON")
+            _LOGGER.info("Befehl SENSOR_HUMC_ON an Lüftungsanlage gesendet")
         elif int(value) == 2:
             comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMC_OFF)
-            _LOGGER.info("SENSOR_HUMC_OFF")
+            _LOGGER.info("Befehl SENSOR_HUMC_OFF an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("SENSOR_HUMC: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Werte 0, 1, 2")
     elif topic == mqtt_topic + "SENSOR_HUMP_OFF":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_OFF)  #
-            _LOGGER.info("SENSOR_HUMP_OFF")
+            _LOGGER.info("Befehl SENSOR_HUMP_OFF an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("SENSOR_HUMP_OFF: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "SENSOR_HUMP_AUTO":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_AUTO)  #
-            _LOGGER.info("SENSOR_HUMP_AUTO")
+            _LOGGER.info("Befehl SENSOR_HUMP_AUTO an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("SENSOR_HUMP_AUTO: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "SENSOR_HUMP_ON":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_ON)  #
-            _LOGGER.info("SENSOR_HUMP_ON")
+            _LOGGER.info("Befehl SENSOR_HUMP_ON an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("SENSOR_HUMP_ON: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "SENSOR_HUMP":
         if int(value) == 0:
             comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_AUTO)
-            _LOGGER.info("SENSOR_HUMP_AUTO")
+            _LOGGER.info("Befehl SENSOR_HUMP_AUTO an Lüftungsanlage gesendet")
         elif int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_ON)
-            _LOGGER.info("SENSOR_HUMP_ON")
+            _LOGGER.info("Befehl SENSOR_HUMP_ON an Lüftungsanlage gesendet")
         elif int(value) == 2:
             comfoconnect.cmd_rmi_request(CMD_SENSOR_HUMP_OFF)
-            _LOGGER.info("SENSOR_HUMP_OFF")
+            _LOGGER.info("Befehl SENSOR_HUMP_OFF an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("SENSOR_HUMP: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Werte 0, 1, 2")
     elif topic == mqtt_topic + "BOOST_MODE_TIME":
         boost_mode_time=to_big(value)
         _LOGGER.debug("BOOST_MODE_TIME hex: " + str(boost_mode_time))
-        _LOGGER.info("BOOST_MODE_TIME " + str(value) + " sec")
+        _LOGGER.info("Befehl BOOST_MODE_TIME " + str(value) + " sec" + " an Lüftungsanlage gesendet")
     elif topic == mqtt_topic + "BOOST_MODE":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(b'\x84\x15\x01\x06\x00\x00\x00\x00' + boost_mode_time + b'\x00\x00\x03')
-            _LOGGER.info("BOOST_MODE")
+            _LOGGER.info("Befehl BOOST_MODE an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("BOOST_MODE: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN_TIME":
         ventmode_stop_supply_fan_time=to_big(value)
         _LOGGER.debug("VENTMODE_STOP_SUPPLY_FAN_TIME hex " + str(ventmode_stop_supply_fan_time))
-        _LOGGER.info("VENTMODE_STOP_SUPPLY_FAN_TIME " + str(value) + " sec")
+        _LOGGER.info("Befehl VENTMODE_STOP_SUPPLY_FAN_TIME " + str(value) + " sec" + " an Lüftungsanlage gesendet")
     elif topic == mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(b'\x84\x15\x07\x01\x00\x00\x00\x00' + ventmode_stop_supply_fan_time + b'\x00\x00\x01')
             _LOGGER.info("VENTMODE_STOP_SUPPLY_FAN")
+        else:
+            _LOGGER.error("VENTMODE_STOP_SUPPLY_FAN: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN_TIME":
         ventmode_stop_exhaust_fan_time=to_big(value)
         _LOGGER.debug("VENTMODE_STOP_EXHAUST_FAN_TIME in hex: " + str(ventmode_stop_exhaust_fan_time))
-        _LOGGER.info("VENTMODE_STOP_EXHAUST_FAN_TIME " + str(value) + " sec")
+        _LOGGER.info("Befehl VENTMODE_STOP_EXHAUST_FAN_TIME " + str(value) + " sec" + " an Lüftungsanlage gesendet")
     elif topic == mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(b'\x84\x15\x06\x01\x00\x00\x00\x00' + ventmode_stop_exhaust_fan_time + b'\x00\x00\x01')
-            _LOGGER.info("VENTMODE_STOP_EXHAUST_FAN")
+            _LOGGER.info("Befehl VENTMODE_STOP_EXHAUST_FAN an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("VENTMODE_STOP_EXHAUST_FAN: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "BYPASS_ON_TIME":
         bypass_on_time=to_big(value)
         _LOGGER.debug("BYPASS_ON_TIME in hex: " + str(bypass_on_time))
@@ -244,7 +314,9 @@ def on_message_CMD(client, userdata, msg):
     elif topic == mqtt_topic + "BYPASS_ON":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_on_time + b'\x00\x00\x01')
-            _LOGGER.info("BYPASS_ON")
+            _LOGGER.info("Befehl BYPASS_ON an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("BYPASS_ON: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "BYPASS_OFF_TIME":
         bypass_off_time=to_big(value)
         _LOGGER.debug("BYPASS_OFF_TIME in hex: " + str(bypass_off_time))
@@ -252,17 +324,21 @@ def on_message_CMD(client, userdata, msg):
     elif topic == mqtt_topic + "BYPASS_OFF":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_off_time + b'\x00\x00\x02')
-            _LOGGER.info("BYPASS_OFF")
+            _LOGGER.info("Befehl BYPASS_OFF an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("BYPASS_OFF: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "BYPASS":
         if int(value) == 0:
             comfoconnect.cmd_rmi_request(CMD_BYPASS_AUTO)
-            _LOGGER.info("BYPASS_AUTO")
+            _LOGGER.info("Befehl BYPASS_AUTO an Lüftungsanlage gesendet")
         elif int(value) == 1:
             comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_on_time + b'\x00\x00\x01')
-            _LOGGER.info("BYPASS_ON")
+            _LOGGER.info("Befehl BYPASS_ON an Lüftungsanlage gesendet")
         elif int(value) == 2:
             comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_off_time + b'\x00\x00\x02')
-            _LOGGER.info("BYPASS_OFF")
+            _LOGGER.info("Befehl BYPASS_OFF an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("BYPASS: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Werte 0, 1, 2")
 
 def on_subscribe(client, userdata, mid, granted_qos):
     _LOGGER.info("Subscribed: "+str(mid)+" "+str(granted_qos))
