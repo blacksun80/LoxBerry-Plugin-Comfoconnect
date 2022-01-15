@@ -23,45 +23,47 @@ def on_connect(client, userdata, flags, rc):
         _LOGGER.info("Connection returned result: "+mqtt.connack_string(rc))
     else:
         _LOGGER.error("Disconnection returned result: "+mqtt.connack_string(rc))
-    client.subscribe(mqtt_topic + "#", qos=2)
-    client.message_callback_add(mqtt_topic + "FAN_MODE", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "FAN_MODE_AWAY", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "FAN_MODE_LOW", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "FAN_MODE_MEDIUM", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "FAN_MODE_HIGH", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "MODE", on_message_CMD)                            #
-    client.message_callback_add(mqtt_topic + "MODE_AUTO", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "MODE_MANUAL", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "START_EXHAUST_FAN", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "BOOST_MODE_END", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "TEMPPROF", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "TEMPPROF_NORMAL", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "TEMPPROF_COOL", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "TEMPPROF_WARM", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "BYPASS", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "BYPASS_ON", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "BYPASS_OFF", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "BYPASS_AUTO", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "SENSOR_TEMP", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "SENSOR_TEMP_OFF", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "SENSOR_TEMP_AUTO", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "SENSOR_TEMP_ON", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "SENSOR_HUMC", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "SENSOR_HUMC_OFF", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "SENSOR_HUMC_AUTO", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "SENSOR_HUMC_ON", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "SENSOR_HUMP", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "SENSOR_HUMP_OFF", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "SENSOR_HUMP_AUTO", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "SENSOR_HUMP_ON", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "BOOST_MODE", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "BOOST_MODE_TIME", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN_TIME", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN_TIME", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "BYPASS_ON_TIME", on_message_CMD)
-    client.message_callback_add(mqtt_topic + "BYPASS_OFF_TIME", on_message_CMD)
+        
+    client.publish(mqtt_topic + "Status", payload="Online", qos=0, retain=True)
+
+    client.subscribe(mqtt_topic + "FAN_MODE", qos=0)
+    client.subscribe(mqtt_topic + "FAN_MODE_AWAY", qos=0)
+    client.subscribe(mqtt_topic + "FAN_MODE_LOW", qos=0)
+    client.subscribe(mqtt_topic + "FAN_MODE_MEDIUM", qos=0)
+    client.subscribe(mqtt_topic + "FAN_MODE_HIGH", qos=0)
+    client.subscribe(mqtt_topic + "MODE", qos=0)
+    client.subscribe(mqtt_topic + "MODE_AUTO", qos=0)
+    client.subscribe(mqtt_topic + "MODE_MANUAL", qos=0)
+    client.subscribe(mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN", qos=0)
+    client.subscribe(mqtt_topic + "START_EXHAUST_FAN", qos=0)
+    client.subscribe(mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN", qos=0)
+    client.subscribe(mqtt_topic + "BOOST_MODE_END", qos=0)
+    client.subscribe(mqtt_topic + "TEMPPROF", qos=0)
+    client.subscribe(mqtt_topic + "TEMPPROF_NORMAL", qos=0)
+    client.subscribe(mqtt_topic + "TEMPPROF_COOL", qos=0)
+    client.subscribe(mqtt_topic + "TEMPPROF_WARM", qos=0)
+    client.subscribe(mqtt_topic + "BYPASS", qos=0)
+    client.subscribe(mqtt_topic + "BYPASS_ON", qos=0)
+    client.subscribe(mqtt_topic + "BYPASS_OFF", qos=0)
+    client.subscribe(mqtt_topic + "BYPASS_AUTO", qos=0)
+    client.subscribe(mqtt_topic + "SENSOR_TEMP", qos=0)
+    client.subscribe(mqtt_topic + "SENSOR_TEMP_OFF", qos=0)
+    client.subscribe(mqtt_topic + "SENSOR_TEMP_AUTO", qos=0)
+    client.subscribe(mqtt_topic + "SENSOR_TEMP_ON", qos=0)
+    client.subscribe(mqtt_topic + "SENSOR_HUMC", qos=0)
+    client.subscribe(mqtt_topic + "SENSOR_HUMC_OFF", qos=0)
+    client.subscribe(mqtt_topic + "SENSOR_HUMC_AUTO", qos=0)
+    client.subscribe(mqtt_topic + "SENSOR_HUMC_ON", qos=0)
+    client.subscribe(mqtt_topic + "SENSOR_HUMP", qos=0)
+    client.subscribe(mqtt_topic + "SENSOR_HUMP_OFF", qos=0)
+    client.subscribe(mqtt_topic + "SENSOR_HUMP_AUTO", qos=0)
+    client.subscribe(mqtt_topic + "SENSOR_HUMP_ON", qos=0)
+    client.subscribe(mqtt_topic + "BOOST_MODE", qos=0)
+    client.subscribe(mqtt_topic + "BOOST_MODE_TIME", qos=0)
+    client.subscribe(mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN_TIME", qos=0)
+    client.subscribe(mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN_TIME", qos=0)
+    client.subscribe(mqtt_topic + "BYPASS_ON_TIME", qos=0)
+    client.subscribe(mqtt_topic + "BYPASS_OFF_TIME", qos=0)
 
 def on_disconnect(client, userdata, rc):
     # Closing the session #############################################################################################
@@ -70,7 +72,7 @@ def on_disconnect(client, userdata, rc):
     else:
         _LOGGER.error("Disconnection returned result: "+mqtt.connack_string(rc))
 
-def on_message_CMD(client, userdata, msg):
+def on_message(client, userdata, msg):
     global boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time
     _LOGGER.info("from MQTT %s = %s" % (msg.topic , str(msg.payload.decode("utf-8"))))
     
@@ -280,7 +282,7 @@ def on_message_CMD(client, userdata, msg):
     elif topic == mqtt_topic + "BOOST_MODE_TIME":
         boost_mode_time=to_big(value)
         _LOGGER.debug("BOOST_MODE_TIME hex: " + str(boost_mode_time))
-        _LOGGER.info("Befehl BOOST_MODE_TIME " + str(value) + " sec" + " an Lüftungsanlage gesendet")
+        _LOGGER.info("BOOST_MODE_TIME " + str(value) + " sec" + " übernommen")
     elif topic == mqtt_topic + "BOOST_MODE":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(b'\x84\x15\x01\x06\x00\x00\x00\x00' + boost_mode_time + b'\x00\x00\x03')
@@ -290,17 +292,17 @@ def on_message_CMD(client, userdata, msg):
     elif topic == mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN_TIME":
         ventmode_stop_supply_fan_time=to_big(value)
         _LOGGER.debug("VENTMODE_STOP_SUPPLY_FAN_TIME hex " + str(ventmode_stop_supply_fan_time))
-        _LOGGER.info("Befehl VENTMODE_STOP_SUPPLY_FAN_TIME " + str(value) + " sec" + " an Lüftungsanlage gesendet")
+        _LOGGER.info("VENTMODE_STOP_SUPPLY_FAN_TIME " + str(value) + " sec" + " übernommen")
     elif topic == mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(b'\x84\x15\x07\x01\x00\x00\x00\x00' + ventmode_stop_supply_fan_time + b'\x00\x00\x01')
-            _LOGGER.info("VENTMODE_STOP_SUPPLY_FAN")
+            _LOGGER.info("Befehl VENTMODE_STOP_SUPPLY_FAN an Lüftungsanlage gesendet")
         else:
             _LOGGER.error("VENTMODE_STOP_SUPPLY_FAN: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN_TIME":
         ventmode_stop_exhaust_fan_time=to_big(value)
         _LOGGER.debug("VENTMODE_STOP_EXHAUST_FAN_TIME in hex: " + str(ventmode_stop_exhaust_fan_time))
-        _LOGGER.info("Befehl VENTMODE_STOP_EXHAUST_FAN_TIME " + str(value) + " sec" + " an Lüftungsanlage gesendet")
+        _LOGGER.info("VENTMODE_STOP_EXHAUST_FAN_TIME " + str(value) + " sec" + " übernommen")
     elif topic == mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(b'\x84\x15\x06\x01\x00\x00\x00\x00' + ventmode_stop_exhaust_fan_time + b'\x00\x00\x01')
@@ -310,7 +312,7 @@ def on_message_CMD(client, userdata, msg):
     elif topic == mqtt_topic + "BYPASS_ON_TIME":
         bypass_on_time=to_big(value)
         _LOGGER.debug("BYPASS_ON_TIME in hex: " + str(bypass_on_time))
-        _LOGGER.info("BYPASS_ON_TIME " + str(value) + " sec")
+        _LOGGER.info("BYPASS_ON_TIME " + str(value) + " sec" + " übernommen")
     elif topic == mqtt_topic + "BYPASS_ON":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_on_time + b'\x00\x00\x01')
@@ -418,20 +420,20 @@ def callback_sensor(var, value):
     # Senden an den MQTT Broker nur bei Änderungen und nach Ablauf der PUSH Zeit, parametriert in mqtt_data.py
     if 'PUSH' in sensor_data[var]:
         if (time.time() > interval[var]):
-            (rc, mid) = client.publish(mqtt_topic + sensor_data[var]['NAME'], value, qos=2)
+            (rc, mid) = client.publish(mqtt_topic + sensor_data[var]['NAME'], value, qos=0)
             interval[var] = time.time() + sensor_data[var]['PUSH']
             
             if (rc == 0):
                 _LOGGER.info("Erfolgreich published, RC=" + str(rc) + " Sensorname: " + sensor_data[var]['NAME'] + ", " + "Variable " + str(var) + ", Wert: " + str(value) + ", PUSH: " + str(sensor_data[var]['PUSH']) + " sek.")
-                _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_data[var]['NAME'], value))
+                _LOGGER.debug("to MQTT %s = %s" % (mqtt_topic + sensor_data[var]['NAME'], value))
             else:
                 _LOGGER.error("Fehler published, RC=" + str(rc) + " Sensorname: " + sensor_data[var]['NAME'] + ", " + "Variable " + str(var) + ", Wert: " + str(value) + ", PUSH: " + str(sensor_data[var]['PUSH']) + " sek.")
     else:
-        (rc, mid) = client.publish(mqtt_topic + sensor_data[var]['NAME'], value, qos=2)
+        (rc, mid) = client.publish(mqtt_topic + sensor_data[var]['NAME'], value, qos=0)
         
         if (rc == 0):
             _LOGGER.info("Erfolgreich published, RC=" + str(rc) + " Sensorname: " + sensor_data[var]['NAME'] + ", " + "Variable " + str(var) + ", Wert: " + str(value))
-            _LOGGER.debug("to MQTT %s = %s\n" % (mqtt_topic + sensor_data[var]['NAME'], value))
+            _LOGGER.debug("to MQTT %s = %s" % (mqtt_topic + sensor_data[var]['NAME'], value))
         else:
             _LOGGER.error("Fehler published, RC=" + str(rc) + " Sensorname: " + sensor_data[var]['NAME'] + ", " + "Variable " + str(var) + ", Wert: " + str(value))
     
@@ -514,9 +516,11 @@ def main():
     client.on_connect           = on_connect
     client.on_disconnect        = on_disconnect
     client.on_log               = on_log
+    client.on_message           = on_message
     
     client.username_pw_set(mqtt_user,mqtt_passw)
     client.reconnect_delay_set(min_delay=1, max_delay=30)
+    client.will_set(mqtt_topic + "Status", payload="Offline", qos=0, retain=True)
 
         
     bridge = bridge_discovery(device_ip, debug, search)
@@ -528,9 +532,7 @@ def main():
 
     except Exception as e:
         _LOGGER.exception(str(e))
-        
-    comfoconnect.callback_sensor = callback_sensor
-    
+
     # Connect to the broker
     try:
         _LOGGER.info("Connecting to MQTT Broker " + str(mqtt_broker) + ":" + str(mqtt_port))
@@ -560,10 +562,12 @@ def main():
         # comfoconnect.register_sensor(y)
         # _LOGGER.debug("Unknown Sensor No.: %d" % y)
         
-#    Register sensors ################################################################################################
+#   Register sensors ################################################################################################
     for x in sensor_data:
         comfoconnect.register_sensor(x)
-        _LOGGER.debug("Register Sensor No.: %d" % x)
+        _LOGGER.info("Register Sensor: %d" % x + " Sensorname: " + sensor_data[x]['NAME'])
+        
+    comfoconnect.callback_sensor = callback_sensor
 
 def map_loglevel(loxlevel):
 ##
