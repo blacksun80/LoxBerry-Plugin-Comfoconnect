@@ -376,12 +376,7 @@ def bridge_discovery(ip, debug, search):
         exit(1)
 
     _LOGGER.info("Bridge found: %s (%s)" % (bridge.uuid.hex(), bridge.host))
-    
-    if debug:
-        bridge.debug=True
-    else:
-        bridge.debug=False
-        
+
     return bridge
 
 def to_little(val):
@@ -533,6 +528,8 @@ def main():
     except Exception as e:
         _LOGGER.exception(str(e))
 
+    comfoconnect.callback_sensor = callback_sensor
+
     # Connect to the broker
     try:
         _LOGGER.info("Connecting to MQTT Broker " + str(mqtt_broker) + ":" + str(mqtt_port))
@@ -547,7 +544,6 @@ def main():
     try:
         _LOGGER.info("Connect to the bridge")
         comfoconnect.connect(True)  # Disconnect existing clients.
-
 
     except Exception as e:
         _LOGGER.exception(str(e))
@@ -567,7 +563,18 @@ def main():
         comfoconnect.register_sensor(x)
         _LOGGER.info("Register Sensor: %d" % x + " Sensorname: " + sensor_data[x]['NAME'])
         
-    comfoconnect.callback_sensor = callback_sensor
+    # VersionRequest
+    version = comfoconnect.cmd_version_request()
+    _LOGGER.info("Version :" + str(version))
+    
+    # ListRegisteredApps
+    for app in comfoconnect.cmd_list_registered_apps():
+        _LOGGER.info("Registered Apps (UUID): " + str(app['uuid'].hex()) + ", APP Name: " + str(app['devicename']))
+    
+    # TimeRequest
+    timeinfo = comfoconnect.cmd_time_request()
+    _LOGGER.info("Timeinfo: " + str(timeinfo))
+    
 
 def map_loglevel(loxlevel):
 ##
