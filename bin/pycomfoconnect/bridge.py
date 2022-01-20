@@ -77,8 +77,9 @@ class Bridge(object):
     def disconnect(self) -> bool:
         """Close connection to the bridge."""
 
-        self._socket.close()
-        self._socket = None
+        if self._socket != None:
+            self._socket.close()
+            self._socket = None
 
         return True
 

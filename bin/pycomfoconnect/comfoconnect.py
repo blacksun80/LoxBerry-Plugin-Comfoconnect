@@ -126,7 +126,8 @@ class ComfoConnect(object):
 
         self._queue = queue.Queue()
         self._connected = threading.Event()
-        self._stopping = False
+        self._stopping = False          # signals stopping message handling
+        self._disconnecting = False     # signals intended disconnection in progress
         self._message_thread = None
         self._connection_thread = None
 
@@ -149,12 +150,13 @@ class ComfoConnect(object):
         except PyComfoConnectOtherSession:
             raise Exception('Could not connect to the bridge since there is already an open session.')
 
-        except Exception as exc:
-            _LOGGER.error(exc)
+        except OSError:
+            _LOGGER.error("Unexpected error in connect: " + sys.exc_info()[0])
             raise Exception('Could not connect to the bridge.')
 
-        # Set the stopping flag
+        # Set flags to signal messages are being handled and we are not disconnecting
         self._stopping = False
+        self._disconnecting = False
         self._connected.clear()
 
         # Start connection thread
@@ -169,12 +171,14 @@ class ComfoConnect(object):
     def disconnect(self):
         """Disconnect from the bridge."""
 
-        # Set the stopping flag
+        # Set the flags to stop message handling and intended disconnection
         self._stopping = True
+        self._disconnecting = True
 
-        # Wait for the background thread to finish
-        self._connection_thread.join()
-        self._connection_thread = None
+        # Wait for the background thread to finish in case it is still active
+        if self._connection_thread != None:
+            self._connection_thread.join()
+            self._connection_thread = None
 
     def is_connected(self):
         """Returns whether there is a connection with the bridge."""
@@ -186,7 +190,6 @@ class ComfoConnect(object):
 
         if not sensor_type:
             sensor_type = RPDO_TYPE_MAP.get(sensor_id)
-
         if sensor_type is None:
             raise Exception("Registering sensor %d with unknown type" % sensor_id)
 
@@ -232,8 +235,13 @@ class ComfoConnect(object):
         # Increase message reference
         self._reference += 1
 
-        # Send the message
-        self._bridge.write_message(message)
+        # Be careful when sending message, we need to catch a broken connection here 
+        try: 
+            self._bridge.write_message(message)
+        
+        except OSError:
+            _LOGGER.error("Unexpected error in _command._bridge.write_message: ", sys.exc_info()[0])
+            return False
 
         try:
             # Check if this command has a confirm type set
@@ -246,6 +254,10 @@ class ComfoConnect(object):
 
         except KeyError:
             return None
+            
+        except OSError:
+            _LOGGER.error("Unexpected error in _command._get_reply for confirm type", str(confirm_type), ": ", sys.exc_info()[0])
+            return False
 
     def _get_reply(self, confirm_type=None, timeout=5, use_queue=True):
         """Pops a message of the queue, optionally looking for a specific type."""
@@ -310,8 +322,8 @@ class ComfoConnect(object):
     def _connection_thread_loop(self):
         """Makes sure that there is a connection open."""
 
-        self._stopping = False
-        while not self._stopping:
+        self._disconnecting = False     # no intended disconnection in progress
+        while not self._disconnecting:
 
             # Start connection
             if not self.is_connected():
@@ -330,25 +342,45 @@ class ComfoConnect(object):
 
                 except Exception as exc:
                     _LOGGER.error(exc)
+                    self._bridge.disconnect() # formally disconnect 
                     raise Exception('Could not connect to the bridge.')
+                    
+                else: 
+                    self._stopping = False  # Clear Stop message handling flag
 
-            # Start background thread
-            self._message_thread = threading.Thread(target=self._message_thread_loop)
-            self._message_thread.start()
+            # Only start background thread if we truly are connected, otherwise try reconnecting again 
+            if self.is_connected():
+                # Start background thread
+                self._message_thread = threading.Thread(target=self._message_thread_loop)
+                self._message_thread.start()
 
-            # Re-register for sensor updates
-            for sensor_id in self.sensors:
-                self.cmd_rpdo_request(sensor_id, self.sensors[sensor_id])
+                # Re-register for sensor updates
+                if len(self.sensors)>0:
+                    _LOGGER.info('Reconnected to Bridge. Registering sensors...')
+                    # need to handle exceptions during sensor re-registration to have a robust library
+                    try: 
+                        for sensor_id in self.sensors:
+                            self.cmd_rpdo_request(sensor_id, self.sensors[sensor_id])
 
-            # Send the event that we are ready
-            self._connected.set()
+                    except OSError:
+                        _LOGGER.error("Unexpected error in _connection_thread_loop while registering sensors:", sys.exc_info()[0])
+                        self._stopping = True   # Set stop handling message flag because of this error in connection
 
-            # Wait until the message thread stops working
-            self._message_thread.join()
+                    else: 
+                        _LOGGER.info(str(len(self.sensors)) + ' sensor(s) registered, ready event set.')
 
-            # Close socket connection
-            self._bridge.disconnect()
+                # Send the event that we are ready
+                self._connected.set()
+                
+                # Wait until the message thread stops working
+                self._message_thread.join()
 
+                # Close socket connection
+                self._bridge.disconnect()
+            else:
+                _LOGGER.warning('Could not (re)connect to the Bridge. Trying again...')
+               
+                
     def _connect(self, takeover=False):
         """Connect to the bridge and login. Disconnect existing clients if needed by default."""
 
@@ -387,7 +419,12 @@ class ComfoConnect(object):
             # Sends a keepalive every KEEPALIVE seconds.
             if time.time() > next_keepalive:
                 next_keepalive = time.time() + KEEPALIVE
-                self.cmd_keepalive()
+                try:
+                    _LOGGER.info('Sending keep alive...' + str(self.cmd_keepalive()))
+                
+                except OSError:
+                    _LOGGER.error("Wanted to send keep alive, but hit an unexpected error in _message_thread_loop: ", sys.exc_info()[0])
+                    return
 
             try:
                 # Read a message from the bridge.
@@ -395,7 +432,10 @@ class ComfoConnect(object):
 
             except BrokenPipeError as exc:
                 # Close this thread. The connection_thread will restart us.
-                _LOGGER.warning('The connection was broken. We will try to reconnect later.')
+                _LOGGER.warning("The connection was broken. We will try to reconnect." + str(exc))
+                return
+            except ConnectionResetError as exc:
+                _LOGGER.warning("The connection was reseted. " + str(exc))
                 return
 
             if message:
