@@ -437,6 +437,9 @@ class ComfoConnect(object):
             except ConnectionResetError as exc:
                 _LOGGER.warning("The connection was reseted. " + str(exc))
                 return
+            except ConnectionError as exc:
+                _LOGGER.warning("Connection Error: " + str(exc))
+                return
 
             if message:
                 if message.cmd.type == GatewayOperation.CnRpdoNotificationType:
