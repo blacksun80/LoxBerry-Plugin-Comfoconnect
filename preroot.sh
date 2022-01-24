@@ -56,7 +56,3 @@ echo "<INFO> Plugin Template folder is: $PTEMPL"
 echo "<INFO> Plugin Data folder is: $PDATA"
 echo "<INFO> Plugin Log folder (on RAMDISK!) is: $PLOG"
 echo "<INFO> Plugin CONFIG folder is: $PCONFIG"
-
-pip3 install pycomfoconnect
-apt-get install python3-setuptools
-pip3 install paho-mqtt
