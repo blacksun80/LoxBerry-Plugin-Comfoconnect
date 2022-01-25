@@ -56,12 +56,23 @@ PBIN=$LBPBIN/$PDIR
 echo "<INFO> Installation as root user started."
 
 echo "<INFO> Start installing python3-protobuf..."
-yes | pip3 install -U python3-protobuf>=3.0.0
+yes | python3 -m pip install --upgrade -U python3-protobuf>=3.0.0
 INSTALLED=$(pip3 list --format=columns | grep "protobuf" | grep -v grep | wc -l)
 if [ ${INSTALLED} -ne "0" ]; then
-	echo "<OK> Python Protobuf installed successfully."
+	echo "<OK> python3-protobuf installed successfully."
 else
-	echo "<WARNING> Python Protobuf installation failed! The plugin will not work without."
+	echo "<WARNING> python3-protobuf installation failed! The plugin will not work without."
+	echo "<WARNING> Giving up."
+	exit 2;
+fi 
+
+echo "<INFO> Start installing python3-google..."
+yes | python3 -m pip install --upgrade python3-google
+INSTALLED=$(pip3 list --format=columns | grep "google" | grep -v grep | wc -l)
+if [ ${INSTALLED} -ne "0" ]; then
+	echo "<OK> python3-google installed successfully."
+else
+	echo "<WARNING> python3-google installation failed! The plugin will not work without."
 	echo "<WARNING> Giving up."
 	exit 2;
 fi 
