@@ -53,16 +53,5 @@ else
 	exit 2;
 fi 
 
-# echo "<INFO> Start installing python3-google..."
-# yes | python3 -m pip install --upgrade google
-# INSTALLED=$(pip3 list --format=columns | grep "google" | grep -v grep | wc -l)
-# if [ ${INSTALLED} -ne "0" ]; then
-	# echo "<OK> python3-google installed successfully."
-# else
-	# echo "<WARNING> python3-google installation failed! The plugin will not work without."
-	# echo "<WARNING> Giving up."
-	# exit 2;
-# fi
-
 # Exit with Status 0
 exit 0
