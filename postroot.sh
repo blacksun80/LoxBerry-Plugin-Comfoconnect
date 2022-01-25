@@ -56,7 +56,7 @@ PBIN=$LBPBIN/$PDIR
 echo "<INFO> Installation as root user started."
 
 echo "<INFO> Start installing python3-protobuf..."
-yes | pip3 install -U python3-protobuf
+yes | pip3 install -U python3-protobuf>=3.0.0
 INSTALLED=$(pip3 list --format=columns | grep "protobuf" | grep -v grep | wc -l)
 if [ ${INSTALLED} -ne "0" ]; then
 	echo "<OK> Python Protobuf installed successfully."
