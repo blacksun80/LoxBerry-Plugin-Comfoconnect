@@ -56,7 +56,7 @@ PBIN=$LBPBIN/$PDIR
 echo "<INFO> Installation as root user started."
 
 echo "<INFO> Upgrade pip."
-python3 - m pip install --upgrade pip
+python3 -m pip install --upgrade pip
 
 echo "<INFO> Start installing python3-protobuf..."
 yes | python3 -m pip install --upgrade -U python3-protobuf>=3.0.0
