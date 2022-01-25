@@ -53,31 +53,31 @@ PBIN=$LBPBIN/$PDIR
 #APPEND=1
 #STDERR=1
   
-echo "<INFO> Installation as root user started."
+# echo "<INFO> Installation as root user started."
 
-echo "<INFO> Upgrade pip."
-python3 -m pip install --upgrade pip
+# echo "<INFO> Upgrade pip."
+# python3 -m pip install --upgrade pip
 
-echo "<INFO> Start installing python3-protobuf..."
-yes | python3 -m pip install --upgrade python3-protobuf
-INSTALLED=$(pip3 list --format=columns | grep "protobuf" | grep -v grep | wc -l)
-if [ ${INSTALLED} -ne "0" ]; then
-	echo "<OK> python3-protobuf installed successfully."
-else
-	echo "<WARNING> python3-protobuf installation failed! The plugin will not work without."
-	echo "<WARNING> Giving up."
-	exit 2;
-fi 
+# echo "<INFO> Start installing python3-protobuf..."
+# yes | python3 -m pip install --upgrade python3-protobuf
+# INSTALLED=$(pip3 list --format=columns | grep "protobuf" | grep -v grep | wc -l)
+# if [ ${INSTALLED} -ne "0" ]; then
+	# echo "<OK> python3-protobuf installed successfully."
+# else
+	# echo "<WARNING> python3-protobuf installation failed! The plugin will not work without."
+	# echo "<WARNING> Giving up."
+	# exit 2;
+# fi 
 
-echo "<INFO> Start installing python3-google..."
-yes | python3 -m pip install --upgrade google
-INSTALLED=$(pip3 list --format=columns | grep "google" | grep -v grep | wc -l)
-if [ ${INSTALLED} -ne "0" ]; then
-	echo "<OK> python3-google installed successfully."
-else
-	echo "<WARNING> python3-google installation failed! The plugin will not work without."
-	echo "<WARNING> Giving up."
-	exit 2;
-fi 
+# echo "<INFO> Start installing python3-google..."
+# yes | python3 -m pip install --upgrade google
+# INSTALLED=$(pip3 list --format=columns | grep "google" | grep -v grep | wc -l)
+# if [ ${INSTALLED} -ne "0" ]; then
+	# echo "<OK> python3-google installed successfully."
+# else
+	# echo "<WARNING> python3-google installation failed! The plugin will not work without."
+	# echo "<WARNING> Giving up."
+	# exit 2;
+# fi 
 
 exit 0
