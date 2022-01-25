@@ -59,7 +59,7 @@ echo "<INFO> Upgrade pip."
 python3 -m pip install --upgrade pip
 
 echo "<INFO> Start installing python3-protobuf..."
-yes | python3 -m pip install --upgrade -U python3-protobuf>=3.0.0
+yes | python3 -m pip install --upgrade python3-protobuf
 INSTALLED=$(pip3 list --format=columns | grep "protobuf" | grep -v grep | wc -l)
 if [ ${INSTALLED} -ne "0" ]; then
 	echo "<OK> python3-protobuf installed successfully."
