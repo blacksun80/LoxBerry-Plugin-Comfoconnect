@@ -1,7 +1,7 @@
-#!/bin/sh
+#!/bin/bash
 
-# Bash script which is executed by bash *BEFORE* installation is started
-# (*BEFORE* preinstall but *AFTER* preupdate). Use with caution and remember,
+# Shell script which is executed by bash *BEFORE* installation is started
+# (*BEFORE* preinstall and *BEFORE* preupdate). Use with caution and remember,
 # that all systems may be different!
 #
 # Exit code must be 0 if executed successfull. 
@@ -34,6 +34,7 @@ PDIR=$3       # Third argument is Plugin installation folder
 PVERSION=$4   # Forth argument is Plugin version
 #LBHOMEDIR=$5 # Comes from /etc/environment now. Fifth argument is
               # Base folder of LoxBerry
+PTEMPPATH=$6  # Sixth argument is full temp path during install (see also $1)
 
 # Combine them with /etc/environment
 PCGI=$LBPCGI/$PDIR
@@ -45,14 +46,24 @@ PCONFIG=$LBPCONFIG/$PDIR
 PSBIN=$LBPSBIN/$PDIR
 PBIN=$LBPBIN/$PDIR
 
-echo "<INFO> Command is: $COMMAND"
-echo "<INFO> Temporary folder is: $TEMPDIR"
-echo "<INFO> (Short) Name is: $PSHNAME"
-echo "<INFO> Installation folder is: $ARGV3"
-echo "<INFO> Plugin version is: $ARGV4"
-echo "<INFO> Plugin CGI folder is: $PCGI"
-echo "<INFO> Plugin HTML folder is: $PHTML"
-echo "<INFO> Plugin Template folder is: $PTEMPL"
-echo "<INFO> Plugin Data folder is: $PDATA"
-echo "<INFO> Plugin Log folder (on RAMDISK!) is: $PLOG"
-echo "<INFO> Plugin CONFIG folder is: $PCONFIG"
+#. $LBHOMEDIR/libs/bashlib/loxberry_log.sh
+#PACKAGE=${PSHNAME}
+#NAME=preroot_install
+#FILENAME=${LBPLOG}/${PSHNAME}/preroot_install.log
+#APPEND=1
+#STDERR=1
+  
+echo "<INFO> Installation as root user started."
+
+echo "<INFO> Start installing python3-protobuf..."
+yes | pip3 install -U python3-protobuf
+INSTALLED=$(pip3 list --format=columns | grep "protobuf" | grep -v grep | wc -l)
+if [ ${INSTALLED} -ne "0" ]; then
+	echo "<OK> Python Protobuf installed successfully."
+else
+	echo "<WARNING> Python Protobuf installation failed! The plugin will not work without."
+	echo "<WARNING> Giving up."
+	exit 2;
+fi 
+
+exit 0
