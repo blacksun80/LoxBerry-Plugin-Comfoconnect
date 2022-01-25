@@ -42,27 +42,27 @@ ARGV5=$5 # Fifth argument is Base folder of LoxBerry
 echo "<INFO> Upgrade pip."
 python3 -m pip install --upgrade pip
 
-echo "<INFO> Start installing python3-protobuf..."
-yes | python3 -m pip install --upgrade python3-protobuf
+echo "<INFO> Start installing protobuf..."
+yes | python3 -m pip install --upgrade protobuf>=3.0.0
 INSTALLED=$(pip3 list --format=columns | grep "protobuf" | grep -v grep | wc -l)
 if [ ${INSTALLED} -ne "0" ]; then
-	echo "<OK> python3-protobuf installed successfully."
+	echo "<OK> protobuf installed successfully."
 else
-	echo "<WARNING> python3-protobuf installation failed! The plugin will not work without."
+	echo "<WARNING> protobuf installation failed! The plugin will not work without."
 	echo "<WARNING> Giving up."
 	exit 2;
 fi 
 
-echo "<INFO> Start installing python3-google..."
-yes | python3 -m pip install --upgrade google
-INSTALLED=$(pip3 list --format=columns | grep "google" | grep -v grep | wc -l)
-if [ ${INSTALLED} -ne "0" ]; then
-	echo "<OK> python3-google installed successfully."
-else
-	echo "<WARNING> python3-google installation failed! The plugin will not work without."
-	echo "<WARNING> Giving up."
-	exit 2;
-fi
+# echo "<INFO> Start installing python3-google..."
+# yes | python3 -m pip install --upgrade google
+# INSTALLED=$(pip3 list --format=columns | grep "google" | grep -v grep | wc -l)
+# if [ ${INSTALLED} -ne "0" ]; then
+	# echo "<OK> python3-google installed successfully."
+# else
+	# echo "<WARNING> python3-google installation failed! The plugin will not work without."
+	# echo "<WARNING> Giving up."
+	# exit 2;
+# fi
 
 # Exit with Status 0
 exit 0
