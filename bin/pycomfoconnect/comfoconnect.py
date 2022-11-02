@@ -151,7 +151,7 @@ class ComfoConnect(object):
             raise Exception('Could not connect to the bridge since there is already an open session.')
 
         except OSError:
-            _LOGGER.error("Unexpected error in connect: " + sys.exc_info()[0])
+            #_LOGGER.error("Unexpected error in connect: " + sys.exc_info()[0])
             raise Exception('Could not connect to the bridge.')
 
         # Set flags to signal messages are being handled and we are not disconnecting
@@ -330,6 +330,8 @@ class ComfoConnect(object):
 
                 # Wait a bit to avoid hammering the bridge
                 time.sleep(5)
+                
+                _LOGGER.warning('Reconnecting to Bridge...')
 
                 try:
                     # Connect or re-connect
@@ -340,11 +342,16 @@ class ComfoConnect(object):
                     _LOGGER.error('Could not connect to the bridge since there is already an open session.')
                     continue
 
+                except TimeoutError:
+                    self._bridge.disconnect()
+                    _LOGGER.error(str(exc))
+                    continue
+
                 except Exception as exc:
                     _LOGGER.error(exc)
                     self._bridge.disconnect() # formally disconnect 
                     raise Exception('Could not connect to the bridge.')
-                    
+
                 else: 
                     self._stopping = False  # Clear Stop message handling flag
 
