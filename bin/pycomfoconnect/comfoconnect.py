@@ -342,15 +342,15 @@ class ComfoConnect(object):
                     _LOGGER.error('Could not connect to the bridge since there is already an open session.')
                     continue
 
-                except TimeoutError:
+                except TimeoutError as exc:
                     self._bridge.disconnect()
-                    _LOGGER.error(str(exc))
+                    _LOGGER.error(exc)
                     continue
                 
                 # OSError: Errno 113, No route to host
-                except OSError:
+                except OSError as exc:
                     self._bridge.disconnect()
-                    _LOGGER.error(str(exc))
+                    _LOGGER.error(exc)
                     continue
 
                 except Exception as exc:
