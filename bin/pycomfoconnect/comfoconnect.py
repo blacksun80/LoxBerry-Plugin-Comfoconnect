@@ -346,6 +346,12 @@ class ComfoConnect(object):
                     self._bridge.disconnect()
                     _LOGGER.error(str(exc))
                     continue
+                
+                # OSError: Errno 113, No route to host
+                except OSError:
+                    self._bridge.disconnect()
+                    _LOGGER.error(str(exc))
+                    continue
 
                 except Exception as exc:
                     _LOGGER.error(exc)
