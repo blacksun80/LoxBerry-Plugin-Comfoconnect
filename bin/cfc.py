@@ -36,6 +36,7 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe(mqtt_topic + "MODE_MANUAL", qos=0)
     client.subscribe(mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN", qos=0)
     client.subscribe(mqtt_topic + "START_EXHAUST_FAN", qos=0)
+    client.subscribe(mqtt_topic + "START_SUPPLY_FAN", qos=0)
     client.subscribe(mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN", qos=0)
     client.subscribe(mqtt_topic + "BOOST_MODE_END", qos=0)
     client.subscribe(mqtt_topic + "TEMPPROF", qos=0)
@@ -147,6 +148,12 @@ def on_message(client, userdata, msg):
             _LOGGER.info("Befehl START_EXHAUST_FAN an Lüftungsanlage gesendet")
         else:
             _LOGGER.error("START_EXHAUST_FAN: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
+    elif topic == mqtt_topic + "START_SUPPLY_FAN":
+        if int(value) == 1:
+            comfoconnect.cmd_rmi_request(CMD_START_SUPPLY_FAN)
+            _LOGGER.info("Befehl START_SUPPLY_FAN an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("START_SUPPLY_FAN: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "BOOST_MODE_END":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_BOOST_MODE_END)
