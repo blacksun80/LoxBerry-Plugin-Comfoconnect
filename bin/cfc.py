@@ -7,6 +7,7 @@ from binascii import unhexlify
 from random import randint
 from pycomfoconnect import *
 import getopt
+import sys
 import json
 import configparser
 from mqtt_data import sensor_data
