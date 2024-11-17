@@ -464,14 +464,16 @@ class ComfoConnect(object):
                     pass
 
                 elif message.cmd.type == GatewayOperation.CnNodeNotificationType:
-                    # _LOGGER.info('CnNodeNotificationType: %s @ Node Id %d [%s]', 
-                        # PRODUCT_ID_MAP[message.msg.productId], 
-                        # message.msg.nodeId, 
-                        # message.msg.NodeModeType.Name(message.msg.mode))
-                    _LOGGER.info('CnNodeNotificationType: Node Id %d [%s]',  
-                        message.msg.nodeId, 
-                        message.msg.NodeModeType.Name(message.msg.mode))
-                    # TODO: We should probably handle these somehow
+                    if message.msg.productId != 0:
+                        _LOGGER.info('CnNodeNotificationType: %s @ Node Id %d [%s]', 
+                            PRODUCT_ID_MAP[message.msg.productId], 
+                            message.msg.nodeId, 
+                            message.msg.NodeModeType.Name(message.msg.mode))
+                        # TODO: We should probably handle these somehow
+                    else:
+                        _LOGGER.warning('CnNodeNotificationType: Node Id %d [%s]', 
+                            message.msg.nodeId, 
+                            message.msg.NodeModeType.Name(message.msg.mode))
                     pass
 
                 elif message.cmd.type == GatewayOperation.CnAlarmNotificationType:
