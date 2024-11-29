@@ -312,9 +312,16 @@ class ComfoConnect(object):
                     # We got a message with an incorrect type. Hopefully, this doesn't happen to often,
                     # since we just put it back on the queue.
                     self._queue.put(message)
+                   _LOGGER.warning("We got a message with an incorrect type." + str(message.msg.__class__))
 
             if time.time() - start > timeout:
-                raise ValueError('Timeout waiting for response.')
+                if str(confirm_type) == "<class 'zehnder_pb2.CnRmiResponse'>":
+                    # We got no message for confirm_type CnRmiResponse
+                    _LOGGER.error("Timeout waiting for response." + str(confirm_type))
+                    return False
+                else:
+                    _LOGGER.error("Timeout waiting for response." + str(confirm_type))
+                    raise ValueError('Timeout waiting for response.')
 
     # ==================================================================================================================
     # Connection thread
