@@ -312,7 +312,7 @@ class ComfoConnect(object):
                     # We got a message with an incorrect type. Hopefully, this doesn't happen to often,
                     # since we just put it back on the queue.
                     self._queue.put(message)
-                   _LOGGER.warning("We got a message with an incorrect type." + str(message.msg.__class__))
+                    _LOGGER.warning("We got a message with an incorrect type." + str(message.msg.__class__))
 
             if time.time() - start > timeout:
                 if str(confirm_type) == "<class 'zehnder_pb2.CnRmiResponse'>":
