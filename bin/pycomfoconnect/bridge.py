@@ -138,5 +138,8 @@ class Bridge(object):
         except BrokenPipeError:
             self.disconnect()
             return False
+        except ConnectionResetError:
+            self.disconnect()
+            return False
 
         return True

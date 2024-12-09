@@ -3,6 +3,7 @@ import queue
 import struct
 import threading
 import time
+import sys
 
 from .bridge import Bridge
 from .error import *
@@ -240,7 +241,7 @@ class ComfoConnect(object):
             self._bridge.write_message(message)
         
         except OSError:
-            _LOGGER.error("Unexpected error in _command._bridge.write_message: ", sys.exc_info()[0])
+            _LOGGER.error("Unexpected error in _command._bridge.write_message: " + str(sys.exc_info()[0]))
             return False
 
         try:
