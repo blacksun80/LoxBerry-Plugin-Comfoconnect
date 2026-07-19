@@ -284,6 +284,28 @@ class ComfoConnect(object):
                 if is_last_attempt:
                     _LOGGER.error("Sensor %d konnte nach %d Versuchen nicht registriert werden - Gerät hat nicht geantwortet." % (sensor_id, attempt))
                     return None
+
+                # Before retrying: explicitly tell the bridge to drop whatever it has
+                # pending for this pdid before we ask again. A plain client-side
+                # timeout does NOT mean our first CnRpdoRequestType was lost - it may
+                # simply not have been answered yet (the bridge was still busy, see
+                # the timeout=10 change). Blindly sending a SECOND CnRpdoRequestType
+                # for the same pdid on top of a first one that's still in flight
+                # leaves the bridge with two overlapping subscribe requests for the
+                # same pdid - observed in practice (see log analysis) to be followed
+                # by the bridge resetting the whole connection shortly after a retry,
+                # which is far more costly (full reconnect + every sensor
+                # re-registered) than the extra time this cancel step costs here.
+                # Same timeout=0 "cancel" call unregister_sensor() already uses.
+                # Best-effort only: a plain timeout on the cancel itself isn't fatal
+                # (we tried, that's enough - proceed with the retry regardless), but
+                # a genuine connection loss (OSError) is left to propagate normally,
+                # same as everywhere else in this method.
+                try:
+                    self.cmd_rpdo_request(sensor_id, sensor_type, timeout=0, quiet_timeout=True)
+                except ValueError:
+                    pass
+
                 _LOGGER.warning("Sensor %d: keine Antwort (Versuch %d/%d), erneuter Versuch..." % (sensor_id, attempt, retries))
                 time.sleep(0.2)
 

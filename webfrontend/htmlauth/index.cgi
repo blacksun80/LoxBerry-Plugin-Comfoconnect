@@ -383,10 +383,25 @@ sub form
 
 #####################################################
 # Status-Sub - liest die Heartbeat-Datei, die cfc.py auf der Ramdisk schreibt.
-# "Gestört", wenn seit >30s kein Lebenszeichen vom Verbindungs-Thread zur
-# Zehnder-Box kam, oder wenn MQTT gerade getrennt ist. Reine Sensor-Updates
-# allein sagen nichts aus (manche Sensoren senden legitim lange nichts), daher
-# last_alive_ping statt last_sensor_data als Haupt-Kriterium.
+#
+# Prüfreihenfolge (jede Stufe schwerwiegender als eine reine "Warnung"):
+#   1. Statusdatei fehlt komplett            -> Plugin läuft nicht
+#   2. MQTT getrennt                         -> kann ohnehin nichts liefern
+#   3. last_alive_ping zu alt (>30s)         -> Verbindungs-Thread tot/hängt
+#   4. last_sensor_data zu alt (>60s),       -> Verbindung/Thread laufen zwar noch,
+#      obwohl Sensoren registriert sind         aber die Box schickt nichts mehr.
+#                                                Das ist ein eigener Fall: der
+#                                                Prozess "lebt" (alive_ping bleibt
+#                                                frisch, weil die Leseschleife
+#                                                einfach weiterdreht), liefert aber
+#                                                keine Daten mehr - ohne diese
+#                                                Prüfung sähe das fälschlich wie
+#                                                "läuft einwandfrei" aus.
+#   5. Nicht alle erwarteten Sensoren         -> bewusst als Fehler behandelt, nicht
+#      registriert                               nur als Warnung: wenn Sensoren nach
+#                                                allen Retries nicht bestätigt sind,
+#                                                fehlt echte Funktionalität.
+#   6. Alles obige unauffällig                -> läuft einwandfrei
 #
 # Genutzt sowohl beim initialen Seitenaufbau (sub form) als auch vom
 # AJAX-Status-Endpoint ganz oben, den main.html per JS periodisch abfragt.
@@ -412,6 +427,7 @@ sub getStatus
 			if ($status) {
 				my $now = time();
 				my $alive_age = defined($status->{bridge_last_alive_ping}) ? $now - $status->{bridge_last_alive_ping} : undef;
+				my $data_age  = defined($status->{bridge_last_sensor_data}) ? $now - $status->{bridge_last_sensor_data} : undef;
 				my $mqtt_ok = $status->{mqtt_connected} ? 1 : 0;
 				my $sensors_reg = $status->{sensors_registered} // 0;
 				my $sensors_exp = $status->{sensors_expected} // 0;
@@ -420,11 +436,14 @@ sub getStatus
 					$status_text = "MQTT getrennt (verbindet automatisch neu)";
 					$status_class = "cc-status-error";
 				} elsif (!defined($alive_age) || $alive_age > 30) {
-					$status_text = "Gestört - keine Verbindung zur Zehnder-Box";
+					$status_text = "Gestört - keine Verbindung zur ComfoConnect LAN C";
+					$status_class = "cc-status-error";
+				} elsif ($sensors_reg > 0 && (!defined($data_age) || $data_age > 60)) {
+					$status_text = "Gestört - seit über 60s keine Sensordaten mehr empfangen";
 					$status_class = "cc-status-error";
 				} elsif ($sensors_exp > 0 && $sensors_reg < $sensors_exp) {
-					$status_text = "Eingeschränkt - nur $sensors_reg von $sensors_exp Sensoren aktiv";
-					$status_class = "cc-status-warn";
+					$status_text = "Fehler - nur $sensors_reg von $sensors_exp Sensoren registriert";
+					$status_class = "cc-status-error";
 				} else {
 					$status_text = "Läuft einwandfrei ($sensors_reg Sensoren aktiv)";
 					$status_class = "cc-status-ok";

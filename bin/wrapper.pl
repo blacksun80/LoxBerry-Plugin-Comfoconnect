@@ -137,6 +137,16 @@ foreach $arg (@ARGV) {
     # Statusdatei) - ein Prozess kann laufen, aber trotzdem "hängen" (z.B. wenn der
     # Verbindungs-Thread zur Zehnder-Box gestorben ist), das reine "läuft der
     # Prozess"-Kriterium alleine würde das nicht erkennen.
+    #
+    # Zusätzlich wird bridge_last_sensor_data geprüft: last_alive_ping bleibt
+    # nämlich frisch, solange die Leseschleife im Verbindungs-Thread einfach
+    # weiterdreht (sie hat einen 1s-Select-Timeout und aktualisiert den Ping bei
+    # jedem Durchlauf, auch wenn dabei nie eine echte Nachricht ankommt) - eine
+    # Session, die die Zehnder-Box serverseitig verworfen hat, ohne dass der
+    # TCP-Socket das sauber meldet, würde vom alive_ping-Kriterium allein NICHT
+    # erkannt. Nur relevant, wenn schon Sensoren registriert waren (sonst schlägt
+    # das direkt nach dem Start fälschlich an, bevor die erste Registrierung
+    # überhaupt durch ist).
     if ($arg eq "checkwatchdog") {
         my $jsonobj = LoxBerry::JSON->new();
         my $pcfg = $jsonobj->open(filename => "$installfolder/config/plugins/$psubfolder/$psubfolder.json");
@@ -150,7 +160,9 @@ foreach $arg (@ARGV) {
         my $threshold_sec = $threshold_min * 60;
 
         my $running = scalar(grep{/cfc.py/} `ps aux`);
-        my $stale = 1;
+        my $stale_alive = 1;
+        my $stale_data = 0;
+        my $reason = "reagiert seit über $threshold_min Minute(n) nicht mehr";
 
         if (-e $statusfile) {
             local $/ = undef;
@@ -158,15 +170,24 @@ foreach $arg (@ARGV) {
                 my $json_text = <$fh>;
                 close($fh);
                 my $status = eval { decode_json($json_text) };
-                if ($status && $status->{bridge_last_alive_ping}) {
-                    my $age = time() - $status->{bridge_last_alive_ping};
-                    $stale = ($age > $threshold_sec) ? 1 : 0;
+                if ($status) {
+                    if ($status->{bridge_last_alive_ping}) {
+                        my $age = time() - $status->{bridge_last_alive_ping};
+                        $stale_alive = ($age > $threshold_sec) ? 1 : 0;
+                    }
+                    if (($status->{sensors_registered} // 0) > 0 && $status->{bridge_last_sensor_data}) {
+                        my $data_age = time() - $status->{bridge_last_sensor_data};
+                        $stale_data = ($data_age > $threshold_sec) ? 1 : 0;
+                    }
                 }
             }
         }
 
+        my $stale = ($stale_alive || $stale_data) ? 1 : 0;
+        $reason = "sendet seit über $threshold_min Minute(n) keine Sensordaten mehr (Verbindung hängt vermutlich)" if ($stale_data && !$stale_alive);
+
         if (!$running || $stale) {
-            LOGWARN "Watchdog: ComfoConnect " . ($running ? "reagiert seit über $threshold_min Minute(n) nicht mehr" : "läuft nicht") . " - starte neu.";
+            LOGWARN "Watchdog: ComfoConnect " . ($running ? $reason : "läuft nicht") . " - starte neu.";
             system("pkill -f $installfolder/bin/plugins/$psubfolder/cfc.py >> $logfile 2>&1") if $running;
             system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile > /dev/null 2>>$logfile &");
         }
