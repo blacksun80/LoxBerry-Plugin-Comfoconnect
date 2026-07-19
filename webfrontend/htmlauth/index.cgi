@@ -417,26 +417,14 @@ sub form
 #
 # Prüfreihenfolge (jede Stufe schwerwiegender als eine reine "Warnung"):
 #   1. Statusdatei fehlt komplett             -> Plugin läuft nicht
-#   2. registration_state == timeout          -> Timeout beim Registrieren der
-#                                                 Sensoren (fatal, nur beim ersten
-#                                                 Start moeglich - cfc.py beendet
-#                                                 sich in diesem Fall selbst, der
-#                                                 Watchdog/Wrapper startet neu)
-#   3. !sensors_ready                          -> Registriere Sensoren. Gilt fuer die
+#   2. !sensors_ready                          -> Registriere Sensoren. Gilt fuer die
 #                                                 allererste Startphase genauso wie
 #                                                 fuer jeden spaeteren Reconnect
 #                                                 mitten im Betrieb (siehe
-#                                                 comfoconnect.py: sensors_ready) -
-#                                                 MQTT bleibt dabei verbunden, es wird
-#                                                 nur nichts published, bis alle
-#                                                 Sensoren wieder registriert sind.
-#                                                 Ein MQTT-Check davor wuerde waehrend
-#                                                 der allerersten Startphase (MQTT
-#                                                 absichtlich noch nicht verbunden)
-#                                                 faelschlich "MQTT getrennt" anzeigen.
-#   4. MQTT getrennt                          -> kann ohnehin nichts liefern
-#   5. last_alive_ping zu alt (>30s)          -> Verbindungs-Thread tot/hängt
-#   6. last_sensor_data aelter als der         -> Verbindung/Thread laufen zwar noch,
+#                                                 comfoconnect.py: sensors_ready).
+#   3. MQTT getrennt                          -> kann ohnehin nichts liefern
+#   4. last_alive_ping zu alt (>30s)          -> Verbindungs-Thread tot/hängt
+#   5. last_sensor_data aelter als der         -> Verbindung/Thread laufen zwar noch,
 #      eingestellte Wert, obwohl Sensoren         aber die Anlage schickt nichts mehr.
 #      registriert sind UND die Ueberwachung      Der Prozess "lebt" (alive_ping bleibt
 #      eingeschaltet ist                          frisch, weil die Leseschleife einfach
@@ -447,12 +435,15 @@ sub form
 #                                                 nicht aktiviert, wird hier bewusst gar
 #                                                 nichts ausgewertet und der Status
 #                                                 bleibt unveraendert.
-#   7. Alles obige unauffällig                 -> Laeuft, X Sensoren + Alter der zuletzt
+#   6. Alles obige unauffällig                 -> Laeuft, X Sensoren + Alter der zuletzt
 #                                                 empfangenen Sensordaten. Das Alter ist
 #                                                 der eigentliche Lebensbeweis: eine
 #                                                 statische Meldung wie "X Sensoren
 #                                                 registriert" sieht auch dann noch gut
 #                                                 aus, wenn laengst nichts mehr fliesst.
+#                                                 Wurden Sensoren uebersprungen (von
+#                                                 dieser Anlage nicht unterstuetzt),
+#                                                 erscheint "X von Y" als Warnung.
 #
 # Genutzt sowohl beim initialen Seitenaufbau (sub form) als auch vom
 # AJAX-Status-Endpoint ganz oben, den main.html per JS periodisch abfragt.
@@ -487,12 +478,10 @@ sub getStatus
 				my $mqtt_ok = $status->{mqtt_connected} ? 1 : 0;
 				my $sensors_reg = $status->{sensors_registered} // 0;
 				my $sensors_exp = $status->{sensors_expected} // 0;
-				# Fehlen diese Felder (z.B. Statusdatei eines aelteren Plugin-Stands,
-				# noch nicht ueberschrieben) als "fertig/bereit" behandeln statt
-				# dauerhaft "Registriere Sensoren"/"Timeout" vorzutaeuschen - der neue
-				# Prozess ueberschreibt die Datei ohnehin binnen 1s mit den korrekten
-				# Feldern.
-				my $reg_state = $status->{registration_state} // 'done';
+				# Fehlt das Feld (z.B. Statusdatei eines aelteren Plugin-Stands, noch
+				# nicht ueberschrieben) als "fertig" behandeln statt dauerhaft
+				# "Registriere Sensoren" vorzutaeuschen - der neue Prozess ueberschreibt
+				# die Datei ohnehin binnen 1s mit dem korrekten Feld.
 				my $sensors_ready = exists($status->{sensors_ready}) ? ($status->{sensors_ready} ? 1 : 0) : 1;
 
 				# Einstellungen der Sensorwert-Überwachung. cfc.py schreibt sie mit in
@@ -501,10 +490,7 @@ sub getStatus
 				my $watch_on = $status->{sensorwatch_enabled} ? 1 : 0;
 				my $watch_timeout = $status->{sensorwatch_timeout_sec} // 60;
 
-				if ($reg_state eq 'timeout') {
-					$status_text = "Timeout beim Registrieren der Sensoren";
-					$status_class = "cc-status-error";
-				} elsif (!$sensors_ready) {
+				if (!$sensors_ready) {
 					# sensors_registered zaehlt currently bestaetigte Sensoren waehrend
 					# die Schleife in cfc.py laeuft (write_status_loop() schreibt jede
 					# Sekunde neu) - live mitgezaehlter Fortschritt statt eines
@@ -526,14 +512,25 @@ sub getStatus
 					# Alter der letzten Sensordaten mit anzeigen: eine reine
 					# "X Sensoren registriert"-Meldung steht auch dann noch unveraendert
 					# da, wenn seit Minuten nichts mehr ankommt. Der mitlaufende Zaehler
-					# (Seite pollt alle 2s) ist der sichtbare Lebensbeweis - und er ist
-					# auch dann da, wenn die Ueberwachung ausgeschaltet ist, nur eben ohne
-					# dass daraus jemals eine Stoerung wird.
-					$status_text = "Läuft - $sensors_reg Sensoren aktiv";
+					# (Seite pollt jede Sekunde) ist der sichtbare Lebensbeweis - und er
+					# ist auch dann da, wenn die Ueberwachung ausgeschaltet ist, nur eben
+					# ohne dass daraus jemals eine Stoerung wird.
+					#
+					# Wurden Sensoren uebersprungen, wird das als Warnung angezeigt statt
+					# als Fehler: nicht jede Anlage und nicht jeder Firmware-Stand kennt
+					# alle bekannten Messwerte, das ist der Normalfall und kein Defekt.
+					# Sichtbar sein soll es trotzdem - sonst wundert man sich, warum ein
+					# erwarteter Wert in Loxone fehlt.
+					if ($sensors_exp > 0 && $sensors_reg < $sensors_exp) {
+						$status_text = "Läuft - $sensors_reg von $sensors_exp Sensoren aktiv";
+						$status_class = "cc-status-warn";
+					} else {
+						$status_text = "Läuft - $sensors_reg Sensoren aktiv";
+						$status_class = "cc-status-ok";
+					}
 					if (defined($data_age)) {
 						$status_text .= ", letzte Daten " . formatAge($data_age);
 					}
-					$status_class = "cc-status-ok";
 				}
 			}
 		}

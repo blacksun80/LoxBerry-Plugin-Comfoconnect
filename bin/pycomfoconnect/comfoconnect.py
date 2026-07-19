@@ -332,21 +332,32 @@ class ComfoConnect(object):
         try:
             reply = self.cmd_rpdo_request(sensor_id, sensor_type)
 
-        except PyComfoConnectNotAllowed:
-            return None
-
         except OSError:
             # The connection itself is gone (write failed, socket dead) - no amount of
             # local retrying fixes that, only a full reconnect will. Give up on this
             # sensor immediately and propagate. _connection_thread_loop and cfc.py's
             # startup loop already catch OSError here and react accordingly.
+            #
+            # Dies ist der EINZIGE Fall, der weitergereicht wird - alles andere unten
+            # gilt als "dieser Sensor geht auf dieser Anlage nicht" und liefert None.
             _LOGGER.error("Sensor %d: Verbindung verloren beim Registrieren." % sensor_id)
             raise
 
         except ValueError:
-            # Timeout waiting for CnRpdoConfirm - not necessarily a real problem, could
-            # simply be a pdid this hardware doesn't support. Logged and skipped, not fatal.
-            _LOGGER.error("Sensor %d konnte nicht registriert werden - Gerät hat nicht geantwortet." % sensor_id)
+            # Zeitueberschreitung beim Warten auf die Bestaetigung. Kein Grund zur
+            # Panik: Nicht jede Anlage und nicht jeder Firmware-Stand kennt jede pdid,
+            # und unbekannte werden schlicht ignoriert statt abgelehnt.
+            _LOGGER.warning("Sensor %d wird von dieser Anlage nicht unterstützt (keine Antwort) - wird übersprungen." % sensor_id)
+            return None
+
+        except PyComfoConnectError as e:
+            # Die Anlage hat den Sensor ausdruecklich abgelehnt, z.B. mit NOT_EXIST
+            # oder BAD_REQUEST. Frueher flog das als unbehandelte Ausnahme bis nach
+            # oben durch und hat den Prozess beendet - fuer eine Anlage, die nur
+            # hoeflich mitteilt, dass sie diesen Wert nicht kennt. Ebenfalls
+            # ueberspringen.
+            _LOGGER.warning("Sensor %d wird von dieser Anlage abgelehnt (%s) - wird übersprungen."
+                            % (sensor_id, type(e).__name__))
             return None
 
         # Register in memory
@@ -753,23 +764,19 @@ class ComfoConnect(object):
                         # another thread changes its size raises "RuntimeError: dictionary
                         # changed size during iteration" - which used to kill this thread the
                         # same way the bugs fixed earlier did.
+                        # Ein Sensor, den die Anlage nicht (mehr) kennt, wird auch hier
+                        # uebersprungen statt den ganzen Durchlauf abzubrechen.
+                        #
+                        # Frueher stand hier ein Abbruch mit der Begruendung, jeder
+                        # Eintrag in self.sensors habe sich ja schon einmal erfolgreich
+                        # registriert. Das stimmt aber nicht: cfc.py traegt bei einem
+                        # Verbindungsverlust auch die noch gar nicht versuchten Sensoren
+                        # hier ein, damit sie nach dem Reconnect nachgeholt werden.
+                        # Darunter koennen nicht unterstuetzte sein - der Abbruch haette
+                        # dann bei jedem Reconnect erneut zugeschlagen und eine
+                        # Endlosschleife aus abgebrochenen Verbindungsversuchen erzeugt.
                         for sensor_id, sensor_type in list(self.sensors.items()):
-                            reply = self.register_sensor(sensor_id, sensor_type)
-                            if reply is None:
-                                # Every sensor in self.sensors already registered successfully
-                                # on a PREVIOUS connection (that's the only way it got added
-                                # here) - so unlike cfc.py's very first startup sweep, a
-                                # failure here isn't "unsupported hardware", it's a sign this
-                                # particular reconnect attempt is bad. No skipping: abort the
-                                # whole sweep and force a fresh reconnect below, exactly like
-                                # an OSError would - it worked before, it should work again.
-                                _LOGGER.error(
-                                    "Sensor %d konnte bei der Neu-Registrierung nach einem Reconnect "
-                                    "nicht registriert werden - breche ab (kein Überspringen) und "
-                                    "versuche einen frischen Reconnect." % sensor_id
-                                )
-                                registration_ok = False
-                                break
+                            self.register_sensor(sensor_id, sensor_type)
 
                     except OSError:
                         # NOTE: string concatenation, NOT a second argument. logging

@@ -10,7 +10,9 @@ paho-Versionen. *(GitHub-Issues #13 und #14)*
 
 **Ein einziger nicht unterstützter Sensor legte das ganze Plugin lahm.** Meldete
 sich beim Start auch nur ein Sensor nicht zurück, brach das komplette Skript ab —
-danach wurde kein einziger Wert mehr übertragen.
+danach wurde kein einziger Wert mehr übertragen. Nicht jede Anlage und nicht jeder
+Firmware-Stand kennt alle Messwerte; solche Sensoren werden jetzt übersprungen und
+in der Statusanzeige als „46 von 50 Sensoren aktiv" ausgewiesen.
 
 **Abstürze beim Senden von Befehlen.** Wurde ein Befehl geschickt, den die Anlage
 nicht beantwortete (zum Beispiel „Abwesend", wenn sie bereits abwesend war),

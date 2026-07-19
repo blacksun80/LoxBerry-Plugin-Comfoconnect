@@ -14,19 +14,6 @@ import logging
 
 interval = [0 for x in range(300)]
 
-# Set once in main() as the registration phase progresses, read by
-# write_status_loop() (-> status.json -> index.cgi's getStatus()). One of:
-# "in_progress" (still registering), "timeout" (a sensor didn't answer within the
-# standard reply timeout - fatal, process exits), "done" (all sensors registered,
-# or the sweep was interrupted by a connection loss that the background reconnect
-# is already recovering from).
-#
-# There is deliberately no overall deadline across the whole sweep anymore: each
-# individual request already has the standard 5s reply timeout, and a sensor
-# failing that aborts the phase immediately - so the sweep can't silently drag on
-# regardless. On real hardware all 50 sensors register in well under a second.
-registration_state = "in_progress"
-
 # Sensor-data monitoring, read from the plugin config in main(). Mirrored into the
 # status file so index.cgi's getStatus() (polled every second via AJAX) can evaluate
 # it without having to open and parse the config file on every single request, and
@@ -721,15 +708,13 @@ def write_status_loop():
                 status = {
                     'pid': os.getpid(),
                     'now': time.time(),
-                    'registration_state': registration_state,
                     # Mirrored config, see the module-level comment - index.cgi reads
                     # these instead of opening the config file on every status poll.
                     'sensorwatch_enabled': sensorwatch_enabled,
                     'sensorwatch_timeout_sec': sensorwatch_timeout_sec,
                     # True only once (re-)registration has actually finished on the
                     # CURRENT connection - False again for the whole gap during a later
-                    # reconnect, even though registration_state itself stays "done"
-                    # (that one only ever reflects the one-time startup phase). See the
+                    # reconnect. Siehe den Kommentar zum Attribut in
                     # attribute comment in comfoconnect.py's __init__.
                     'sensors_ready': comfoconnect.sensors_ready if comfoconnect else False,
                     'mqtt_connected': mqtt_connected,
@@ -811,7 +796,7 @@ def publish_sensorwatch_state():
 
 
 def main():
-    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, registration_state, sensorwatch_enabled, sensorwatch_timeout_sec
+    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, sensorwatch_enabled, sensorwatch_timeout_sec
 
     loglevel=logging.ERROR
     search = False
@@ -1090,42 +1075,38 @@ def main():
             time.sleep(2)
 
 #   Register sensors ################################################################################################
-    # Single attempt per sensor (see register_sensor()), no retry, and no overall
-    # deadline across the sweep - each individual request already has the standard 5s
-    # reply timeout, and any single sensor failing to register (that timeout, or the
-    # connection dropping outright) ends the phase right there. sensor_data is expected
-    # to already reflect the sensors this specific hardware supports, so a failure here
-    # is treated as a real problem, not shrugged off and skipped.
+    # Ein Versuch pro Sensor (siehe register_sensor()), kein Retry, kein Gesamtlimit -
+    # jede einzelne Anfrage hat bereits ihr Antwort-Timeout.
     #
-    # MQTT is already connected at this point (see above) and publishing is NOT gated on
-    # this sweep - values for sensors that are already subscribed go out to Loxone right
-    # away while the rest are still being registered (see callback_sensor()).
-    # comfoconnect.sensors_ready, set True below once this sweep succeeds, only feeds the
-    # status display.
+    # Sensoren, die diese Anlage nicht kennt, werden UEBERSPRUNGEN und nicht als Fehler
+    # behandelt. Das ist kein Schoenreden, sondern der Normalfall: sensor_data ist eine
+    # Liste aller bekannten pdids ueber alle Comfo-Modelle und Firmware-Staende hinweg,
+    # und kein einzelnes Geraet unterstuetzt sie alle. Wuerde hier abgebrochen, koennte
+    # das Plugin auf fremder Hardware ueberhaupt nicht starten - und mit aktiviertem
+    # automatischem Neustart in einer Neustartschleife landen.
+    #
+    # Der einzige Abbruchgrund ist ein echter Verbindungsverlust (OSError), und der
+    # fuehrt nicht zum Prozessende, sondern uebergibt an den automatischen Reconnect.
+    #
+    # MQTT ist zu diesem Zeitpunkt bereits verbunden und das Veroeffentlichen haengt
+    # nicht an diesem Durchlauf - Werte bereits registrierter Sensoren gehen sofort
+    # raus, waehrend die uebrigen noch angemeldet werden (siehe callback_sensor()).
     sensor_ids = list(sensor_data.keys())
-    registration_ok = True
     connection_lost = False
+    uebersprungen = []
 
     _LOGGER.info("Registriere %d Sensoren..." % len(sensor_ids))
 
     for i, x in enumerate(sensor_ids):
         try:
-            # register_sensor() gives up silently (returns None) on a plain timeout - it
-            # does NOT raise in that case, so this has to check the return value, not
-            # just "no exception was raised". register_sensor() already logged WHY
-            # ("konnte nicht registriert werden") - here we just decide the phase is
-            # over: no skipping, no continuing with the rest. This is a plain
-            # non-response with the connection still up - genuinely different from the
-            # OSError case below, so it still aborts the whole run (nothing will make
-            # this particular sensor answer just by reconnecting).
+            # register_sensor() liefert None, wenn die Anlage den Sensor nicht kennt
+            # (keine Antwort oder ausdrueckliche Ablehnung) - es wirft in dem Fall
+            # nicht. Die Begruendung hat es selbst schon protokolliert, hier wird nur
+            # mitgezaehlt, damit am Ende eine Gesamtbilanz im Log steht.
             reply = comfoconnect.register_sensor(x)
             if reply is None:
-                _LOGGER.critical(
-                    "Sensor %d (%s) konnte nicht registriert werden - breche Sensor-Registrierung ab "
-                    "(%d von %d Sensoren noch offen)." % (x, sensor_data[x]['NAME'], len(sensor_ids) - i, len(sensor_ids))
-                )
-                registration_ok = False
-                break
+                uebersprungen.append("%d (%s)" % (x, sensor_data[x]['NAME']))
+                continue
             _LOGGER.info("Register Sensor: %d" % x + " Sensorname: " + sensor_data[x]['NAME'])
 
         except OSError as e:
@@ -1152,26 +1133,33 @@ def main():
             connection_lost = True
             break
 
+        except Exception as e:
+            # Auffangnetz fuer alles Uebrige. Konkret bekannt: steht ein Sensor in
+            # mqtt_data.py, fehlt aber in RPDO_TYPE_MAP (comfoconnect.py), wirft
+            # register_sensor() eine nackte Exception - ohne diesen Zweig wuerde ein
+            # solcher Eintragsfehler den kompletten Start abbrechen, statt nur diesen
+            # einen Sensor zu kosten. Aktuell sind alle Sensoren vollstaendig
+            # eingetragen; das hier schuetzt kuenftige Ergaenzungen.
+            _LOGGER.error("Sensor %d (%s) konnte nicht registriert werden (%s: %s) - wird übersprungen."
+                          % (x, sensor_data[x]['NAME'], type(e).__name__, str(e)))
+            uebersprungen.append("%d (%s)" % (x, sensor_data[x]['NAME']))
+            continue
+
     if connection_lost:
-        # Not "timeout": the background reconnect is actively working on this, it's
-        # not a dead end waiting for a restart. sensors_ready is left False (it
-        # already is - see register_sensor()/comfoconnect.py's __init__) until
-        # _connection_thread_loop()'s own reconnect+re-registration sweep succeeds and
-        # sets it True itself - the status page keeps showing live "Registriere
-        # Sensoren (X von Y)" throughout via that flag, same as during this sweep.
-        registration_state = "done"
+        # sensors_ready bleibt False (ist es bereits), bis der Reconnect-Durchlauf in
+        # _connection_thread_loop() selbst durch ist und die Kennung setzt - die
+        # Statusseite zeigt so lange "Registriere Sensoren (X von Y)".
         _LOGGER.info(
             "Erstregistrierung durch Verbindungsverlust unterbrochen - Fertigstellung läuft im "
             "Hintergrund weiter, sobald die Bridge wieder erreichbar ist."
         )
-    elif not registration_ok:
-        registration_state = "timeout"
-        _LOGGER.critical("Sensor-Registrierung fehlgeschlagen - beende Prozess, Watchdog/Wrapper startet neu.")
-        # os._exit(), not exit(): the (non-daemon) connection/message threads are
-        # definitely running by this point - see the os._exit() comment above.
-        os._exit(1)
-    else:
-        registration_state = "done"
+    elif uebersprungen:
+        # Gesamtbilanz auf einen Blick, statt die einzelnen Warnungen im Log
+        # zusammensuchen zu muessen. Kein Fehler: siehe Kommentar an der Schleife.
+        _LOGGER.warning(
+            "%d von %d Sensoren werden von dieser Anlage nicht unterstützt und übersprungen: %s"
+            % (len(uebersprungen), len(sensor_ids), ", ".join(uebersprungen))
+        )
 
     if not connection_lost:
         # This first sweep runs here, in cfc.py's main thread, not in comfoconnect.py's
