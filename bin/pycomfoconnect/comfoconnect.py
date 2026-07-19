@@ -110,6 +110,10 @@ RPDO_TYPE_MAP = {
     417: 6,
     418: 1,
     419: 0,
+    # ComfoCool (optionales Kuehlmodul). Ohne Eintrag hier wuerde register_sensor()
+    # mit "unknown type" abbrechen, noch bevor die Anlage ueberhaupt gefragt wird.
+    784: 1,     # Zustand (UINT8)
+    802: 6,     # Kondensatortemperatur (INT16, Zehntelgrad)
 }
 
 # Product ID Map

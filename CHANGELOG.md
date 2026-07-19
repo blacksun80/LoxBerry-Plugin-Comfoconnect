@@ -19,19 +19,10 @@ nicht beantwortete (zum Beispiel „Abwesend", wenn sie bereits abwesend war),
 starb der MQTT-Empfangsthread. Das Plugin lief weiter und lieferte Sensorwerte,
 reagierte aber auf keinen Befehl mehr — ohne erkennbare Ursache. *(Issue #11)*
 
-**Endlosschleife mit vollem Datenträger.** Unter bestimmten Umständen drehte das
-Plugin mit voller CPU-Last im Kreis und schrieb dabei Logdateien von über 100 MB.
-
 **Abstürze und hängende Verbindungen beim Reconnect.** Riss die Verbindung zur
 Lüftungsanlage ab, konnte sich das Plugin dabei aufhängen, ohne es zu bemerken.
 Mehrere Ursachen behoben (Wettlaufsituationen zwischen den Threads, falsch
 zugeordnete Antworten der Anlage, verschluckte Fehlermeldungen).
-
-**Fehlermeldungen waren unlesbar.** Ausgerechnet im Fehlerfall schrieb das Plugin
-statt der Ursache einen 15-zeiligen Programmierfehler ins Log.
-
-**Installation dauerte unnötig lange.** Bei jeder Installation und jedem Update
-wurden rund zwei Minuten mit einer überflüssigen Internetabfrage verbracht.
 
 ---
 

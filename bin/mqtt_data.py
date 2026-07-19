@@ -196,4 +196,18 @@ sensor_data = {
         'NAME' : 'HUMIDITY_SUPPLY',
         'PUSH'  :  3
         },
+
+    # ComfoCool (Kuehlmodul, optionales Zubehoer).
+    #
+    # Anlagen ohne ComfoCool kennen diese Werte nicht. Das ist unkritisch: nicht
+    # unterstuetzte Sensoren werden beim Start uebersprungen und in der
+    # Statusanzeige als "X von Y Sensoren" ausgewiesen (siehe register_sensor()).
+    784: {
+        'NAME' : 'COMFOCOOL_STATE'
+        },
+    802: {
+        'NAME' : 'COMFOCOOL_TEMPERATURE_CONDENSOR',
+        'CONV'  :   "%i / 10",
+        'PUSH'  :  3
+        },
     }

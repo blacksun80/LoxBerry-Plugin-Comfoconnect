@@ -98,6 +98,18 @@ Gängige Werte: 1 Tag = `86400`, 7 Tage = `604800`, 10 Tage = `864000`,
 | `SENSOR_HUMP` | `0` `1` `2` | Feuchteschutz: 0 = Automatik, 1 = ein, 2 = aus |
 | `SENSOR_HUMP_AUTO` / `_ON` / `_OFF` | `1` | einzeln schalten |
 
+### ComfoCool (optionales Kühlmodul)
+
+| Topic | Werte | Bedeutung |
+|---|---|---|
+| `COMFOCOOL` | `0` `1` | 0 = Automatik, 1 = dauerhaft aus |
+| `COMFOCOOL_AUTO` | `1` | Automatik |
+| `COMFOCOOL_OFF` | `1` | Ausschalten |
+| `COMFOCOOL_OFF_TIME` | Sekunden | Dauer fürs Ausschalten, **vorher** senden. Ohne Angabe dauerhaft |
+
+Nur bei Anlagen mit angeschlossenem ComfoCool. Ohne das Modul werden die Befehle
+von der Anlage abgelehnt und der Fehlschlag im Log vermerkt, sonst passiert nichts.
+
 ### Störungen
 
 | Topic | Werte | Bedeutung |
@@ -226,6 +238,17 @@ gepollt. Bei einigen Werten ist zusätzlich eine Mindestpause hinterlegt
 | Topic | pdid | Bedeutung | Pause |
 |---|---|---|---|
 | `DAYS_TO_REPLACE_FILTER` | 192 | Tage bis zum Filterwechsel | 3s |
+
+### ComfoCool (nur mit angeschlossenem Kühlmodul)
+
+| Topic | pdid | Bedeutung | Pause |
+|---|---|---|---|
+| `COMFOCOOL_STATE` | 784 | Zustand des Kühlmoduls | — |
+| `COMFOCOOL_TEMPERATURE_CONDENSOR` | 802 | Kondensatortemperatur in °C | 3s |
+
+Ohne ComfoCool erscheinen diese Topics nicht — die Anlage kennt die Werte dann
+nicht, die Sensoren werden beim Start übersprungen und in der Statusanzeige als
+„X von Y Sensoren aktiv" ausgewiesen. Das ist der Normalfall und kein Fehler.
 
 ---
 

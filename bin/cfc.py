@@ -79,6 +79,10 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe(mqtt_topic + "AWAY_FOR", qos=0)
     client.subscribe(mqtt_topic + "AWAY_END", qos=0)
     client.subscribe(mqtt_topic + "ERROR_RESET", qos=0)
+    client.subscribe(mqtt_topic + "COMFOCOOL", qos=0)
+    client.subscribe(mqtt_topic + "COMFOCOOL_AUTO", qos=0)
+    client.subscribe(mqtt_topic + "COMFOCOOL_OFF", qos=0)
+    client.subscribe(mqtt_topic + "COMFOCOOL_OFF_TIME", qos=0)
     client.subscribe(mqtt_topic + "FAN_MODE_LOW", qos=0)
     client.subscribe(mqtt_topic + "FAN_MODE_MEDIUM", qos=0)
     client.subscribe(mqtt_topic + "FAN_MODE_HIGH", qos=0)
@@ -153,7 +157,7 @@ def on_message(client, userdata, msg):
         _LOGGER.error("Fehler bei Verarbeitung von MQTT %s = '%s': %s" % (topic, value, str(e)))
 
 def _dispatch_message(topic, value):
-    global boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time
+    global boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfocool_off_time
 
     # execute matching command
     if topic == mqtt_topic + "FAN_MODE":
@@ -199,6 +203,44 @@ def _dispatch_message(topic, value):
             _LOGGER.info("Befehl AWAY_END an Lüftungsanlage gesendet: %s" % cmd.hex())
         else:
             _LOGGER.error("AWAY_END: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
+    elif topic == mqtt_topic + "COMFOCOOL":
+        # Kuehlmodul: 0 = Automatik, 1 = aus.
+        #
+        # Unit 0x15 SCHEDULE, SubUnit 05 - dasselbe Muster wie Bypass und
+        # Abwesenheit. 0x85 loescht den Zeiteintrag (zurueck auf Automatik), 0x84
+        # setzt ihn. Die Dauer ffffffff (= -1) bedeutet dauerhaft, sonst schaltet
+        # die Anlage nach Ablauf von selbst wieder auf Automatik.
+        # Quelle: aiocomfoconnect, set_comfocool_mode().
+        #
+        # Anlagen ohne ComfoCool lehnen den Befehl ab; das wird als Fehler
+        # protokolliert und bleibt folgenlos.
+        if int(value) == 0:
+            comfoconnect.cmd_rmi_request(b'\x85\x15\x05\x01')
+            _LOGGER.info("Befehl COMFOCOOL_AUTO an Lüftungsanlage gesendet")
+        elif int(value) == 1:
+            comfoconnect.cmd_rmi_request(b'\x84\x15\x05\x01\x00\x00\x00\x00\xff\xff\xff\xff\x00')
+            _LOGGER.info("Befehl COMFOCOOL_OFF (dauerhaft) an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("COMFOCOOL: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Werte 0, 1")
+    elif topic == mqtt_topic + "COMFOCOOL_OFF_TIME":
+        # Wie bei Bypass/Boost: nur merken, geschaltet wird mit COMFOCOOL_OFF.
+        comfocool_off_time = to_seconds(value)
+        _LOGGER.info("COMFOCOOL_OFF_TIME " + str(comfocool_off_time) + " sec übernommen")
+    elif topic == mqtt_topic + "COMFOCOOL_OFF":
+        if int(value) == 1:
+            dauer = seconds_to_timerfield(comfocool_off_time) if comfocool_off_time > 0 else b'\xff\xff\xff\xff'
+            cmd = b'\x84\x15\x05\x01\x00\x00\x00\x00' + dauer + b'\x00'
+            comfoconnect.cmd_rmi_request(cmd)
+            _LOGGER.info("Befehl COMFOCOOL_OFF (%s) an Lüftungsanlage gesendet: %s"
+                         % ("%d Sekunden" % comfocool_off_time if comfocool_off_time > 0 else "dauerhaft", cmd.hex()))
+        else:
+            _LOGGER.error("COMFOCOOL_OFF: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
+    elif topic == mqtt_topic + "COMFOCOOL_AUTO":
+        if int(value) == 1:
+            comfoconnect.cmd_rmi_request(b'\x85\x15\x05\x01')
+            _LOGGER.info("Befehl COMFOCOOL_AUTO an Lüftungsanlage gesendet")
+        else:
+            _LOGGER.error("COMFOCOOL_AUTO: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "ERROR_RESET":
         # Quittiert anstehende Stoerungen. Besteht die Ursache weiter, meldet die
         # Anlage den Fehler sofort erneut - das ersetzt also keine Behebung.
@@ -796,7 +838,7 @@ def publish_sensorwatch_state():
 
 
 def main():
-    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, sensorwatch_enabled, sensorwatch_timeout_sec
+    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, sensorwatch_enabled, sensorwatch_timeout_sec, comfocool_off_time
 
     loglevel=logging.ERROR
     search = False
@@ -805,6 +847,8 @@ def main():
     ventmode_stop_exhaust_fan_time = b'\x10\x0e'
     bypass_on_time = b'\x10\x0e'
     bypass_off_time = b'\x10\x0e'
+    # Sekunden; 0 = keine Zeit gesetzt, dann schaltet COMFOCOOL_OFF dauerhaft.
+    comfocool_off_time = 0
     configfile = ""
 
     opts, args = getopt.getopt(sys.argv[1:],"c:f:l:s:",['configfile=', 'logfile=', 'loglevel=', 'search', 'statusfile='])
