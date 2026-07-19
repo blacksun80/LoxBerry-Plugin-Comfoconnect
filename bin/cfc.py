@@ -774,6 +774,24 @@ def main():
             _LOGGER.error("Konnte Ordner für Statusdatei nicht anlegen: " + str(e))
         threading.Thread(target=write_status_loop, daemon=True).start()
 
+    # Connect to the broker. Deliberately done BEFORE the bridge/sensor registration
+    # below, not after: the MQTT connection itself has nothing to do with whether the
+    # ventilation data is ready yet, and keeping it separate means the plugin shows up
+    # as "Online" on the broker (and can already receive commands) immediately, instead
+    # of only after up to SENSOR_REGISTRATION_TIMEOUT seconds. What actually needs to
+    # wait for registration is PUBLISHING sensor values - and that is gated separately,
+    # by comfoconnect.sensors_ready (see callback_sensor()), not by delaying the
+    # connection itself. Same reasoning applies to every later reconnect to the bridge:
+    # MQTT stays up throughout, only sensors_ready flips off and on around it.
+    try:
+        _LOGGER.info("Connecting to MQTT Broker " + str(mqtt_broker) + ":" + str(mqtt_port))
+        client.connect(mqtt_broker, mqtt_port)
+    except Exception as e:
+        _LOGGER.exception(str(e))
+        _LOGGER.critical("Not connected to MQTT Broker")
+        os._exit(1)
+    client.loop_start()
+
     # Connect to the bridge
     #
     # Retry a few times before giving up: the initial handshake (StartSessionConfirm)
@@ -813,10 +831,9 @@ def main():
     # reflect the sensors this specific hardware supports, so a failure here is treated
     # as a real problem, not shrugged off and skipped.
     #
-    # MQTT (paho) is deliberately not started until this whole phase is done (see below) -
-    # a half-registered plugin publishing whatever it managed to grab in the first few
-    # seconds isn't something Loxone should ever see; better to be fully ready or not
-    # running at all.
+    # MQTT is already connected at this point (see above) - comfoconnect.sensors_ready
+    # (set True below once this sweep succeeds) is what actually keeps callback_sensor()
+    # from publishing anything half-ready in the meantime.
     sensor_ids = list(sensor_data.keys())
     registration_deadline = time.time() + SENSOR_REGISTRATION_TIMEOUT
     registration_ok = True
@@ -874,20 +891,6 @@ def main():
     comfoconnect.sensors_ready = True
 
     _LOGGER.info("Sensor-Registrierung abgeschlossen: %d von %d Sensoren registriert." % (len(comfoconnect.sensors_confirmed), len(sensor_ids)))
-
-    # Connect to the broker - only now, once sensor registration has actually finished
-    # (see SENSOR_REGISTRATION_TIMEOUT above): starting MQTT any earlier would let Loxone
-    # see (and possibly act on) a plugin that isn't fully ready yet.
-    try:
-        _LOGGER.info("Connecting to MQTT Broker " + str(mqtt_broker) + ":" + str(mqtt_port))
-        client.connect(mqtt_broker, mqtt_port)
-    except Exception as e:
-        _LOGGER.exception(str(e))
-        _LOGGER.critical("Not connected to MQTT Broker")
-        # os._exit(): same reasoning as above - comfoconnect's background threads are
-        # already running at this point, a plain exit(1) would just hang.
-        os._exit(1)
-    client.loop_start()
 
     # Diagnostic-only calls - wrapped so a connection hiccup right at this moment
     # (e.g. still mid-reconnect after the loop above gave up early) can't crash the

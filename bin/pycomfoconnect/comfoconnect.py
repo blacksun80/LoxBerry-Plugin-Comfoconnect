@@ -210,6 +210,19 @@ class ComfoConnect(object):
         # completes (that first pass runs in cfc.py's main thread, not here).
         self.sensors_ready = False
 
+        # True once _connection_thread_loop() has noticed at least one real
+        # disconnect and is (re)connecting because of it. Guards sensors_ready so the
+        # background loop only ever touches it for a GENUINE reconnect - not for its
+        # own very first pass right after the initial connect(), which runs
+        # concurrently with cfc.py's own startup registration loop (self.sensors is
+        # still empty at that point, since register_sensor() only adds to it on
+        # success) and would otherwise hit the "nothing to (re-)register yet" branch
+        # and flip sensors_ready True within milliseconds - long before cfc.py's own
+        # sweep, or even the MQTT client, are anywhere close to ready. Observed in
+        # practice as a flood of "Fehler published, RC=4" (MQTT_ERR_NO_CONN) during
+        # every single startup.
+        self._is_reconnect = False
+
         # Heartbeat/health bookkeeping, read from the outside (cfc.py) to build a
         # status file. These are plain timestamps (time.time(), or None until the
         # first occurrence) updated cheaply in memory - the caller decides how often
@@ -647,8 +660,10 @@ class ComfoConnect(object):
             if not self.is_connected():
                 # Not ready for MQTT publishing again until the sensors below have all
                 # been (re-)attempted on the new connection - see the attribute comment
-                # in __init__ for why.
+                # in __init__ for why. Also marks this as a genuine reconnect, not the
+                # initial connect - see the _is_reconnect comment in __init__.
                 self.sensors_ready = False
+                self._is_reconnect = True
 
                 # Wait a bit to avoid hammering the bridge
                 time.sleep(5)
@@ -764,11 +779,23 @@ class ComfoConnect(object):
                         # to reconnect and try the whole sweep again from scratch.
                     else:
                         _LOGGER.info(str(len(self.sensors)) + ' sensor(s) registered, ready event set.')
-                        self.sensors_ready = True
+                        if self._is_reconnect:
+                            self.sensors_ready = True
+                        # else: this was the very first connect - self.sensors was (and
+                        # still is, most likely) empty because cfc.py's own startup sweep
+                        # runs concurrently in the main thread and hasn't populated it
+                        # yet. Leave sensors_ready alone; cfc.py sets it itself once ITS
+                        # sweep actually finishes (see main()).
                 else:
                     # Nothing to (re-)register (e.g. reconnecting before cfc.py's startup
-                    # sweep ever ran) - nothing is blocking readiness either.
-                    self.sensors_ready = True
+                    # sweep ever ran, or a genuine reconnect with no sensors left to
+                    # restore) - nothing is blocking readiness, but only say so for an
+                    # actual reconnect. On the very first connect this branch is
+                    # basically always taken too (self.sensors starts empty - see
+                    # above), and must NOT flip sensors_ready True early - that's
+                    # cfc.py's call once its own startup sweep is done.
+                    if self._is_reconnect:
+                        self.sensors_ready = True
 
                 # Send the event that we are ready
                 self._connected.set()
