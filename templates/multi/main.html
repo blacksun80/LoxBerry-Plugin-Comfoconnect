@@ -52,7 +52,13 @@
 		   auf die er sich bezieht. Zentriert und begrenzt bleiben Rahmen und
 		   Zuordnung lesbar; auf schmalen Geraeten greift die Begrenzung nicht. */
 		max-width: 1150px;
-		margin: 0 auto;
+		/* Negativer oberer Rand: der umgebende Inhaltsbereich (jQuery Mobile
+		   ".ui-content") bringt einen eigenen Innenabstand mit, der oberhalb der
+		   Beschreibung als breiter, ungenutzter Streifen sichtbar war. Von hier aus
+		   laesst er sich nicht abschalten, ohne fremde Klassen zu ueberschreiben -
+		   ein moderater negativer Rand holt den Block hoch, ohne in den Kopfbereich
+		   zu ragen, falls eine andere LoxBerry-Version dort weniger Abstand hat. */
+		margin: -18px auto 0 auto;
 	}
 
 	/* Ersetzt die alte, kursive Intro-Box (Klartext-<i>-Tag + Inline-Styles) durch
@@ -66,11 +72,11 @@
 		padding: 8px 14px;
 		display: table;
 		/* Kein Abstand nach oben - der Block schliesst direkt an den Seitenrand an.
-		   Der dadurch gewonnene Platz geht an die Statusanzeige darunter (siehe
-		   #statusbox), die als einziges Element der Seite laufend wechselt und
-		   deshalb Luft um sich herum verdient, statt zwischen Beschreibung und
-		   Formular eingeklemmt zu sein. */
-		margin: 0 auto 22px auto;
+		   Der Abstand nach unten ist bewusst identisch mit dem unter #statusbox,
+		   damit die Statusanzeige mittig zwischen Beschreibung und Formular sitzt
+		   und nicht an eines von beiden angeklebt wirkt. Werden die beiden Werte
+		   geaendert, immer BEIDE gleich halten. */
+		margin: 0 auto 28px auto;
 		font-size: 0.9em;
 		color: #4a4a4a;
 	}
@@ -154,10 +160,11 @@
 		/* Etwas grosszuegiger als die uebrigen Kaesten: das ist die einzige Anzeige,
 		   die sich laufend aendert (Sekundentakt) und auf die man beim Oeffnen der
 		   Seite zuerst schaut. Der Platz dafuer kommt aus dem weggefallenen
-		   Abstand ueber der Beschreibung (siehe .cc-intro). */
-		padding: 12px 22px;
+		   Abstand ueber der Beschreibung (siehe .cc-plugin/.cc-intro).
+		   Der Abstand nach unten muss mit dem von .cc-intro uebereinstimmen. */
+		padding: 14px 26px;
 		display: table;
-		margin: 0 auto 22px auto;
+		margin: 0 auto 28px auto;
 		font-size: 1.05em;
 	}
 	#statusbox .cc-status-icon {

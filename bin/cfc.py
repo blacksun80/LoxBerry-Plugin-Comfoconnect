@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import paho.mqtt.client as mqtt
 import datetime
+import re
 import os
 import time
 import threading
@@ -87,6 +88,9 @@ def on_connect(client, userdata, flags, rc):
 
     client.subscribe(mqtt_topic + "FAN_MODE", qos=0)
     client.subscribe(mqtt_topic + "FAN_MODE_AWAY", qos=0)
+    client.subscribe(mqtt_topic + "AWAY_TIME", qos=0)
+    client.subscribe(mqtt_topic + "AWAY_TIMED", qos=0)
+    client.subscribe(mqtt_topic + "AWAY_UNTIL", qos=0)
     client.subscribe(mqtt_topic + "FAN_MODE_LOW", qos=0)
     client.subscribe(mqtt_topic + "FAN_MODE_MEDIUM", qos=0)
     client.subscribe(mqtt_topic + "FAN_MODE_HIGH", qos=0)
@@ -161,7 +165,7 @@ def on_message(client, userdata, msg):
         _LOGGER.error("Fehler bei Verarbeitung von MQTT %s = '%s': %s" % (topic, value, str(e)))
 
 def _dispatch_message(topic, value):
-    global boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time
+    global boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, away_time
 
     # execute matching command
     if topic == mqtt_topic + "FAN_MODE":
@@ -185,6 +189,51 @@ def _dispatch_message(topic, value):
             _LOGGER.info("Befehl FAN_MODE_AWAY an Lüftungsanlage gesendet")
         else:
             _LOGGER.error("FAN_MODE_AWAY: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
+    elif topic == mqtt_topic + "AWAY_TIME":
+        # Nur merken, geschaltet wird erst bei AWAY_TIMED - dasselbe Muster wie
+        # BOOST_MODE_TIME/BOOST_MODE weiter unten.
+        away_time = to_seconds(value)
+        _LOGGER.info("AWAY_TIME " + str(away_time) + " sec übernommen")
+    elif topic == mqtt_topic + "AWAY_TIMED":
+        # EXPERIMENTELL - siehe seconds_to_timerfield(). Der Aufbau des Befehls ist
+        # aus der Protokolldokumentation abgeleitet (Unit 0x15 SCHEDULE, SubUnit
+        # 01 01 = Lüfterstufe, Wert 00 = Away) und entspricht exakt dem fest
+        # verdrahteten CMD_FAN_MODE_AWAY - nur mit echter Laufzeit im Zeitfeld
+        # statt der dort hinterlegten 1. Ob die Anlage den Timer für diese SubUnit
+        # tatsächlich auswertet, ist NICHT dokumentiert und muss gemessen werden:
+        # nach dem Senden sollte FAN_NEXT_CHANGE (pdid 81) von der gesetzten
+        # Sekundenzahl herunterzählen und die Zehnder-App "Abwesend bis <Zeit>"
+        # anzeigen. Tut sie das nicht, wertet die Box das Feld hier nicht aus.
+        if int(value) == 1:
+            if away_time <= 0:
+                _LOGGER.error("AWAY_TIMED: Erst AWAY_TIME (Sekunden > 0) senden, dann AWAY_TIMED=1")
+            else:
+                cmd = b'\x84\x15\x01\x01\x00\x00\x00\x00' + seconds_to_timerfield(away_time) + b'\x00'
+                comfoconnect.cmd_rmi_request(cmd)
+                _LOGGER.info(
+                    "Befehl AWAY_TIMED (%d Sekunden) an Lüftungsanlage gesendet: %s"
+                    % (away_time, cmd.hex())
+                )
+        else:
+            _LOGGER.error("AWAY_TIMED: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
+    elif topic == mqtt_topic + "AWAY_UNTIL":
+        # Wie AWAY_TIMED, nur mit Zielzeitpunkt statt Dauer - schaltet sofort, ohne
+        # zweites Topic. Siehe parse_until() zu den akzeptierten Schreibweisen.
+        sek = parse_until(value)
+        if sek is None:
+            _LOGGER.error(
+                "AWAY_UNTIL: '%s' nicht verstanden - erwartet z.B. '23.07.2026 23:30', "
+                "'2026-07-23 23:30', '23:30' oder einen Unix-Zeitstempel" % value
+            )
+        elif sek <= 0:
+            _LOGGER.error("AWAY_UNTIL: '%s' liegt in der Vergangenheit - nichts gesendet" % value)
+        else:
+            cmd = b'\x84\x15\x01\x01\x00\x00\x00\x00' + seconds_to_timerfield(sek) + b'\x00'
+            comfoconnect.cmd_rmi_request(cmd)
+            _LOGGER.info(
+                "Befehl AWAY_UNTIL '%s' = %d Sekunden an Lüftungsanlage gesendet: %s"
+                % (value, sek, cmd.hex())
+            )
     elif topic == mqtt_topic + "FAN_MODE_LOW":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_FAN_MODE_LOW)
@@ -483,6 +532,96 @@ def to_big(val):
     big_hex = bytearray.fromhex(big_hex)
     return big_hex
 
+def parse_until(value):
+    """Rechnet eine Zielzeit in "Sekunden ab jetzt" um.
+
+    Die Lüftungsanlage kennt intern kein Datum, sondern nur eine Restlaufzeit -
+    nachgemessen an FAN_NEXT_CHANGE: "abwesend bis 23.07.2026 23:30" ergab dort
+    exakt 346091, also sekundengenau die Spanne bis zu diesem Zeitpunkt. Die
+    Zehnder-App macht nichts anderes, als diese Differenz zu bilden. Genau das
+    passiert hier, damit die Rechnung nicht in Loxone nachgebaut werden muss.
+
+    Akzeptiert:
+      "23.07.2026 23:30" / "23.07.26 23:30"  (wie in der App angezeigt)
+      "2026-07-23 23:30"                     (ISO)
+      "23:30"                                (nächstes Auftreten, ggf. morgen)
+      1784936000                             (Unix-Zeitstempel)
+
+    Gibt die Sekunden bis dahin zurück, oder None wenn nichts davon passt.
+    """
+    value = str(value).strip()
+    if not value:
+        return None
+
+    now = datetime.datetime.now()
+    ziel = None
+
+    # Reine Zahl = Unix-Zeitstempel. Abgegrenzt gegen eine Sekundenangabe über die
+    # Größe: alles ab ~1970+30 Jahre ist zwangsläufig ein Zeitstempel, während eine
+    # sinnvolle Abwesenheitsdauer niemals in diese Größenordnung kommt.
+    if re.fullmatch(r'\d+(\.\d+)?', value):
+        zahl = int(float(value))
+        if zahl > 946684800:  # 01.01.2000
+            ziel = datetime.datetime.fromtimestamp(zahl)
+        else:
+            return None
+
+    if ziel is None:
+        for fmt in ("%d.%m.%Y %H:%M", "%d.%m.%y %H:%M", "%Y-%m-%d %H:%M",
+                    "%d.%m.%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+            try:
+                ziel = datetime.datetime.strptime(value, fmt)
+                break
+            except ValueError:
+                continue
+
+    if ziel is None:
+        # Nur eine Uhrzeit: das nächste Auftreten. Liegt sie heute schon in der
+        # Vergangenheit, ist der morgige Termin gemeint - sonst käme eine negative
+        # Dauer heraus und die Anlage würde sofort zurückschalten.
+        try:
+            t = datetime.datetime.strptime(value, "%H:%M").time()
+            ziel = datetime.datetime.combine(now.date(), t)
+            if ziel <= now:
+                ziel += datetime.timedelta(days=1)
+        except ValueError:
+            return None
+
+    return int((ziel - now).total_seconds())
+
+def to_seconds(value):
+    """Wandelt eine MQTT-Nutzlast in ganze Sekunden.
+
+    Ueber float() statt direkt int(): Loxone schickt Zahlen regelmaessig in
+    Fliesskommaschreibweise ("240.0"), und int("240.0") wirft ValueError - das
+    landete frueher als Fehlermeldung im Log statt als gesetzter Wert.
+    """
+    return int(float(value))
+
+def seconds_to_timerfield(seconds):
+    """Baut das 4-Byte-Zeitfeld der 0x8415-Befehle (Sekunden, little-endian).
+
+    Alle Schaltbefehle an Unit 0x15 (SCHEDULE) haben dasselbe Format:
+
+        84 15 SS II 00000000 DDDDDDDD VV
+                             ^^^^^^^^ dieses Feld
+
+    Nachgerechnet an den dokumentierten Beispielen: Boost "10 Minuten" ist
+    58020000 = 600, Bypass "1 Stunde" ist 100e0000 = 3600. 0xFFFFFFFF bedeutet
+    dauerhaft (so setzt die Box das Temperaturprofil).
+
+    Bewusst 4 echte Bytes statt to_big() + zwei Nullbytes: to_big() kann nur
+    65535 Sekunden abbilden (gut 18 Stunden). Für "abwesend bis morgen abend"
+    reicht das nicht, und der Fehler wäre böse - der Wert liefe still über und
+    die Anlage bekäme eine völlig andere Zeit als gewünscht.
+    """
+    seconds = int(seconds)
+    if seconds < 0:
+        seconds = 0
+    if seconds > 0xFFFFFFFE:
+        seconds = 0xFFFFFFFE
+    return seconds.to_bytes(4, byteorder='little')
+
 def on_log(client, userdata, level, buf):
     _LOGGER.debug("Paho: " + buf)
 
@@ -635,7 +774,7 @@ def publish_sensorwatch_state():
 
 
 def main():
-    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, registration_state, sensorwatch_enabled, sensorwatch_timeout_sec
+    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, registration_state, sensorwatch_enabled, sensorwatch_timeout_sec, away_time
 
     loglevel=logging.ERROR
     search = False
@@ -644,6 +783,9 @@ def main():
     ventmode_stop_exhaust_fan_time = b'\x10\x0e'
     bypass_on_time = b'\x10\x0e'
     bypass_off_time = b'\x10\x0e'
+    # Sekunden (nicht als Bytes wie oben) - wird erst beim Senden ins 4-Byte-Feld
+    # umgewandelt, siehe seconds_to_timerfield(). 0 = noch nichts gesetzt.
+    away_time = 0
     configfile = ""
 
     opts, args = getopt.getopt(sys.argv[1:],"c:f:l:s:",['configfile=', 'logfile=', 'loglevel=', 'search', 'statusfile='])
