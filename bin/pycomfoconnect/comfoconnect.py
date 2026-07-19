@@ -128,6 +128,14 @@ class ComfoConnect(object):
     """Callback function to invoke when sensor updates are received."""
     callback_sensor = None
 
+    """Callback function to invoke when an alarm notification is received.
+
+    Wird mit (node_id, errors) aufgerufen, wobei errors ein Dict
+    {Bitnummer: Klartext} der aktuell anstehenden Fehler ist - leer, wenn die
+    Anlage keine Fehler (mehr) meldet.
+    """
+    callback_alarm = None
+
     def __init__(self, bridge: Bridge, local_uuid=DEFAULT_LOCAL_UUID, local_devicename=DEFAULT_LOCAL_DEVICENAME,
                  pin=DEFAULT_PIN):
         self._bridge = bridge
@@ -920,9 +928,7 @@ class ComfoConnect(object):
                     pass
 
                 elif message.cmd.type == GatewayOperation.CnAlarmNotificationType:
-                    _LOGGER.info('Unhandled CnAlarmNotificationType')
-                    # TODO: We should probably handle these somehow
-                    pass
+                    self._handle_alarm_notification(message)
 
                 elif message.cmd.type == GatewayOperation.CloseSessionRequestType:
                     if self._disconnecting:
@@ -967,6 +973,66 @@ class ComfoConnect(object):
 
         if self.callback_sensor:
             self.callback_sensor(message.msg.pdid, val)
+
+    def _handle_alarm_notification(self, message):
+        """Wertet eine CnAlarmNotification aus und meldet die Fehler im Klartext.
+
+        Die Nachricht enthaelt ein 32-Byte-Bitfeld "errors": jedes gesetzte Bit ist
+        ein anstehender Fehler, die Bitnummer der Schluessel in den Tabellen aus
+        const.py. Innerhalb eines Bytes wird vom niederwertigsten Bit aufwaerts
+        gezaehlt, die Bitnummer ist also Byte-Index * 8 + Bit-Index.
+
+        Nachgerechnet an einem echten Alarm dieser Anlage: Byte 6 = 0x20 ergibt
+        Bitnummer 53, und genau 53 steht auch im Feld errorId derselben Nachricht.
+
+        Frueher stand hier nur "Unhandled CnAlarmNotificationType" - die Anlage hat
+        ihre Stoerung also gemeldet, im Log war davon aber nichts zu sehen.
+        """
+
+        errors = {}
+        try:
+            rohbits = getattr(message.msg, 'errors', b'') or b''
+
+            # Ab Firmware 1.4.0 haben sich die Bedeutungen ab Bit 70 verschoben.
+            version = getattr(message.msg, 'swProgramVersion', 0) or 0
+            tabelle = ALARM_ERRORS_140 if version <= ALARM_FIRMWARE_140 else ALARM_ERRORS
+
+            nummer = 0
+            for byte in rohbits:
+                for bit in range(8):
+                    if byte & (1 << bit):
+                        errors[nummer] = tabelle.get(nummer, "Unbekannter Fehler %d" % nummer)
+                    nummer += 1
+
+        except Exception as e:
+            # Eine Stoerungsmeldung darf niemals den Message-Thread mitreissen -
+            # dann liefe gar nichts mehr, nur weil ein Feld anders aussieht als
+            # erwartet.
+            _LOGGER.error("Konnte Alarmmeldung nicht auswerten: " + str(e))
+            return
+
+        node_id = getattr(message.msg, 'nodeId', 0)
+
+        if errors:
+            for nummer, text in sorted(errors.items()):
+                _LOGGER.error("Störung der Lüftungsanlage (Fehler %d): %s" % (nummer, text))
+        else:
+            _LOGGER.info("Lüftungsanlage meldet keine Störungen mehr.")
+
+        if self.callback_alarm:
+            self.callback_alarm(node_id, errors)
+
+    def cmd_clear_errors(self):
+        """Quittiert anstehende Fehlermeldungen der Anlage.
+
+        Entspricht dem Zuruecksetzen ueber das Bedienteil bzw. die App. Unit 0x03
+        ist die Fehler-Einheit, 0x82 der zugehoerige Quittierbefehl.
+        Quelle: aiocomfoconnect, clear_errors().
+
+        Fehler, deren Ursache noch besteht, meldet die Anlage danach sofort wieder -
+        Quittieren ersetzt also keine Behebung.
+        """
+        return self.cmd_rmi_request(b'\x82\x03\x01')
 
         return True
 

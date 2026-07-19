@@ -91,6 +91,7 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe(mqtt_topic + "FAN_MODE_AWAY", qos=0)
     client.subscribe(mqtt_topic + "AWAY_FOR", qos=0)
     client.subscribe(mqtt_topic + "AWAY_END", qos=0)
+    client.subscribe(mqtt_topic + "ERROR_RESET", qos=0)
     client.subscribe(mqtt_topic + "FAN_MODE_LOW", qos=0)
     client.subscribe(mqtt_topic + "FAN_MODE_MEDIUM", qos=0)
     client.subscribe(mqtt_topic + "FAN_MODE_HIGH", qos=0)
@@ -211,6 +212,14 @@ def _dispatch_message(topic, value):
             _LOGGER.info("Befehl AWAY_END an Lüftungsanlage gesendet: %s" % cmd.hex())
         else:
             _LOGGER.error("AWAY_END: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
+    elif topic == mqtt_topic + "ERROR_RESET":
+        # Quittiert anstehende Stoerungen. Besteht die Ursache weiter, meldet die
+        # Anlage den Fehler sofort erneut - das ersetzt also keine Behebung.
+        if int(value) == 1:
+            comfoconnect.cmd_clear_errors()
+            _LOGGER.info("Befehl ERROR_RESET an Lüftungsanlage gesendet (Störungen quittiert)")
+        else:
+            _LOGGER.error("ERROR_RESET: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "FAN_MODE_LOW":
         if int(value) == 1:
             comfoconnect.cmd_rmi_request(CMD_FAN_MODE_LOW)
@@ -561,6 +570,28 @@ def seconds_to_timerfield(seconds):
         seconds = 0xFFFFFFFE
     return seconds.to_bytes(4, byteorder='little')
 
+def callback_alarm(node_id, errors):
+    """Veroeffentlicht die Stoerungsmeldungen der Anlage per MQTT.
+
+    Wird von comfoconnect.py aufgerufen, sobald eine CnAlarmNotification eintrifft -
+    also ereignisgesteuert, nicht gepollt. Die Anlage schickt bei jeder Aenderung den
+    kompletten aktuellen Fehlerstand, deshalb kann hier direkt ueberschrieben werden,
+    ohne alte Meldungen mitfuehren zu muessen.
+
+    ERROR_COUNT ist fuer die Logik in Loxone gedacht (0 = alles gut), ERROR_TEXT fuer
+    die Anzeige. Beide retained, damit ein neu verbundener Client den aktuellen Stand
+    sofort sieht statt bis zur naechsten Aenderung im Dunkeln zu tappen.
+    """
+    try:
+        anzahl = len(errors)
+        text = " | ".join("Fehler %d: %s" % (n, t) for n, t in sorted(errors.items())) if errors else ""
+
+        client.publish(mqtt_topic + "ERROR_COUNT", anzahl, qos=0, retain=True)
+        client.publish(mqtt_topic + "ERROR_TEXT", text, qos=0, retain=True)
+        _LOGGER.debug("to MQTT %sERROR_COUNT = %d" % (mqtt_topic, anzahl))
+    except Exception as e:
+        _LOGGER.error("Konnte Störungsmeldung nicht per MQTT senden: " + str(e))
+
 def poll_away_loop():
     """Holt den Abwesenheits-Zustand zyklisch ab und veroeffentlicht ihn per MQTT.
 
@@ -909,6 +940,7 @@ def main():
         _LOGGER.exception(str(e))
 
     comfoconnect.callback_sensor = callback_sensor
+    comfoconnect.callback_alarm = callback_alarm
 
     # Graceful shutdown on SIGTERM (wrapper.pl's plain `pkill -f cfc.py`, used both by
     # a "Speichern"-triggered restart and by the watchdog). Without this the process
