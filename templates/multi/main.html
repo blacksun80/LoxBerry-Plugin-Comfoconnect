@@ -4,23 +4,17 @@
 			<TMPL_VAR NAME=T::MENU.BESCHREIBUNG>
 		</i>
 	</div>
-	<tr>
-		<td>
-			&nbsp;
-		</td>
-	</tr>
 </center>
+
+<div style="height:15px;"></div>
 
 <center>
 	<div class="<TMPL_VAR NAME=STATUSCLASS>" style="border-radius: 11px; border: 1px solid black; padding:10px; display:table; margin:0 auto;">
 		<b><TMPL_VAR NAME=T::FORMTABLE.STATUS_LABEL></b> <TMPL_VAR NAME=STATUSTEXT>
 	</div>
-	<tr>
-		<td>
-			&nbsp;
-		</td>
-	</tr>
 </center>
+
+<div style="height:15px;"></div>
 
 <form method="post" data-ajax="false" name="main_form" id="main_form" action="./index.cgi">
 	<input type="hidden" name="saveformdata" value="1">
@@ -30,11 +24,9 @@
 				<h2><TMPL_VAR NAME=T::FORMTABLE.GENERALSETTINGS></h2>
 			</td>
 		</tr>
-		<tr> <!-- 2. Zeile -->	
+		<tr> <!-- 2. Zeile -->
 			<td width="20%" valign="top">
-			<label 
-				id="labelauto"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_KONFIG>
-			</label>
+				<label id="labelauto"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_KONFIG></label>
 			</td>
 			<td width="55%">
 				<table>
@@ -87,7 +79,7 @@
 								<label id="labelwatchdogenabled"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_ENABLED></label>
 							</td>
 							<td style="vertical-align: middle;">
-								<input id="watchdog_enabled" name="watchdog_enabled" type="checkbox" value="1" <TMPL_VAR NAME=WATCHDOG_ENABLED_CHECKED>>
+								<input id="watchdog_enabled" name="watchdog_enabled" type="checkbox" value="1" data-role="none" style="margin:0; width:20px; height:20px; vertical-align:middle;" <TMPL_VAR NAME=WATCHDOG_ENABLED_CHECKED>>
 							</td>
 						</tr>
 						<tr>
@@ -95,7 +87,7 @@
 								<label id="labelwatchdogthreshold"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_THRESHOLD></label>
 							</td>
 							<td style="vertical-align: middle;">
-								<input id="watchdog_threshold" name="watchdog_threshold" type="number" min="1" max="60" size="3" value="<TMPL_VAR NAME=WATCHDOG_THRESHOLD>">
+								<input id="watchdog_threshold" name="watchdog_threshold" type="number" class="textfield" min="1" max="60" value="<TMPL_VAR NAME=WATCHDOG_THRESHOLD>">
 							</td>
 						</tr>
 					</tbody>
@@ -117,16 +109,18 @@
 				<div id="form-error-message" class="form-error-message"></div>
 			</td>
 		</tr>
+		<tr>
+			<td colspan=4>
+				<h2>MQTT</h2>
+			</td>
+		</tr>
+		<tr>
+			<td colspan=4>
+				<p class="<TMPL_VAR NAME=mqtthintclass>"><TMPL_VAR NAME=mqtthint></p>
+			</td>
+		</tr>
 	</table>
-	<tr>
-		<td colspan=4>
-			<h2>MQTT</h2>
-		</td>
-	</tr>
-	<p class="<TMPL_VAR NAME=mqtthintclass>"><TMPL_VAR NAME=mqtthint></p>
-	<td>
-		&nbsp;
-	</td>
+
 	<p>
 		<center>
 			<a id="btncancel" data-role="button" data-inline="true" data-mini="true" data-icon="delete"
