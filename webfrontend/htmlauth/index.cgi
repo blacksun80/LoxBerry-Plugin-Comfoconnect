@@ -34,6 +34,10 @@ use LoxBerry::JSON;
 use LoxBerry::IO;
 use LoxBerry::Web;
 use JSON::PP;
+# Kernmodul. Ohne Import-Liste, damit das eingebaute time() unangetastet bleibt
+# (der Rest des Skripts erwartet dort ganze Sekunden) - fuer die Altersanzeige der
+# Sensordaten wird gezielt Time::HiRes::time() aufgerufen, siehe getStatus().
+use Time::HiRes ();
 #use warnings;
 #use strict;
 #no strict "refs"; # we need it for template system and for contructs like ${"skalar".$i} in loops
@@ -472,7 +476,12 @@ sub getStatus
 			close($fh);
 			my $status = eval { decode_json($json_text) };
 			if ($status) {
-				my $now = time();
+				# Time::HiRes::time() statt time(): cfc.py schreibt die Zeitstempel als
+				# Fliesskommazahl (Python time.time()). Mit dem eingebauten, auf ganze
+				# Sekunden abgeschnittenen time() ergaebe die Differenz einen um bis zu
+				# einer Sekunde falschen Wert - bei einer Anzeige, die im Normalbetrieb
+				# im Millisekundenbereich liegt, ist das der komplette Messbereich.
+				my $now = Time::HiRes::time();
 				my $alive_age = defined($status->{bridge_last_alive_ping}) ? $now - $status->{bridge_last_alive_ping} : undef;
 				my $data_age  = defined($status->{bridge_last_sensor_data}) ? $now - $status->{bridge_last_sensor_data} : undef;
 				my $mqtt_ok = $status->{mqtt_connected} ? 1 : 0;
@@ -537,21 +546,31 @@ sub getStatus
 }
 
 #####################################################
-# Kleines Alter in lesbarer Form ("gerade eben" / "vor 12s" / "vor 3m 05s").
+# Alter in lesbarer Form: unter einer Sekunde in Millisekunden ("vor 340ms"),
+# darueber in ganzen Sekunden ("vor 12s") bzw. ab einer Minute als "vor 3m 05s".
+#
+# Der uebergebene Wert ist eine Fliesskommazahl (siehe getStatus) - deshalb
+# ueberall explizit runden bzw. abschneiden. Ohne das erschiene im Normalbetrieb,
+# wo die Werte im Sekundenbruchteil-Bereich liegen, eine Zahl mit einem Dutzend
+# Nachkommastellen.
+#
 # Negative Werte sind moeglich, wenn die Uhr zwischen dem Schreiben der
-# Statusdatei und dem Lesen hier minimal springt (NTP) - dann lieber
-# "gerade eben" als ein unsinniges "vor -1s".
+# Statusdatei und dem Lesen hier minimal zurueckspringt (NTP) - dann auf 0
+# klemmen statt ein unsinniges "vor -1s" anzuzeigen.
 #####################################################
 
 sub formatAge
 {
 	my $age = shift;
 
-	return "gerade eben" if (!defined($age) || $age < 1);
-	return "vor ${age}s" if ($age < 60);
+	return "unbekannt" if (!defined($age));
+	$age = 0 if ($age < 0);
+
+	return sprintf("vor %dms", int($age * 1000 + 0.5)) if ($age < 1);
+	return sprintf("vor %ds", int($age))               if ($age < 60);
 
 	my $min = int($age / 60);
-	my $sec = $age % 60;
+	my $sec = int($age) % 60;
 	return sprintf("vor %dm %02ds", $min, $sec);
 }
 

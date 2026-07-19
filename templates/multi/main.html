@@ -12,7 +12,7 @@
 		align-items: center;
 		flex-wrap: wrap;
 		gap: 10px;
-		margin-bottom: 10px;
+		margin-bottom: 6px;
 	}
 	.cc-row:last-child {
 		margin-bottom: 0;
@@ -49,15 +49,17 @@
 	}
 
 	/* Ersetzt die alte, kursive Intro-Box (Klartext-<i>-Tag + Inline-Styles) durch
-	   eine ruhigere, mit dem Rest der Seite einheitliche Optik. */
+	   eine ruhigere, mit dem Rest der Seite einheitliche Optik. Bewusst schmal
+	   gehalten (Padding/Margin), damit Formular und Buttons ohne Scrollen auf den
+	   Schirm passen - der Text ist eine einmalige Erklaerung, kein Arbeitsbereich. */
 	.cc-intro {
 		background-color: #fdf8e3;
 		border-radius: 8px;
 		border: 1px solid #e6dba0;
-		padding: 12px 18px;
+		padding: 8px 14px;
 		display: table;
-		margin: 20px auto 15px auto;
-		font-size: 0.95em;
+		margin: 10px auto;
+		font-size: 0.9em;
 		color: #4a4a4a;
 	}
 
@@ -66,6 +68,43 @@
 	.cc-hint-text {
 		font-size: 0.85em;
 		color: #666;
+	}
+
+	/* Gerahmte Themenbloecke. Ersetzen die frueheren Tabellenzeilen samt separater
+	   Label-Spalte: die Gruppenueberschrift steckt jetzt in der <legend>, wodurch
+	   die 20%-Spalte links komplett entfaellt und der Block deutlich flacher wird.
+	   <fieldset>/<legend> statt div+Ueberschrift, weil das die semantisch richtige
+	   Gruppierung zusammengehoerender Formularfelder ist (Screenreader lesen die
+	   Legend zu jedem Feld mit vor). */
+	.cc-group {
+		border: 1px solid #d5d5d5;
+		border-radius: 8px;
+		padding: 10px 16px 12px 16px;
+		margin: 0 0 12px 0;
+	}
+	.cc-group > legend {
+		font-weight: bold;
+		padding: 0 8px;
+		font-size: 0.95em;
+		color: #333;
+	}
+	/* Felder links, Hilfetext rechts daneben - vorher lag der Hilfetext in einer
+	   eigenen Tabellenspalte. flex-wrap sorgt dafuer, dass er auf schmalen Schirmen
+	   (Handy/Tablet) unter die Felder rutscht statt sie zu quetschen. */
+	.cc-group-body {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 16px;
+		align-items: flex-start;
+	}
+	.cc-group-fields {
+		flex: 1 1 420px;
+		min-width: 300px;
+	}
+	.cc-group-help {
+		flex: 1 1 260px;
+		min-width: 220px;
+		max-width: 420px;
 	}
 
 	/* Zeilen, die von einer uebergeordneten Checkbox abhaengen (siehe
@@ -78,16 +117,23 @@
 		opacity: 0.45;
 	}
 
+	/* Buttonleiste - eigener kleiner Abstand statt des frueheren <p>, dessen
+	   Default-Margins zusaetzliche Hoehe gekostet haben. */
+	.cc-buttons {
+		text-align: center;
+		margin: 4px 0 10px 0;
+	}
+
 	/* Statusbox: eigene Klassen statt der LoxBerry-Systemklasse "hint" (die ist nur
 	   kleiner grauer Hinweistext, keine Farbe). Jeder Zustand bekommt zusaetzlich ein
-	   Symbol vorangestellt (per ::before, siehe unten), damit der Status auch ohne
-	   genaues Lesen auf den ersten Blick erkennbar ist. */
+	   Symbol vorangestellt, damit der Status auch ohne genaues Lesen auf den ersten
+	   Blick erkennbar ist. */
 	#statusbox {
 		border-radius: 8px;
 		border: 1px solid;
-		padding: 10px 18px;
+		padding: 8px 16px;
 		display: table;
-		margin: 0 auto;
+		margin: 0 auto 12px auto;
 		font-size: 1em;
 	}
 	#statusbox .cc-status-icon {
@@ -120,13 +166,11 @@
 
 <div class="cc-plugin">
 
-<center style="margin-top: 25px;">
+<center>
 	<div class="cc-intro">
 		<TMPL_VAR NAME=T::MENU.BESCHREIBUNG>
 	</div>
 </center>
-
-<div style="height:15px;"></div>
 
 <center>
 	<div id="statusbox" class="<TMPL_VAR NAME=STATUSCLASS>">
@@ -134,21 +178,13 @@
 	</div>
 </center>
 
-<div style="height:15px;"></div>
-
 <form method="post" data-ajax="false" name="main_form" id="main_form" action="./index.cgi">
 	<input type="hidden" name="saveformdata" value="1">
-	<table border=0 width="100%" cellpadding="10">
-		<tr>
-			<td colspan=4>
-				<h2><TMPL_VAR NAME=T::FORMTABLE.GENERALSETTINGS></h2>
-			</td>
-		</tr>
-		<tr> <!-- 2. Zeile -->
-			<td width="20%" valign="top">
-				<label id="labelauto"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_KONFIG></label>
-			</td>
-			<td width="55%">
+
+	<fieldset class="cc-group">
+		<legend><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_KONFIG></legend>
+		<div class="cc-group-body">
+			<div class="cc-group-fields">
 				<div class="cc-row">
 					<label class="cc-label" id="labeliplanc" for="iplanc"><TMPL_VAR NAME=T::FORMTABLE.IPLANC></label>
 					<div class="cc-field">
@@ -165,23 +201,17 @@
 							data-validation-error-msg="PIN: Bitte einen gültigen PIN zwischen 0000 and 9999 eingeben.">
 					</div>
 				</div>
-			</td>
-			<td width="5%" valign="middle">
-				&nbsp;
-			</td>
-			<td width="20%">
+			</div>
+			<div class="cc-group-help">
 				<span class="cc-hint-text"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_HELP2></span>
-			</td>
-		</tr>
+			</div>
+		</div>
+	</fieldset>
 
-		<TMPL_LOOP NAME=ROWS>
-		</TMPL_LOOP>
-
-		<tr>
-			<td width="20%" valign="top">
-				<label id="labelsensorwatch"><TMPL_VAR NAME=T::FORMTABLE.SENSORWATCH_LABEL></label>
-			</td>
-			<td width="55%">
+	<fieldset class="cc-group">
+		<legend><TMPL_VAR NAME=T::FORMTABLE.SENSORWATCH_LABEL></legend>
+		<div class="cc-group-body">
+			<div class="cc-group-fields">
 				<div class="cc-row">
 					<label class="cc-label" id="labelsensorwatchenabled" for="sensorwatch_enabled"><TMPL_VAR NAME=T::FORMTABLE.SENSORWATCH_ENABLED></label>
 					<div class="cc-field">
@@ -204,45 +234,28 @@
 						<input id="sensorwatch_restart" name="sensorwatch_restart" type="checkbox" value="1" data-role="none" style="margin:0;" <TMPL_VAR NAME=SENSORWATCH_RESTART_CHECKED>>
 					</div>
 				</div>
-			</td>
-			<td width="5%" valign="middle">
-				&nbsp;
-			</td>
-			<td width="20%">
+			</div>
+			<div class="cc-group-help">
 				<span class="cc-hint-text"><TMPL_VAR NAME=T::FORMTABLE.SENSORWATCH_HELP></span>
-			</td>
-		</tr>
+			</div>
+		</div>
+	</fieldset>
 
-		<tr>
-			<td>
-				&nbsp;
-			</td>
-			<td colspan=3>
-				<div id="form-error-message" class="form-error-message"></div>
-			</td>
-		</tr>
-		<tr>
-			<td colspan=4>
-				<h2>MQTT</h2>
-			</td>
-		</tr>
-		<tr>
-			<td colspan=4>
-				<p class="<TMPL_VAR NAME=mqtthintclass>"><TMPL_VAR NAME=mqtthint></p>
-			</td>
-		</tr>
-	</table>
+	<fieldset class="cc-group">
+		<legend>MQTT</legend>
+		<p class="<TMPL_VAR NAME=mqtthintclass>" style="margin:0;"><TMPL_VAR NAME=mqtthint></p>
+	</fieldset>
 
-	<p>
-		<center>
-			<a id="btncancel" data-role="button" data-inline="true" data-mini="true" data-icon="delete"
-				href="/admin/index.cgi"><TMPL_VAR NAME=T::BUTTON.CANCEL>
-			</a>
-			<button type="submit" form="main_form" id="btnsubmit" data-role="button" data-inline="true"
-				data-mini="true" data-icon="check"><TMPL_VAR NAME=T::BUTTON.SAVE>
-			</button>
-		</center>
-	</p>
+	<div id="form-error-message" class="form-error-message"></div>
+
+	<div class="cc-buttons">
+		<a id="btncancel" data-role="button" data-inline="true" data-mini="true" data-icon="delete"
+			href="/admin/index.cgi"><TMPL_VAR NAME=T::BUTTON.CANCEL>
+		</a>
+		<button type="submit" form="main_form" id="btnsubmit" data-role="button" data-inline="true"
+			data-mini="true" data-icon="check"><TMPL_VAR NAME=T::BUTTON.SAVE>
+		</button>
+	</div>
 </form>
 
 </div><!-- /cc-plugin -->
