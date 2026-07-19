@@ -18,6 +18,17 @@ DEFAULT_PIN = 0
 
 _LOGGER = logging.getLogger('comfoconnect')
 
+# Sentinel pushed onto self._queue by _message_thread_loop the moment it detects
+# the connection is dead (BrokenPipeError/ConnectionResetError/ConnectionError).
+# Without this, a call blocked in _get_reply()'s self._queue.get(timeout=5) has no
+# way to find out the connection already died in the *other* thread - it just sits
+# there uselessly until its own independent 5s timeout expires, which is why the
+# log used to show the "connection was reseted" warning followed several seconds
+# later by a seemingly unrelated "Timeout waiting for response" error for a
+# message that could obviously never arrive anymore. Pushing this sentinel wakes
+# the waiter up immediately instead.
+_CONNECTION_LOST = object()
+
 # Sensor variable size
 RPDO_TYPE_MAP = {
     16: 1,
@@ -332,6 +343,12 @@ class ComfoConnect(object):
                     message = self._queue.get(timeout=timeout)
                     if message:
                         self._queue.task_done()
+
+                        # The message thread died because the connection is gone - don't
+                        # wait out the rest of our own timeout for a reply that can never
+                        # arrive, fail immediately instead.
+                        if message is _CONNECTION_LOST:
+                            raise BrokenPipeError('Connection lost while waiting for a reply.')
                 except queue.Empty:
                     # We got no message
                     pass
@@ -544,12 +561,18 @@ class ComfoConnect(object):
             except BrokenPipeError as exc:
                 # Close this thread. The connection_thread will restart us.
                 _LOGGER.warning("The connection was broken. We will try to reconnect." + str(exc))
+                self._bridge.disconnect()
+                self._queue.put(_CONNECTION_LOST)
                 return
             except ConnectionResetError as exc:
                 _LOGGER.warning("The connection was reseted. " + str(exc))
+                self._bridge.disconnect()
+                self._queue.put(_CONNECTION_LOST)
                 return
             except ConnectionError as exc:
                 _LOGGER.warning("Connection Error: " + str(exc))
+                self._bridge.disconnect()
+                self._queue.put(_CONNECTION_LOST)
                 return
 
             if message:
