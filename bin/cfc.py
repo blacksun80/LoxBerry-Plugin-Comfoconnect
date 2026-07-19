@@ -673,8 +673,15 @@ def main():
     sensor_ids = list(sensor_data.keys())
     for i, x in enumerate(sensor_ids):
         try:
-            comfoconnect.register_sensor(x)
-            _LOGGER.info("Register Sensor: %d" % x + " Sensorname: " + sensor_data[x]['NAME'])
+            # register_sensor() gives up silently (returns None) after exhausting its
+            # retries on a plain timeout - it does NOT raise in that case, so the log
+            # message here must check the return value, not just "no exception was
+            # raised". Logging "Register Sensor: X" unconditionally would contradict
+            # the "konnte nicht registriert werden" ERROR register_sensor() already
+            # logged for the exact same sensor a moment earlier.
+            reply = comfoconnect.register_sensor(x)
+            if reply is not None:
+                _LOGGER.info("Register Sensor: %d" % x + " Sensorname: " + sensor_data[x]['NAME'])
 
         except OSError as e:
             # Connection genuinely gone mid-burst (e.g. a reset right during startup).

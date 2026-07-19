@@ -443,8 +443,16 @@ class ComfoConnect(object):
                         # failing, instead of raising - so one dropped reply can no longer
                         # kill this whole thread. A genuine connection failure still raises
                         # OSError and is handled below (triggers a fresh reconnect).
-                        for sensor_id in self.sensors:
-                            self.register_sensor(sensor_id, self.sensors[sensor_id])
+                        #
+                        # list(...) takes a snapshot of the dict before iterating: cfc.py's
+                        # main thread can concurrently add entries to self.sensors (e.g. the
+                        # startup registration loop pre-remembering not-yet-attempted sensors
+                        # after losing the connection), and iterating a dict directly while
+                        # another thread changes its size raises "RuntimeError: dictionary
+                        # changed size during iteration" - which used to kill this thread the
+                        # same way the bugs fixed earlier did.
+                        for sensor_id, sensor_type in list(self.sensors.items()):
+                            self.register_sensor(sensor_id, sensor_type)
 
                     except OSError:
                         _LOGGER.error("Unexpected error in _connection_thread_loop while registering sensors:", sys.exc_info()[0])
