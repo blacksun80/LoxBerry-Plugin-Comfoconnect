@@ -134,6 +134,16 @@ class ComfoConnect(object):
 
         self.sensors = {}
 
+        # Heartbeat/health bookkeeping, read from the outside (cfc.py) to build a
+        # status file. These are plain timestamps (time.time(), or None until the
+        # first occurrence) updated cheaply in memory - the caller decides how often
+        # to persist them to disk, so this class doesn't need to know anything about
+        # files, paths or LoxBerry conventions.
+        self.last_alive_ping = None    # updated every message-loop iteration - proves
+                                        # the message thread is looping, not hung/dead
+        self.last_keepalive_ok = None  # updated when a keepalive to the bridge succeeds
+        self.last_sensor_data = None   # updated on any CnRpdoNotificationType, any sensor
+
     # ==================================================================================================================
     # Core functions
     # ==================================================================================================================
@@ -186,8 +196,15 @@ class ComfoConnect(object):
 
         return self._bridge.is_connected()
 
-    def register_sensor(self, sensor_id: int, sensor_type: int = None):
-        """Register a sensor on the bridge and keep it in memory that we are registered to this sensor."""
+    def register_sensor(self, sensor_id: int, sensor_type: int = None, retries: int = 3):
+        """Register a sensor on the bridge and keep it in memory that we are registered to this sensor.
+
+        A single CnRpdoConfirm going missing (observed in practice as occasional, seemingly
+        random timeouts on otherwise perfectly working sensors during the fast back-to-back
+        registration burst at startup) does not mean the sensor/pdid is unsupported. Retry a
+        few times before giving up - this recovers the vast majority of cases that used to be
+        permanent failures (or, before that, crashed the whole plugin) after a single timeout.
+        """
 
         if not sensor_type:
             sensor_type = RPDO_TYPE_MAP.get(sensor_id)
@@ -195,11 +212,27 @@ class ComfoConnect(object):
             raise Exception("Registering sensor %d with unknown type" % sensor_id)
 
         # Register on bridge
-        try:
-            reply = self.cmd_rpdo_request(sensor_id, sensor_type)
+        attempt = 0
+        while True:
+            attempt += 1
+            is_last_attempt = attempt >= retries
+            try:
+                # While retries remain, ask _get_reply() to log a plain timeout as WARNING
+                # instead of ERROR - it isn't a real failure yet, just a dropped reply we're
+                # about to retry. Only the final, exhausted attempt should read as ERROR.
+                reply = self.cmd_rpdo_request(sensor_id, sensor_type, quiet_timeout=not is_last_attempt)
+                break
 
-        except PyComfoConnectNotAllowed:
-            return None
+            except PyComfoConnectNotAllowed:
+                return None
+
+            except ValueError:
+                # Timeout waiting for CnRpdoConfirm.
+                if is_last_attempt:
+                    _LOGGER.error("Sensor %d konnte nach %d Versuchen nicht registriert werden - Gerät hat nicht geantwortet." % (sensor_id, attempt))
+                    return None
+                _LOGGER.warning("Sensor %d: keine Antwort (Versuch %d/%d), erneuter Versuch..." % (sensor_id, attempt, retries))
+                time.sleep(0.2)
 
         # Register in memory
         self.sensors[sensor_id] = sensor_type
@@ -221,7 +254,7 @@ class ComfoConnect(object):
         # Unregister on bridge
         self.cmd_rpdo_request(sensor_id, sensor_type, timeout=0)
 
-    def _command(self, command, params=None, use_queue=True):
+    def _command(self, command, params=None, use_queue=True, quiet_timeout=False):
         """Sends a command and wait for a response if the request is known to return a result."""
 
         # Construct the message
@@ -236,10 +269,10 @@ class ComfoConnect(object):
         # Increase message reference
         self._reference += 1
 
-        # Be careful when sending message, we need to catch a broken connection here 
-        try: 
+        # Be careful when sending message, we need to catch a broken connection here
+        try:
             self._bridge.write_message(message)
-        
+
         except OSError:
             _LOGGER.error("Unexpected error in _command._bridge.write_message: " + str(sys.exc_info()[0]))
             return False
@@ -249,19 +282,25 @@ class ComfoConnect(object):
             confirm_type = message.class_to_confirm[command]
 
             # Read a message
-            reply = self._get_reply(confirm_type, use_queue=use_queue)
+            reply = self._get_reply(confirm_type, use_queue=use_queue, quiet_timeout=quiet_timeout)
 
             return reply
 
         except KeyError:
             return None
-            
+
         except OSError:
             _LOGGER.error("Unexpected error in _command._get_reply for confirm type", str(confirm_type), ": ", sys.exc_info()[0])
             return False
 
-    def _get_reply(self, confirm_type=None, timeout=5, use_queue=True):
-        """Pops a message of the queue, optionally looking for a specific type."""
+    def _get_reply(self, confirm_type=None, timeout=5, use_queue=True, quiet_timeout=False):
+        """Pops a message of the queue, optionally looking for a specific type.
+
+        quiet_timeout: if True, log a timeout on confirm_type as WARNING instead of
+        ERROR. Used by callers (e.g. register_sensor()) that will retry the command
+        themselves, so a single dropped reply isn't misreported as a hard error while
+        a retry is still pending - only the final, exhausted attempt should read as ERROR.
+        """
 
         start = time.time()
 
@@ -321,7 +360,10 @@ class ComfoConnect(object):
                     _LOGGER.error("Timeout waiting for response." + str(confirm_type))
                     return False
                 else:
-                    _LOGGER.error("Timeout waiting for response." + str(confirm_type))
+                    if quiet_timeout:
+                        _LOGGER.warning("Timeout waiting for response." + str(confirm_type))
+                    else:
+                        _LOGGER.error("Timeout waiting for response." + str(confirm_type))
                     raise ValueError('Timeout waiting for response.')
 
     # ==================================================================================================================
@@ -379,15 +421,20 @@ class ComfoConnect(object):
                 if len(self.sensors)>0:
                     _LOGGER.info('Reconnected to Bridge. Registering sensors...')
                     # need to handle exceptions during sensor re-registration to have a robust library
-                    try: 
+                    try:
+                        # register_sensor() already retries a few times on a plain response
+                        # timeout (ValueError) and logs+skips that one sensor if it keeps
+                        # failing, instead of raising - so one dropped reply can no longer
+                        # kill this whole thread. A genuine connection failure still raises
+                        # OSError and is handled below (triggers a fresh reconnect).
                         for sensor_id in self.sensors:
-                            self.cmd_rpdo_request(sensor_id, self.sensors[sensor_id])
+                            self.register_sensor(sensor_id, self.sensors[sensor_id])
 
                     except OSError:
                         _LOGGER.error("Unexpected error in _connection_thread_loop while registering sensors:", sys.exc_info()[0])
                         self._stopping = True   # Set stop handling message flag because of this error in connection
 
-                    else: 
+                    else:
                         _LOGGER.info(str(len(self.sensors)) + ' sensor(s) registered, ready event set.')
 
                 # Send the event that we are ready
@@ -437,12 +484,19 @@ class ComfoConnect(object):
 
         while not self._stopping:
 
+            # Every loop iteration proves this thread is alive and not hung/blocked
+            # somewhere - the cheapest, most fine-grained "still alive" signal we have
+            # (the loop cycles roughly once per second thanks to bridge.read_message()'s
+            # internal 1s select timeout). Persisting this to disk is the caller's job.
+            self.last_alive_ping = time.time()
+
             # Sends a keepalive every KEEPALIVE seconds.
             if time.time() > next_keepalive:
                 next_keepalive = time.time() + KEEPALIVE
                 try:
                     _LOGGER.info('Sending keep alive...' + str(self.cmd_keepalive()))
-                
+                    self.last_keepalive_ok = time.time()
+
                 except OSError:
                     _LOGGER.error("Wanted to send keep alive, but hit an unexpected error in _message_thread_loop: ", sys.exc_info()[0])
                     return
@@ -506,6 +560,11 @@ class ComfoConnect(object):
         # Only process CnRpdoNotificationType
         if message.cmd.type != GatewayOperation.CnRpdoNotificationType:
             return False
+
+        # Proof that data is actually flowing from the ventilation unit - tracked per
+        # notification regardless of which sensor, since any single sensor may
+        # legitimately stay silent for a long time (e.g. filter days remaining).
+        self.last_sensor_data = time.time()
 
         # Extract data
         data = message.msg.data.hex()
@@ -630,7 +689,8 @@ class ComfoConnect(object):
         )
         return True
 
-    def cmd_rpdo_request(self, pdid: int, type: int = 1, zone: int = 1, timeout=None, use_queue: bool = True):
+    def cmd_rpdo_request(self, pdid: int, type: int = 1, zone: int = 1, timeout=None, use_queue: bool = True,
+                          quiet_timeout: bool = False):
         """Register a RPDO request."""
 
         reply = self._command(
@@ -641,7 +701,8 @@ class ComfoConnect(object):
                 'zone': zone or 1,
                 'timeout': timeout
             },
-            use_queue=use_queue
+            use_queue=use_queue,
+            quiet_timeout=quiet_timeout
         )
         return reply
 

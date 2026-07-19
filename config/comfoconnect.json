@@ -7,6 +7,8 @@
       "MQTTTOPIC" : "ComfoConnect/",
       "MQTTUSER" : "",
       "PIN" : "0000",
-      "SKRIPTNAME" : "comfoconnect"
+      "SKRIPTNAME" : "comfoconnect",
+      "WATCHDOG_ENABLED" : "0",
+      "WATCHDOG_THRESHOLD_MIN" : "3"
    }
 }

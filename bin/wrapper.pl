@@ -25,6 +25,8 @@ use Cwd 'abs_path';
 use Getopt::Long;
 use LoxBerry::System;
 use LoxBerry::Log;
+use LoxBerry::JSON;
+use JSON::PP;
 
 use warnings;
 use strict;
@@ -92,6 +94,13 @@ $installfolder	= $cfg->param("BASE.INSTALLFOLDER");
 $miniservers	= $cfg->param("BASE.MINISERVERS");
 $clouddns	= $cfg->param("BASE.CLOUDDNS");
 
+# Statusdatei liegt auf der Ramdisk (wie das Log-Verzeichnis, siehe postroot.sh) -
+# damit wird bei jedem Heartbeat (alle ~5s, siehe cfc.py) nicht auf die SD-Karte
+# geschrieben. Verzeichnis hier selbst anlegen, falls index.cgi noch nie aufgerufen
+# wurde (z.B. direkt nach einem Reboot via @reboot-Cronjob).
+my $statusfile = "/var/run/shm/$psubfolder/status.json";
+system("mkdir -p /var/run/shm/$psubfolder > /dev/null 2>&1");
+
 foreach $arg (@ARGV) {
     if (($arg eq "restart") || ($arg eq "start") || ($arg eq "search")) {
 
@@ -103,23 +112,65 @@ foreach $arg (@ARGV) {
 
         if ($arg eq "restart") {
             LOGINF "Starte ComfoConnect...";
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>>$logfile &");
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile > /dev/null 2>>$logfile &");
             exit(0);
         }
-        
+
         if ($arg eq "start") {
             LOGINF "Starte ComfoConnect...";
             LOGINF "Warte bis der Loxberry bereit ist";
             sleep(20);
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel > /dev/null 2>>$logfile &");
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile > /dev/null 2>>$logfile &");
             exit(0);
         }
 
         if ($arg eq "search") {
             LOGINF "Suche Lüftungsanlage...";
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --search > /dev/null 2>>$logfile");
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile --search > /dev/null 2>>$logfile");
             exit(0);
         }
+    }
+
+    # Vom Watchdog-Cronjob aufgerufen (nur wenn in den Plugin-Einstellungen
+    # aktiviert). Prüft, ob cfc.py läuft UND sich innerhalb des eingestellten
+    # Zeitfensters noch beim Heartbeat gemeldet hat (last_alive_ping in der
+    # Statusdatei) - ein Prozess kann laufen, aber trotzdem "hängen" (z.B. wenn der
+    # Verbindungs-Thread zur Zehnder-Box gestorben ist), das reine "läuft der
+    # Prozess"-Kriterium alleine würde das nicht erkennen.
+    if ($arg eq "checkwatchdog") {
+        my $jsonobj = LoxBerry::JSON->new();
+        my $pcfg = $jsonobj->open(filename => "$installfolder/config/plugins/$psubfolder/$psubfolder.json");
+
+        if (!$pcfg || !$pcfg->{'MAIN'}->{'WATCHDOG_ENABLED'}) {
+            exit(0);
+        }
+
+        my $threshold_min = $pcfg->{'MAIN'}->{'WATCHDOG_THRESHOLD_MIN'};
+        $threshold_min = 3 if (!$threshold_min || $threshold_min !~ /^\d+$/);
+        my $threshold_sec = $threshold_min * 60;
+
+        my $running = scalar(grep{/cfc.py/} `ps aux`);
+        my $stale = 1;
+
+        if (-e $statusfile) {
+            local $/ = undef;
+            if (open(my $fh, '<', $statusfile)) {
+                my $json_text = <$fh>;
+                close($fh);
+                my $status = eval { decode_json($json_text) };
+                if ($status && $status->{bridge_last_alive_ping}) {
+                    my $age = time() - $status->{bridge_last_alive_ping};
+                    $stale = ($age > $threshold_sec) ? 1 : 0;
+                }
+            }
+        }
+
+        if (!$running || $stale) {
+            LOGWARN "Watchdog: ComfoConnect " . ($running ? "reagiert seit über $threshold_min Minute(n) nicht mehr" : "läuft nicht") . " - starte neu.";
+            system("pkill -f $installfolder/bin/plugins/$psubfolder/cfc.py >> $logfile 2>&1") if $running;
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile > /dev/null 2>>$logfile &");
+        }
+        exit(0);
     }
 }
 

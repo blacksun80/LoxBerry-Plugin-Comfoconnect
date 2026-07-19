@@ -2,6 +2,9 @@
 import argparse
 import paho.mqtt.client as mqtt
 import datetime
+import os
+import time
+import threading
 from time import sleep
 from binascii import unhexlify
 from random import randint
@@ -15,16 +18,32 @@ import logging
 
 interval = [0 for x in range(300)]
 
+# Set by on_connect()/on_disconnect() - read by the status-writer thread. paho's own
+# reconnect (client.reconnect_delay_set()) already handles recovering the MQTT link by
+# itself; this flag only exists so the status file/webfrontend can show whether it is
+# currently up, it doesn't trigger any reconnect logic of its own.
+mqtt_connected = False
+mqtt_last_change = None
+
+# Filled in by main() from --statusfile. None until then, so write_status() can no-op
+# safely if it is ever called too early.
+statusfile = None
+
 def on_publish(client, userdata, mid):
     _LOGGER.debug("Published Data - mid: "+str(mid))
     pass
 
 def on_connect(client, userdata, flags, rc):
+    global mqtt_connected, mqtt_last_change
+
     if rc==0:
         _LOGGER.info("Connection returned result: "+mqtt.connack_string(rc))
     else:
         _LOGGER.error("Disconnection returned result: "+mqtt.connack_string(rc))
-        
+
+    mqtt_connected = (rc == 0)
+    mqtt_last_change = time.time()
+
     client.publish(mqtt_topic + "Status", payload="Online", qos=0, retain=True)
 
     client.subscribe(mqtt_topic + "FAN_MODE", qos=0)
@@ -68,20 +87,36 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe(mqtt_topic + "BYPASS_OFF_TIME", qos=0)
 
 def on_disconnect(client, userdata, rc):
+    global mqtt_connected, mqtt_last_change
+
     # Closing the session #############################################################################################
     if rc==0:
         _LOGGER.info("Disconnection returned result: "+mqtt.connack_string(rc))
     else:
         _LOGGER.error("Disconnection returned result: "+mqtt.connack_string(rc))
 
+    mqtt_connected = False
+    mqtt_last_change = time.time()
+
 def on_message(client, userdata, msg):
-    global boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time
     _LOGGER.info("from MQTT %s = %s" % (msg.topic , str(msg.payload.decode("utf-8"))))
-    
+
     topic = msg.topic
-    qos = msg.qos
     value = str(msg.payload.decode("utf-8"))
-    
+
+    try:
+        _dispatch_message(topic, value)
+    except Exception as e:
+        # A malformed/empty MQTT payload (e.g. an empty retained message, or a value
+        # that isn't a valid number where int(value) is expected) must never crash
+        # this callback: paho runs on_message on its network thread, and an uncaught
+        # exception here kills that thread - the plugin then silently stops reacting
+        # to MQTT until it is manually restarted. Log and ignore instead.
+        _LOGGER.error("Fehler bei Verarbeitung von MQTT %s = '%s': %s" % (topic, value, str(e)))
+
+def _dispatch_message(topic, value):
+    global boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time
+
     # execute matching command
     if topic == mqtt_topic + "FAN_MODE":
         if int(value) == 0:
@@ -441,8 +476,46 @@ def callback_sensor(var, value):
             _LOGGER.error("Fehler published, RC=" + str(rc) + " Sensorname: " + sensor_data[var]['NAME'] + ", " + "Variable " + str(var) + ", Wert: " + str(value))
     
 
+def write_status_loop():
+    """Periodically persist a small health-status JSON to statusfile (ramdisk).
+
+    Runs in its own daemon thread. Deliberately does not import/depend on the
+    connection thread's internals beyond reading comfoconnect's plain, cheap
+    in-memory timestamps (see comfoconnect.py: last_alive_ping/last_keepalive_ok/
+    last_sensor_data) - it just samples and writes them every 5s. This is a
+    nice-to-have diagnostic feature: any error here is logged and swallowed, it
+    must never be able to take down the actual plugin.
+    """
+    while True:
+        try:
+            if statusfile:
+                status = {
+                    'pid': os.getpid(),
+                    'now': time.time(),
+                    'mqtt_connected': mqtt_connected,
+                    'mqtt_last_change': mqtt_last_change,
+                    'bridge_last_alive_ping': comfoconnect.last_alive_ping if comfoconnect else None,
+                    'bridge_last_keepalive_ok': comfoconnect.last_keepalive_ok if comfoconnect else None,
+                    'bridge_last_sensor_data': comfoconnect.last_sensor_data if comfoconnect else None,
+                    'sensors_registered': len(comfoconnect.sensors) if comfoconnect else 0,
+                    'sensors_expected': len(sensor_data),
+                }
+
+                # Write to a tmp file and rename over the real one - index.cgi (or the
+                # watchdog script) must never be able to read a half-written file.
+                tmpfile = statusfile + '.tmp'
+                with open(tmpfile, 'w') as f:
+                    json.dump(status, f)
+                os.replace(tmpfile, statusfile)
+
+        except Exception as e:
+            _LOGGER.debug("Konnte Statusdatei nicht schreiben: " + str(e))
+
+        time.sleep(5)
+
+
 def main():
-    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, unknown, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect
+    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, unknown, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile
     
     connected_flag = 0
     loglevel=logging.ERROR
@@ -454,7 +527,7 @@ def main():
     bypass_off_time = b'\x10\x0e'
     configfile = ""
 
-    opts, args = getopt.getopt(sys.argv[1:],"c:f:l:s:",['configfile=', 'logfile=', 'loglevel=', 'search'])
+    opts, args = getopt.getopt(sys.argv[1:],"c:f:l:s:",['configfile=', 'logfile=', 'loglevel=', 'search', 'statusfile='])
     for opt, args in opts:
         if opt in ("-c", "--configfile"):
             configfile = args
@@ -465,6 +538,8 @@ def main():
             loglevel = map_loglevel(args)
         elif opt in ("-s", "--search"):
             search = True
+        elif opt == "--statusfile":
+            statusfile = args
     
     if loglevel == 7: # Level Debug
         debug = True
@@ -511,7 +586,19 @@ def main():
             json.dump(pcfg, outfile, ensure_ascii=True, indent=4)
         exit(0)
         
-    client                      = mqtt.Client("ComfoConnect", clean_session=True)
+    # paho-mqtt >= 2.0 requires an explicit callback_api_version as first argument and
+    # changed the on_connect/on_message/... callback signatures. All callbacks in this
+    # file (on_connect, on_disconnect, on_message, on_publish, ...) use the legacy (v1)
+    # signatures, so we explicitly request VERSION1 when it is available. This keeps the
+    # plugin working unchanged on systems that still ship paho-mqtt 1.x (e.g. LoxBerry 3,
+    # Debian bullseye's python3-paho-mqtt 1.5.1) as well as on systems where paho-mqtt 2.x
+    # is installed (e.g. some LoxBerry 4 setups).
+    if hasattr(mqtt, "CallbackAPIVersion"):
+        # paho-mqtt >= 2.0
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, "ComfoConnect", clean_session=True)
+    else:
+        # paho-mqtt < 2.0
+        client = mqtt.Client("ComfoConnect", clean_session=True)
     client.on_subscribe         = on_subscribe
     client.on_publish           = on_publish
     client.on_connect           = on_connect
@@ -535,6 +622,17 @@ def main():
         _LOGGER.exception(str(e))
 
     comfoconnect.callback_sensor = callback_sensor
+
+    # Start writing the health-status file (ramdisk, see --statusfile) in the
+    # background. Started early (before the broker/bridge are even connected) so the
+    # status file exists and reflects a "not yet connected" state right from the
+    # start, instead of only appearing once everything is already up.
+    if statusfile:
+        try:
+            os.makedirs(os.path.dirname(statusfile), exist_ok=True)
+        except Exception as e:
+            _LOGGER.error("Konnte Ordner für Statusdatei nicht anlegen: " + str(e))
+        threading.Thread(target=write_status_loop, daemon=True).start()
 
     # Connect to the broker
     try:
@@ -565,9 +663,19 @@ def main():
         # _LOGGER.debug("Unknown Sensor No.: %d" % y)
         
 #   Register sensors ################################################################################################
+    # Not every sensor/pdid in sensor_data is necessarily supported by every Comfo
+    # unit/firmware - some (e.g. SETTING_RF_PAIRING) may simply never send a
+    # CnRpdoConfirm back, which previously made register_sensor() time out after 5s
+    # and crash the ENTIRE script (unhandled exception in the startup loop), so no
+    # sensor at all got monitored. Registering each sensor independently means one
+    # unsupported/unresponsive pdid is logged and skipped instead of taking down
+    # the other 40+ working sensors.
     for x in sensor_data:
-        comfoconnect.register_sensor(x)
-        _LOGGER.info("Register Sensor: %d" % x + " Sensorname: " + sensor_data[x]['NAME'])
+        try:
+            comfoconnect.register_sensor(x)
+            _LOGGER.info("Register Sensor: %d" % x + " Sensorname: " + sensor_data[x]['NAME'])
+        except Exception as e:
+            _LOGGER.error("Sensor %d (%s) konnte nicht registriert werden - Gerät hat nicht geantwortet: %s" % (x, sensor_data[x]['NAME'], str(e)))
         
     # VersionRequest
     version = comfoconnect.cmd_version_request()

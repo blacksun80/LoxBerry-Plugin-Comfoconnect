@@ -59,7 +59,10 @@ echo "<INFO> Upgrade pip."
 python3 -m pip install --upgrade pip
 
 echo "<INFO> Start installing protobuf..."
-python3 -m pip install --upgrade protobuf>=3.20.3
+# NOTE: must be quoted - unquoted "protobuf>=3.20.3" is parsed by bash as a
+# redirection (">") into a file literally named "=3.20.3", silently dropping
+# the version constraint and hiding pip's output.
+python3 -m pip install --upgrade "protobuf>=3.20.3"
 INSTALLED=$(pip3 list --format=columns | grep "protobuf" | grep -v grep | wc -l)
 if [ ${INSTALLED} -ne "0" ]; then
 	echo "<OK> protobuf installed successfully."

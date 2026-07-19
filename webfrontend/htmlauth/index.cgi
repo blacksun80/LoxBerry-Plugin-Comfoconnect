@@ -33,6 +33,7 @@ use LoxBerry::System;
 use LoxBerry::JSON;
 use LoxBerry::IO;
 use LoxBerry::Web;
+use JSON::PP;
 #use warnings;
 #use strict;
 #no strict "refs"; # we need it for template system and for contructs like ${"skalar".$i} in loops
@@ -247,15 +248,31 @@ sub form
     if ( $saveformdata ) {
         $pcfg->{'MAIN'}->{'IPLANC'} = $cgi->param('iplanc');
         $pcfg->{'MAIN'}->{'PIN'} = $cgi->param('pin');
+
+        # Watchdog: Checkbox liefert nur einen Wert, wenn sie angehakt ist
+        $pcfg->{'MAIN'}->{'WATCHDOG_ENABLED'} = $cgi->param('watchdog_enabled') ? "1" : "0";
+        my $watchdog_threshold = $cgi->param('watchdog_threshold');
+        if (!$watchdog_threshold || $watchdog_threshold !~ /^\d+$/ || $watchdog_threshold < 1) {
+            $watchdog_threshold = 3;
+        }
+        $pcfg->{'MAIN'}->{'WATCHDOG_THRESHOLD_MIN'} = $watchdog_threshold;
+
         $jsonobj->write();
-        
+
 		Cronjob("Uninstall");
-        
+
 		if (($cgi->param('iplanc') ne "") && ($cgi->param('pin') ne "")) {
 			system("perl $installfolder/bin/plugins/$psubfolder/wrapper.pl  restart > /dev/null 2>&1");
 
 			# Create Cronjob
 			Cronjob("Install");
+		}
+
+		# Watchdog-Cronjob unabhängig vom Startup-Cronjob verwalten, damit er sich
+		# unabhängig an-/abschalten lässt.
+		WatchdogCronjob("Uninstall");
+		if ($pcfg->{'MAIN'}->{'WATCHDOG_ENABLED'} eq "1") {
+			WatchdogCronjob("Install");
 		}
 	}
 	
@@ -292,6 +309,57 @@ sub form
 	$maintemplate->param( IPLANC 		=> $pcfg->{'MAIN'}->{'IPLANC'});
     $maintemplate->param( PIN 		    => $pcfg->{'MAIN'}->{'PIN'});
     $maintemplate->param( TOPIC 		=> $pcfg->{'MAIN'}->{'MQTTTOPIC'} . "#");
+
+    # Watchdog-Einstellungen fürs Formular
+    $maintemplate->param( WATCHDOG_ENABLED_CHECKED => ($pcfg->{'MAIN'}->{'WATCHDOG_ENABLED'} eq "1") ? "checked" : "" );
+    $maintemplate->param( WATCHDOG_THRESHOLD => $pcfg->{'MAIN'}->{'WATCHDOG_THRESHOLD_MIN'} || "3" );
+
+    ##
+    # Statusanzeige - liest die Heartbeat-Datei, die cfc.py auf der Ramdisk schreibt.
+    # "Gestört", wenn seit >30s kein Lebenszeichen vom Verbindungs-Thread zur
+    # Zehnder-Box kam, oder wenn MQTT gerade getrennt ist. Reine Sensor-Updates
+    # allein sagen nichts aus (manche Sensoren senden legitim lange nichts), daher
+    # last_alive_ping statt last_sensor_data als Haupt-Kriterium.
+    ##
+    my $statusfile = "/var/run/shm/$psubfolder/status.json";
+    my $status_text = "Unbekannt";
+    my $status_class = "hint";
+
+    if (-e $statusfile) {
+        local $/ = undef;
+        if (open(my $fh, '<', $statusfile)) {
+            my $json_text = <$fh>;
+            close($fh);
+            my $status = eval { decode_json($json_text) };
+            if ($status) {
+                my $now = time();
+                my $alive_age = defined($status->{bridge_last_alive_ping}) ? $now - $status->{bridge_last_alive_ping} : undef;
+                my $mqtt_ok = $status->{mqtt_connected} ? 1 : 0;
+                my $sensors_reg = $status->{sensors_registered} // 0;
+                my $sensors_exp = $status->{sensors_expected} // 0;
+
+                if (!$mqtt_ok) {
+                    $status_text = "MQTT getrennt (verbindet automatisch neu)";
+                    $status_class = "notityRedMqtt";
+                } elsif (!defined($alive_age) || $alive_age > 30) {
+                    $status_text = "Gestört - keine Verbindung zur Zehnder-Box";
+                    $status_class = "notityRedMqtt";
+                } elsif ($sensors_exp > 0 && $sensors_reg < $sensors_exp) {
+                    $status_text = "Eingeschränkt - nur $sensors_reg von $sensors_exp Sensoren aktiv";
+                    $status_class = "hint";
+                } else {
+                    $status_text = "Läuft einwandfrei ($sensors_reg Sensoren aktiv)";
+                    $status_class = "hint";
+                }
+            }
+        }
+    } else {
+        $status_text = "Plugin läuft nicht (Statusdatei fehlt)";
+        $status_class = "notityRedMqtt";
+    }
+
+    $maintemplate->param( STATUSTEXT => $status_text );
+    $maintemplate->param( STATUSCLASS => $status_class );
     
     ##
     #handle Template and render index page
@@ -424,6 +492,85 @@ sub Cronjob
 }
 	
 	
+#####################################################
+# Watchdog-Cronjob-Sub - unabhaengig vom Startup-Cronjob (Cronjob-Sub oben), damit
+# er sich per Checkbox in den Einstellungen separat an-/abschalten laesst.
+#####################################################
+
+sub WatchdogCronjob
+{
+	my $Job = shift;
+
+	# Remove Cronjob
+	if ($Job eq "Uninstall")
+	{
+		if (-e $crontabtmp) {
+			unlink $crontabtmp;
+		}
+
+		my ($comment) = $crontab->select( -type => 'comment', -data => '## Watchdog ComfoConnect');
+
+		#Schedule does not exist and should be removed --> nothing to do
+		if (! $comment ) {
+			return;
+		}
+
+		#We fully remove the old block
+		if ($comment) {
+			my ($block) = $crontab->block($comment);
+			$crontab->remove($block);
+		}
+
+		#We are finished, write the crontab
+		$crontab->write($crontabtmp);
+
+		if (installcrontab()) {
+			return;
+		} else {
+			print $cgi->header(-status => "204 Cannot remove cronjob");
+			exit(0);
+		}
+	}
+
+	# Install Cronjob
+	if ($Job eq "Install")
+	{
+		#Check if Cronjob exist already
+		my ($comment) = $crontab->select( -type => 'comment', -data => '## Watchdog ComfoConnect');
+
+		if ($comment) {
+			return;
+		}
+
+		# Create the event - checkwatchdog entscheidet selbst anhand von Config und
+		# Statusdatei, ob tatsaechlich ein Neustart noetig ist.
+		my $event = new Config::Crontab::Event (
+		-command =>  "$installfolder/bin/plugins/$psubfolder/wrapper.pl checkwatchdog > /dev/null 2>&1 &",
+		-user => 'loxberry',
+		-system => 1,
+		);
+
+		$event->datetime('* * * * *');
+
+		# Insert block and event to crontab
+		my $block = new Config::Crontab::Block;
+		$block->last( new Config::Crontab::Comment( -data => '## Watchdog ComfoConnect') );
+		$block->last($event);
+		$crontab->last($block);
+
+		$crontab->write($crontabtmp);
+
+		if (installcrontab()) {
+			return;
+		} else {
+			print $cgi->header(-status => "204 Cannot remove cronjob");
+			exit(0);
+		}
+	}
+	return;
+}
+
+
 sub installcrontab
 {
 	if (! -e $crontabtmp) {

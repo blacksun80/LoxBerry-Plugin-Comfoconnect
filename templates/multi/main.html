@@ -11,6 +11,17 @@
 	</tr>
 </center>
 
+<center>
+	<div class="<TMPL_VAR NAME=STATUSCLASS>" style="border-radius: 11px; border: 1px solid black; padding:10px; display:table; margin:0 auto;">
+		<b><TMPL_VAR NAME=T::FORMTABLE.STATUS_LABEL></b> <TMPL_VAR NAME=STATUSTEXT>
+	</div>
+	<tr>
+		<td>
+			&nbsp;
+		</td>
+	</tr>
+</center>
+
 <form method="post" data-ajax="false" name="main_form" id="main_form" action="./index.cgi">
 	<input type="hidden" name="saveformdata" value="1">
 	<table border=0 width="100%" cellpadding="10">
@@ -63,6 +74,40 @@
 			
 		<TMPL_LOOP NAME=ROWS>
 		</TMPL_LOOP>
+
+		<tr>
+			<td width="20%" valign="top">
+				<label id="labelwatchdog"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_LABEL></label>
+			</td>
+			<td width="55%">
+				<table>
+					<tbody>
+						<tr>
+							<td>
+								<label id="labelwatchdogenabled"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_ENABLED></label>
+							</td>
+							<td>
+								<input id="watchdog_enabled" name="watchdog_enabled" type="checkbox" value="1" <TMPL_VAR NAME=WATCHDOG_ENABLED_CHECKED>>
+							</td>
+						</tr>
+						<tr>
+							<td>
+								<label id="labelwatchdogthreshold"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_THRESHOLD></label>
+							</td>
+							<td>
+								<input id="watchdog_threshold" name="watchdog_threshold" type="number" min="1" max="60" size="3" value="<TMPL_VAR NAME=WATCHDOG_THRESHOLD>">
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</td>
+			<td width="5%" valign="middle">
+				&nbsp;
+			</td>
+			<td width="20%">
+				<font size="-1"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_HELP></font>
+			</td>
+		</tr>
 
 		<tr>
 			<td>

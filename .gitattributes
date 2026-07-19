@@ -1,0 +1,23 @@
+# Normalize line endings in the repository to LF, regardless of the OS/editor
+# used to check the repo out or edit files. Without this, Windows tools (git
+# core.autocrlf=true, some editors) can silently flip files to CRLF, which
+# breaks shell scripts on the LoxBerry (Linux/bash) and creates noisy diffs
+# where every line looks "changed" even when only line endings differ.
+* text=auto eol=lf
+
+*.py text eol=lf
+*.sh text eol=lf
+*.pl text eol=lf
+*.pm text eol=lf
+*.cgi text eol=lf
+*.cfg text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+
+# Binary files must never be touched by line-ending normalization.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pyc binary
