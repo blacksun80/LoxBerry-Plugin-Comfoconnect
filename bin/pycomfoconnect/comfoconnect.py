@@ -1077,7 +1077,17 @@ class ComfoConnect(object):
         return reply.msg.currentTime
 
     def cmd_rmi_request(self, message, node_id: int = 1, use_queue: bool = True):
-        """Sends a RMI request."""
+        """Sends a RMI request and returns the bridge's reply.
+
+        Gibt die Antwort zurueck statt eines nichtssagenden True: RMI ist nicht nur
+        zum Schalten da, es gibt auch Lesebefehle (0x01 = Eigenschaft lesen, 0x83 =
+        Timer-Eintrag lesen). Deren Nutzdaten stehen in reply.msg.message - mit dem
+        alten "return True" waren sie schlicht nicht erreichbar, die Antwort wurde
+        eingelesen und weggeworfen.
+
+        Rueckgabe ist None/False, wenn keine verwertbare Antwort kam (siehe
+        _get_reply: bei einem Timeout auf CnRmiResponse wird False geliefert).
+        """
 
         reply = self._command(
             CnRmiRequest,
@@ -1087,7 +1097,7 @@ class ComfoConnect(object):
             },
             use_queue=use_queue
         )
-        return True
+        return reply
 
     def cmd_rpdo_request(self, pdid: int, type: int = 1, zone: int = 1, timeout=None, use_queue: bool = True):
         """Register a RPDO request.

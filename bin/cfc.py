@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 import paho.mqtt.client as mqtt
 import datetime
-import re
 import os
 import time
 import threading
@@ -67,7 +66,7 @@ def on_publish(client, userdata, mid):
     pass
 
 def on_connect(client, userdata, flags, rc):
-    global mqtt_connected, mqtt_last_change, sensorwatch_published
+    global mqtt_connected, mqtt_last_change, sensorwatch_published, away_active_published, away_remaining_published
 
     if rc==0:
         _LOGGER.info("Connection returned result: "+mqtt.connack_string(rc))
@@ -83,14 +82,14 @@ def on_connect(client, userdata, flags, rc):
     # Broker-Neustart waeren sie weg - und da wir nur bei Aenderung senden, wuerde
     # das Topic sonst bis zur naechsten echten Zustandsaenderung leer bleiben.
     sensorwatch_published = None
+    away_active_published = None
+    away_remaining_published = None
 
     client.publish(mqtt_topic + "Status", payload="Online", qos=0, retain=True)
 
     client.subscribe(mqtt_topic + "FAN_MODE", qos=0)
     client.subscribe(mqtt_topic + "FAN_MODE_AWAY", qos=0)
-    client.subscribe(mqtt_topic + "AWAY_TIME", qos=0)
-    client.subscribe(mqtt_topic + "AWAY_TIMED", qos=0)
-    client.subscribe(mqtt_topic + "AWAY_UNTIL", qos=0)
+    client.subscribe(mqtt_topic + "AWAY_FOR", qos=0)
     client.subscribe(mqtt_topic + "AWAY_END", qos=0)
     client.subscribe(mqtt_topic + "FAN_MODE_LOW", qos=0)
     client.subscribe(mqtt_topic + "FAN_MODE_MEDIUM", qos=0)
@@ -166,7 +165,7 @@ def on_message(client, userdata, msg):
         _LOGGER.error("Fehler bei Verarbeitung von MQTT %s = '%s': %s" % (topic, value, str(e)))
 
 def _dispatch_message(topic, value):
-    global boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, away_time
+    global boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time
 
     # execute matching command
     if topic == mqtt_topic + "FAN_MODE":
@@ -190,34 +189,18 @@ def _dispatch_message(topic, value):
             _LOGGER.info("Befehl FAN_MODE_AWAY an Lüftungsanlage gesendet")
         else:
             _LOGGER.error("FAN_MODE_AWAY: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
-    elif topic == mqtt_topic + "AWAY_TIME":
-        # Nur merken, geschaltet wird erst bei AWAY_TIMED - dasselbe Muster wie
-        # BOOST_MODE_TIME/BOOST_MODE weiter unten.
-        away_time = to_seconds(value)
-        _LOGGER.info("AWAY_TIME " + str(away_time) + " sec übernommen")
-    elif topic == mqtt_topic + "AWAY_TIMED":
-        if int(value) == 1:
-            if away_time <= 0:
-                _LOGGER.error("AWAY_TIMED: Erst AWAY_TIME (Sekunden > 0) senden, dann AWAY_TIMED=1")
-            else:
-                cmd = send_away(away_time)
-                _LOGGER.info("Befehl AWAY_TIMED (%d Sekunden) an Lüftungsanlage gesendet: %s" % (away_time, cmd.hex()))
-        else:
-            _LOGGER.error("AWAY_TIMED: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
-    elif topic == mqtt_topic + "AWAY_UNTIL":
-        # Wie AWAY_TIMED, nur mit Zielzeitpunkt statt Dauer - schaltet sofort, ohne
-        # zweites Topic. Siehe parse_until() zu den akzeptierten Schreibweisen.
-        sek = parse_until(value)
-        if sek is None:
-            _LOGGER.error(
-                "AWAY_UNTIL: '%s' nicht verstanden - erwartet z.B. '23.07.2026 23:30', "
-                "'2026-07-23 23:30', '23:30' oder einen Unix-Zeitstempel" % value
-            )
-        elif sek <= 0:
-            _LOGGER.error("AWAY_UNTIL: '%s' liegt in der Vergangenheit - nichts gesendet" % value)
+    elif topic == mqtt_topic + "AWAY_FOR":
+        # Abwesenheit fuer eine Dauer ab jetzt, in Sekunden. Bewusst EIN Topic statt
+        # des Zwei-Schritt-Musters von BOOST_MODE_TIME/BOOST_MODE: dort muessen zwei
+        # Nachrichten in der richtigen Reihenfolge kommen und der Zwischenwert lebt
+        # unsichtbar in einer Variablen weiter. Hier steht alles in einer Nachricht,
+        # damit gibt es keine Reihenfolge, die man falsch machen kann.
+        sek = to_seconds(value)
+        if sek <= 0:
+            _LOGGER.error("AWAY_FOR: Sekunden muessen groesser als 0 sein - empfangen: '%s'" % value)
         else:
             cmd = send_away(sek)
-            _LOGGER.info("Befehl AWAY_UNTIL '%s' = %d Sekunden an Lüftungsanlage gesendet: %s" % (value, sek, cmd.hex()))
+            _LOGGER.info("Befehl AWAY_FOR (%d Sekunden) an Lueftungsanlage gesendet: %s" % (sek, cmd.hex()))
     elif topic == mqtt_topic + "AWAY_END":
         # Beendet die Abwesenheit vorzeitig. 0x85 loescht den Timer-Eintrag, die
         # Anlage faellt damit auf den normalen Zeitplan zurueck - dasselbe, was die
@@ -546,62 +529,19 @@ def to_big(val):
 # Quelle: aiocomfoconnect (michaelarnauts), set_away()/get_away().
 AWAY_SUBUNIT = b'\x01\x0b'
 
-def parse_until(value):
-    """Rechnet eine Zielzeit in "Sekunden ab jetzt" um.
+# Abfrageintervall fuer den Abwesenheits-Zustand, in Sekunden.
+#
+# Anders als die Sensoren laesst sich das nicht abonnieren: Sensorwerte (RPDO)
+# schickt die Anlage von selbst, sobald sie sich aendern - der Abwesenheits-Timer
+# ist dagegen ein RMI-Wert, den man jedes Mal aktiv abholen muss. Deshalb ein
+# Kompromiss: 15s ist fuer eine Anzeige, die sich stundenweise aendert, mehr als
+# genug und faellt neben dem laufenden Sensorverkehr nicht ins Gewicht.
+AWAY_POLL_INTERVAL = 15
 
-    Die Anlage kennt intern kein Datum, sondern nur eine Restlaufzeit - gemessen
-    an FAN_NEXT_CHANGE: "abwesend bis 23.07.2026 23:30" ergab dort exakt 346091,
-    also sekundengenau die Spanne bis dahin. Die Zehnder-App bildet nichts anderes
-    als diese Differenz. Genau das passiert hier, damit die Rechnung nicht in
-    Loxone nachgebaut werden muss.
-
-    Akzeptiert:
-      "23.07.2026 23:30" / "23.07.26 23:30"  (wie in der App angezeigt)
-      "2026-07-23 23:30"                     (ISO)
-      "23:30"                                (naechstes Auftreten, ggf. morgen)
-      1784936000                             (Unix-Zeitstempel)
-
-    Gibt die Sekunden bis dahin zurueck, oder None wenn nichts davon passt.
-    """
-    value = str(value).strip()
-    if not value:
-        return None
-
-    now = datetime.datetime.now()
-    ziel = None
-
-    # Reine Zahl = Unix-Zeitstempel. Abgegrenzt gegen eine Sekundenangabe ueber die
-    # Groesse: alles ab dem Jahr 2000 ist zwangslaeufig ein Zeitstempel, waehrend
-    # eine sinnvolle Abwesenheitsdauer nie in diese Groessenordnung kommt.
-    if re.fullmatch(r'\d+(\.\d+)?', value):
-        zahl = int(float(value))
-        if zahl > 946684800:  # 01.01.2000
-            ziel = datetime.datetime.fromtimestamp(zahl)
-        else:
-            return None
-
-    if ziel is None:
-        for fmt in ("%d.%m.%Y %H:%M", "%d.%m.%y %H:%M", "%Y-%m-%d %H:%M",
-                    "%d.%m.%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
-            try:
-                ziel = datetime.datetime.strptime(value, fmt)
-                break
-            except ValueError:
-                continue
-
-    if ziel is None:
-        # Nur eine Uhrzeit: das naechste Auftreten. Liegt sie heute schon in der
-        # Vergangenheit, ist der morgige Termin gemeint - sonst kaeme eine negative
-        # Dauer heraus und die Anlage wuerde sofort zurueckschalten.
-        try:
-            t = datetime.datetime.strptime(value, "%H:%M").time()
-            ziel = datetime.datetime.combine(now.date(), t)
-            if ziel <= now:
-                ziel += datetime.timedelta(days=1)
-        except ValueError:
-            return None
-
-    return int((ziel - now).total_seconds())
+# Zuletzt veroeffentlichte Werte, damit nur bei Aenderung gesendet wird.
+# None = auf dieser MQTT-Verbindung noch nichts gesendet (siehe on_connect).
+away_active_published = None
+away_remaining_published = None
 
 def seconds_to_timerfield(seconds):
     """Baut das 4-Byte-Zeitfeld der 0x84-Befehle (Sekunden, little-endian).
@@ -620,6 +560,58 @@ def seconds_to_timerfield(seconds):
     if seconds > 0xFFFFFFFE:
         seconds = 0xFFFFFFFE
     return seconds.to_bytes(4, byteorder='little')
+
+def poll_away_loop():
+    """Holt den Abwesenheits-Zustand zyklisch ab und veroeffentlicht ihn per MQTT.
+
+    Laeuft in einem EIGENEN Thread, nicht in write_status_loop(): Ein RMI-Aufruf
+    kann im schlechtesten Fall bis zum Antwort-Timeout haengen, und das wuerde dort
+    das sekuendliche Schreiben der Statusdatei blockieren - die Weboberflaeche
+    zeigte dann faelschlich veraltete Daten an.
+
+    Antwortformat von 0x83 (14 Byte), abgeleitet aus aiocomfoconnect:
+
+        01 00000000 55020000 53020000 00
+        ^^          ^^^^^^^^ ^^^^^^^^
+        |           gesamt   Rest (jeweils Sekunden, little-endian)
+        aktiv (00 = nein, 01 = ja)
+
+    Wie bei allen Diagnosefunktionen hier gilt: Fehler werden geschluckt, das
+    darf das eigentliche Plugin niemals mit herunterreissen.
+    """
+    global away_active_published, away_remaining_published
+
+    while True:
+        time.sleep(AWAY_POLL_INTERVAL)
+
+        try:
+            if not comfoconnect or not comfoconnect.is_connected() or not mqtt_connected:
+                continue
+
+            reply = comfoconnect.cmd_rmi_request(b'\x83\x15' + AWAY_SUBUNIT)
+            msg = getattr(getattr(reply, 'msg', None), 'message', None)
+            if not msg or len(msg) < 13:
+                # Kein Timeout-Drama: beim naechsten Durchlauf nochmal versuchen.
+                continue
+
+            aktiv = 1 if msg[0] == 1 else 0
+            rest = int.from_bytes(msg[9:13], byteorder='little') if aktiv else 0
+
+            if aktiv != away_active_published:
+                client.publish(mqtt_topic + "AWAY_ACTIVE", aktiv, qos=0, retain=True)
+                away_active_published = aktiv
+                _LOGGER.info("Abwesenheit %s - %sAWAY_ACTIVE = %d gesendet."
+                             % ("aktiv" if aktiv else "beendet", mqtt_topic, aktiv))
+
+            # Restzeit nur senden, wenn sie sich sichtbar geaendert hat - sonst
+            # ginge bei jedem Durchlauf eine Nachricht raus, obwohl der Wert im
+            # Ruhezustand konstant 0 ist.
+            if rest != away_remaining_published:
+                client.publish(mqtt_topic + "AWAY_REMAINING", rest, qos=0, retain=True)
+                away_remaining_published = rest
+
+        except Exception as e:
+            _LOGGER.debug("Konnte Abwesenheits-Zustand nicht abfragen: " + str(e))
 
 def send_away(seconds):
     """Schaltet die Abwesenheit fuer die angegebene Dauer ein."""
@@ -788,7 +780,7 @@ def publish_sensorwatch_state():
 
 
 def main():
-    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, registration_state, sensorwatch_enabled, sensorwatch_timeout_sec, away_time
+    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, registration_state, sensorwatch_enabled, sensorwatch_timeout_sec
 
     loglevel=logging.ERROR
     search = False
@@ -797,9 +789,6 @@ def main():
     ventmode_stop_exhaust_fan_time = b'\x10\x0e'
     bypass_on_time = b'\x10\x0e'
     bypass_off_time = b'\x10\x0e'
-    # Sekunden (nicht als Bytes wie oben) - erst beim Senden ins 4-Byte-Feld
-    # umgewandelt, siehe seconds_to_timerfield(). 0 = noch nichts gesetzt.
-    away_time = 0
     configfile = ""
 
     opts, args = getopt.getopt(sys.argv[1:],"c:f:l:s:",['configfile=', 'logfile=', 'loglevel=', 'search', 'statusfile='])
@@ -1018,6 +1007,9 @@ def main():
         except Exception as e:
             _LOGGER.error("Konnte Ordner für Statusdatei nicht anlegen: " + str(e))
         threading.Thread(target=write_status_loop, daemon=True).start()
+
+    # Abwesenheits-Zustand zyklisch abholen (eigener Thread, siehe poll_away_loop).
+    threading.Thread(target=poll_away_loop, daemon=True).start()
 
     # Connect to the broker. Deliberately done BEFORE the bridge/sensor registration
     # below, not after: the MQTT connection itself has nothing to do with whether the
