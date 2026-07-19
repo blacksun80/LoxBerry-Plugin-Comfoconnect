@@ -226,6 +226,17 @@ class ComfoConnect(object):
             except PyComfoConnectNotAllowed:
                 return None
 
+            except OSError:
+                # The connection itself is gone (write failed, socket dead) - no
+                # amount of local retrying fixes that, only a full reconnect will.
+                # Give up on this sensor immediately and propagate, instead of
+                # burning through 3 local retries (and then doing the same for
+                # every remaining sensor) against a socket that is never coming
+                # back on its own. _connection_thread_loop already catches OSError
+                # here and triggers a proper reconnect.
+                _LOGGER.error("Sensor %d: Verbindung verloren beim Registrieren." % sensor_id)
+                raise
+
             except ValueError:
                 # Timeout waiting for CnRpdoConfirm.
                 if is_last_attempt:
@@ -269,13 +280,18 @@ class ComfoConnect(object):
         # Increase message reference
         self._reference += 1
 
-        # Be careful when sending message, we need to catch a broken connection here
+        # Be careful when sending message, we need to catch a broken connection here.
+        # Previously this swallowed the error and returned False, which no caller
+        # checked - execution just carried on to wait a full timeout for a reply to
+        # a message that was never sent. Re-raise instead, so callers that expect
+        # OSError (register_sensor, _connection_thread_loop) find out immediately
+        # and can trigger a proper reconnect instead of a doomed retry.
         try:
             self._bridge.write_message(message)
 
         except OSError:
             _LOGGER.error("Unexpected error in _command._bridge.write_message: " + str(sys.exc_info()[0]))
-            return False
+            raise
 
         try:
             # Check if this command has a confirm type set
@@ -291,7 +307,7 @@ class ComfoConnect(object):
 
         except OSError:
             _LOGGER.error("Unexpected error in _command._get_reply for confirm type", str(confirm_type), ": ", sys.exc_info()[0])
-            return False
+            raise
 
     def _get_reply(self, confirm_type=None, timeout=5, use_queue=True, quiet_timeout=False):
         """Pops a message of the queue, optionally looking for a specific type.

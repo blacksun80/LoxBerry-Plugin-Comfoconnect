@@ -55,14 +55,25 @@ PBIN=$LBPBIN/$PDIR
   
 echo "<INFO> Installation as root user started."
 
-echo "<INFO> Upgrade pip."
-python3 -m pip install --upgrade pip
+echo "<INFO> Checking pip..."
+# NOTE: no --upgrade here (see protobuf comment below) - just make sure pip is
+# present, don't force a slow version check against PyPI on every single install.
+python3 -m pip install pip
 
 echo "<INFO> Start installing protobuf..."
 # NOTE: must be quoted - unquoted "protobuf>=3.20.3" is parsed by bash as a
 # redirection (">") into a file literally named "=3.20.3", silently dropping
 # the version constraint and hiding pip's output.
-python3 -m pip install --upgrade "protobuf>=3.20.3"
+#
+# NOTE: deliberately no --upgrade. "pip install X" when X is already installed
+# and satisfies the version constraint is a fast local check ("Requirement
+# already satisfied") - "pip install --upgrade X" always queries PyPI for the
+# latest available version first, even when nothing needs to change. That
+# forced network round-trip was adding ~2 minutes to every single install or
+# update, even when protobuf was already correctly installed. Without
+# --upgrade we still get protobuf>=3.20.3 installed/upgraded automatically the
+# one time it's actually missing or too old - just not on every run after that.
+python3 -m pip install "protobuf>=3.20.3"
 INSTALLED=$(pip3 list --format=columns | grep "protobuf" | grep -v grep | wc -l)
 if [ ${INSTALLED} -ne "0" ]; then
 	echo "<OK> protobuf installed successfully."

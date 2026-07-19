@@ -78,16 +78,16 @@
 							<td width="190px" style="vertical-align: middle;">
 								<label id="labelwatchdogenabled"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_ENABLED></label>
 							</td>
-							<td style="vertical-align: middle;">
-								<input id="watchdog_enabled" name="watchdog_enabled" type="checkbox" value="1" data-role="none" style="margin:0; width:20px; height:20px; vertical-align:middle;" <TMPL_VAR NAME=WATCHDOG_ENABLED_CHECKED>>
+							<td style="vertical-align: middle; text-align: left;">
+								<input id="watchdog_enabled" name="watchdog_enabled" type="checkbox" value="1" data-role="none" style="vertical-align: middle;" <TMPL_VAR NAME=WATCHDOG_ENABLED_CHECKED>>
 							</td>
 						</tr>
 						<tr>
 							<td width="190px" style="vertical-align: middle;">
 								<label id="labelwatchdogthreshold"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_THRESHOLD></label>
 							</td>
-							<td style="vertical-align: middle;">
-								<input id="watchdog_threshold" name="watchdog_threshold" type="number" class="textfield" min="1" max="60" value="<TMPL_VAR NAME=WATCHDOG_THRESHOLD>">
+							<td style="vertical-align: middle; text-align: left;">
+								<input id="watchdog_threshold" name="watchdog_threshold" type="number" min="1" max="60" style="width:60px; box-sizing: border-box;" value="<TMPL_VAR NAME=WATCHDOG_THRESHOLD>">
 							</td>
 						</tr>
 					</tbody>

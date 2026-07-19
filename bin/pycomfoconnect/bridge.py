@@ -123,8 +123,12 @@ class Bridge(object):
     def write_message(self, message: Message) -> bool:
         """Send a message."""
 
+        # BrokenPipeError is an OSError subclass, so this is now consistent with the
+        # errors raised below - callers only ever need to handle one exception family
+        # (OSError) to detect "the connection is gone", instead of a bare Exception
+        # here and BrokenPipeError/ConnectionResetError elsewhere.
         if self._socket is None:
-            raise Exception('Not connected!')
+            raise BrokenPipeError('Not connected!')
 
         # Construct packet
         packet = message.encode()
@@ -135,11 +139,13 @@ class Bridge(object):
         # Send packet
         try:
             self._socket.sendall(packet)
-        except BrokenPipeError:
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            # Previously this swallowed the error and returned False, which callers
+            # never checked - they went on to wait a full timeout for a reply to a
+            # message that was never actually sent, and only found out something was
+            # wrong on the *next* attempt (as an unrelated-looking "Not connected!").
+            # Disconnect cleanly and re-raise so the caller finds out immediately.
             self.disconnect()
-            return False
-        except ConnectionResetError:
-            self.disconnect()
-            return False
+            raise
 
         return True
