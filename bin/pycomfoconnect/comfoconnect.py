@@ -9,6 +9,10 @@ from .bridge import Bridge
 from .error import *
 from .message import Message
 from .zehnder_pb2 import *
+# Gezielt und namentlich, nicht per *: const.py enthaelt auch Namen wie
+# SENSOR_* und FAN_MODE_*, die sich sonst mit denen aus zehnder_pb2 ins Gehege
+# kommen koennten. const.py importiert selbst nichts, es gibt also keinen Zirkel.
+from .const import ALARM_ERRORS, ALARM_ERRORS_140, ALARM_FIRMWARE_140
 
 KEEPALIVE = 60
 
