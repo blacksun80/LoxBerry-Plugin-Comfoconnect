@@ -29,32 +29,22 @@
 				<label id="labelauto"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_KONFIG></label>
 			</td>
 			<td width="55%">
-				<table>
-					<tbody>
-						<tr>
-							<td width="190px" style="vertical-align: middle;">
-								<label id="labeliplanc"><TMPL_VAR NAME=T::FORMTABLE.IPLANC></label>
-							</td>
-							<td style="vertical-align: middle;">
-								<input id="iplanc" onChange="disable_rescan()" name="iplanc" type="text" minlength="7" maxlength="15" size="15" pattern="^((\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.){3}(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])$" value="<TMPL_VAR NAME=IPLANC>">
-							</td>
-							<td style="vertical-align: middle;">
-								<a id="btnrescan" data-icon="refresh" data-role="button" data-mini="true" href="./index.cgi?rescan=1"><TMPL_VAR NAME=T::BUTTON.RESCAN></a>
-							</td>
-						</tr>
-						<tr>
-							<td width="190px" style="vertical-align: middle;">
-								<label id="labelpin"><TMPL_VAR NAME=T::FORMTABLE.PIN></label>
-							</td>
-							<td style="vertical-align: middle;">
-								<input id="pin" name="pin" type="text" class="textfield" value="<TMPL_VAR NAME=PIN>"
-								data-validation="number"
-								data-validation-allowing="range[0000;9999]"
-								data-validation-error-msg="PIN: Bitte einen gültigen PIN zwischen 0000 and 9999 eingeben.">
-							</td>
-						</tr>
-					</tbody>
-				</table>
+				<div style="display:flex; align-items:center; margin-bottom:10px;">
+					<div style="width:190px; flex-shrink:0;">
+						<label id="labeliplanc"><TMPL_VAR NAME=T::FORMTABLE.IPLANC></label>
+					</div>
+					<input id="iplanc" onChange="disable_rescan()" name="iplanc" type="text" minlength="7" maxlength="15" size="15" pattern="^((\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.){3}(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])$" value="<TMPL_VAR NAME=IPLANC>">
+					<a id="btnrescan" data-icon="refresh" data-role="button" data-mini="true" href="./index.cgi?rescan=1" style="margin-left:10px;"><TMPL_VAR NAME=T::BUTTON.RESCAN></a>
+				</div>
+				<div style="display:flex; align-items:center;">
+					<div style="width:190px; flex-shrink:0;">
+						<label id="labelpin"><TMPL_VAR NAME=T::FORMTABLE.PIN></label>
+					</div>
+					<input id="pin" name="pin" type="text" class="textfield" value="<TMPL_VAR NAME=PIN>"
+						data-validation="number"
+						data-validation-allowing="range[0000;9999]"
+						data-validation-error-msg="PIN: Bitte einen gültigen PIN zwischen 0000 and 9999 eingeben.">
+				</div>
 			</td>
 			<td width="5%" valign="middle">
 				&nbsp;
@@ -63,7 +53,7 @@
 				<font size="-1"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_HELP2></font>
 			</td>
 		</tr>
-			
+
 		<TMPL_LOOP NAME=ROWS>
 		</TMPL_LOOP>
 
@@ -72,26 +62,18 @@
 				<label id="labelwatchdog"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_LABEL></label>
 			</td>
 			<td width="55%">
-				<table>
-					<tbody>
-						<tr>
-							<td width="190px" style="vertical-align: middle;">
-								<label id="labelwatchdogenabled"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_ENABLED></label>
-							</td>
-							<td style="vertical-align: middle; text-align: left;">
-								<input id="watchdog_enabled" name="watchdog_enabled" type="checkbox" value="1" data-role="none" style="vertical-align: middle;" <TMPL_VAR NAME=WATCHDOG_ENABLED_CHECKED>>
-							</td>
-						</tr>
-						<tr>
-							<td width="190px" style="vertical-align: middle;">
-								<label id="labelwatchdogthreshold"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_THRESHOLD></label>
-							</td>
-							<td style="vertical-align: middle; text-align: left;">
-								<input id="watchdog_threshold" name="watchdog_threshold" type="number" min="1" max="60" style="width:60px; box-sizing: border-box;" value="<TMPL_VAR NAME=WATCHDOG_THRESHOLD>">
-							</td>
-						</tr>
-					</tbody>
-				</table>
+				<div style="display:flex; align-items:center; margin-bottom:10px;">
+					<div style="width:190px; flex-shrink:0;">
+						<label id="labelwatchdogenabled"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_ENABLED></label>
+					</div>
+					<input id="watchdog_enabled" name="watchdog_enabled" type="checkbox" value="1" data-role="none" style="margin:0;" <TMPL_VAR NAME=WATCHDOG_ENABLED_CHECKED>>
+				</div>
+				<div style="display:flex; align-items:center;">
+					<div style="width:190px; flex-shrink:0;">
+						<label id="labelwatchdogthreshold"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_THRESHOLD></label>
+					</div>
+					<input id="watchdog_threshold" name="watchdog_threshold" type="number" data-role="none" min="1" max="60" style="width:60px;" value="<TMPL_VAR NAME=WATCHDOG_THRESHOLD>">
+				</div>
 			</td>
 			<td width="5%" valign="middle">
 				&nbsp;
@@ -143,7 +125,7 @@
 	});
 	<!-- Button Rescan deaktivieren, falls keine IP und PIN eingegeben wurde. -->
 	disable_rescan();
-	
+
 	function disable_rescan() {
 		if ( $( "#iplanc" ).val() != "" ) {
 				$( "#btnrescan" ).addClass('ui-disabled');
@@ -153,4 +135,3 @@
 		}
 	}
 </script>
-

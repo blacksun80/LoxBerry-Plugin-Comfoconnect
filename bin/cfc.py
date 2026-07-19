@@ -670,24 +670,52 @@ def main():
     # sensor at all got monitored. Registering each sensor independently means one
     # unsupported/unresponsive pdid is logged and skipped instead of taking down
     # the other 40+ working sensors.
-    for x in sensor_data:
+    sensor_ids = list(sensor_data.keys())
+    for i, x in enumerate(sensor_ids):
         try:
             comfoconnect.register_sensor(x)
             _LOGGER.info("Register Sensor: %d" % x + " Sensorname: " + sensor_data[x]['NAME'])
+
+        except OSError as e:
+            # Connection genuinely gone mid-burst (e.g. a reset right during startup).
+            # Hammering through the remaining ~40 sensors with the same doomed call
+            # just produces one error per sensor for the exact same underlying
+            # problem - stop immediately instead. But still remember the sensors we
+            # hadn't gotten to yet (comfoconnect.sensors, keyed like register_sensor()
+            # itself would) so the background connection thread's automatic reconnect
+            # re-registers them once the bridge is reachable again, instead of them
+            # silently never being subscribed at all for the rest of this run.
+            _LOGGER.error(
+                "Verbindung beim Registrieren verloren - breche Erstregistrierung ab (%d von %d Sensoren "
+                "noch offen), automatischer Reconnect übernimmt den Rest: %s" % (len(sensor_ids) - i, len(sensor_ids), str(e))
+            )
+            for remaining in sensor_ids[i:]:
+                comfoconnect.sensors.setdefault(remaining, RPDO_TYPE_MAP.get(remaining))
+            break
+
         except Exception as e:
             _LOGGER.error("Sensor %d (%s) konnte nicht registriert werden - Gerät hat nicht geantwortet: %s" % (x, sensor_data[x]['NAME'], str(e)))
-        
-    # VersionRequest
-    version = comfoconnect.cmd_version_request()
-    _LOGGER.info("Version :" + str(version))
-    
-    # ListRegisteredApps
-    for app in comfoconnect.cmd_list_registered_apps():
-        _LOGGER.info("Registered Apps (UUID): " + str(app['uuid'].hex()) + ", APP Name: " + str(app['devicename']))
-    
-    # TimeRequest
-    timeinfo = comfoconnect.cmd_time_request()
-    _LOGGER.info("Timeinfo: " + str(timeinfo))
+
+    # Diagnostic-only calls - wrapped so a connection hiccup right at this moment
+    # (e.g. still mid-reconnect after the loop above gave up early) can't crash the
+    # main thread with an uncaught exception. Not fatal to the plugin either way
+    # (the background connection/message threads keep running regardless), but an
+    # uncaught traceback here is needless noise and skips the remaining diagnostics.
+    try:
+        # VersionRequest
+        version = comfoconnect.cmd_version_request()
+        _LOGGER.info("Version :" + str(version))
+
+        # ListRegisteredApps
+        for app in comfoconnect.cmd_list_registered_apps():
+            _LOGGER.info("Registered Apps (UUID): " + str(app['uuid'].hex()) + ", APP Name: " + str(app['devicename']))
+
+        # TimeRequest
+        timeinfo = comfoconnect.cmd_time_request()
+        _LOGGER.info("Timeinfo: " + str(timeinfo))
+
+    except Exception as e:
+        _LOGGER.error("Diagnose-Abfragen (Version/RegisteredApps/Time) fehlgeschlagen, vermutlich Verbindung gerade unterbrochen: %s" % str(e))
     
 
 def map_loglevel(loxlevel):
