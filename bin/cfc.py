@@ -19,6 +19,21 @@ import logging
 
 interval = [0 for x in range(300)]
 
+# Overall budget for the ENTIRE initial sensor-registration phase (all sensors
+# together), not per sensor - see the registration loop in main(). Individual
+# sensors get one attempt each (SENSOR_REGISTER_TIMEOUT in comfoconnect.py caps a
+# single attempt at 20s) - no retries, no cancel/dereg dance: that complexity
+# turned out not to be worth it in practice (see git history) and this hard
+# overall deadline is the simpler, more predictable replacement. MQTT (paho) is
+# deliberately not started until this phase finishes - see main().
+SENSOR_REGISTRATION_TIMEOUT = 60
+
+# Set once in main() as the registration phase progresses, read by
+# write_status_loop() (-> status.json -> index.cgi's getStatus()). One of:
+# "in_progress" (still registering), "timeout" (didn't finish in time or lost the
+# connection - fatal, process exits), "done" (all sensors attempted successfully).
+registration_state = "in_progress"
+
 # Set by on_connect()/on_disconnect() - read by the status-writer thread. paho's own
 # reconnect (client.reconnect_delay_set()) already handles recovering the MQTT link by
 # itself; this flag only exists so the status file/webfrontend can show whether it is
@@ -449,13 +464,20 @@ def on_log(client, userdata, level, buf):
     _LOGGER.debug("Paho: " + buf)
 
 def callback_sensor(var, value):
-    # for x in unknown:
-        # if var == x:
-            # print ("unknown:")
-            # print (x)
-            # print (var)
-            # return
-    
+    # The MQTT connection itself can (and should) stay up across a bridge reconnect -
+    # only the publishing is gated. comfoconnect.sensors_ready is False from the moment
+    # a disconnect is noticed until the (re-)registration sweep for all known sensors
+    # finishes again (see the attribute comment in comfoconnect.py's __init__) - a value
+    # arriving for some already-re-registered sensor while others are still pending would
+    # otherwise trickle out to Loxone as a confusing partial update instead of a clean,
+    # all-at-once "we're fully back" - same reasoning as gating the very first publish
+    # after startup on the initial registration sweep (see main()).
+    if not comfoconnect.sensors_ready:
+        _LOGGER.debug(
+            "Sensor %d: Wert %s verworfen, noch nicht (wieder) vollständig registriert (kein Publish)." % (var, str(value))
+        )
+        return
+
     if (var == 81 or var == 82 or var == 86 or var == 87):
         value=int(to_little(value), base=16)
         if value == 4294967295:
@@ -506,6 +528,13 @@ def write_status_loop():
                 status = {
                     'pid': os.getpid(),
                     'now': time.time(),
+                    'registration_state': registration_state,
+                    # True only once (re-)registration has actually finished on the
+                    # CURRENT connection - False again for the whole gap during a later
+                    # reconnect, even though registration_state itself stays "done"
+                    # (that one only ever reflects the one-time startup phase). See the
+                    # attribute comment in comfoconnect.py's __init__.
+                    'sensors_ready': comfoconnect.sensors_ready if comfoconnect else False,
                     'mqtt_connected': mqtt_connected,
                     'mqtt_last_change': mqtt_last_change,
                     'bridge_last_alive_ping': comfoconnect.last_alive_ping if comfoconnect else None,
@@ -535,7 +564,7 @@ def write_status_loop():
 
 
 def main():
-    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, unknown, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile
+    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, unknown, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, registration_state
     
     connected_flag = 0
     loglevel=logging.ERROR
@@ -667,6 +696,16 @@ def main():
     def handle_sigterm(signum, frame):
         _LOGGER.info("SIGTERM empfangen - fahre sauber herunter (melde Session bei der Zehnder-Box ab)...")
 
+        # Tell the background threads this disconnect is intentional BEFORE sending
+        # CloseSessionRequest below - otherwise, once the bridge closes the socket in
+        # response (typically within milliseconds), the message thread has no way to
+        # tell that apart from a real, unexpected connection loss: it would log a
+        # misleading "connection was broken, we will try to reconnect" warning and
+        # start a reconnect attempt that os._exit() below cuts off anyway.
+        # mark_disconnecting() only sets flags, it doesn't block (unlike
+        # comfoconnect.disconnect()), so it's safe to call from this handler.
+        comfoconnect.mark_disconnecting()
+
         try:
             if comfoconnect.is_connected():
                 # Short, bounded timeout: this must not hold up "Speichern" for the
@@ -735,16 +774,6 @@ def main():
             _LOGGER.error("Konnte Ordner für Statusdatei nicht anlegen: " + str(e))
         threading.Thread(target=write_status_loop, daemon=True).start()
 
-    # Connect to the broker
-    try:
-        _LOGGER.info("Connecting to MQTT Broker " + str(mqtt_broker) + ":" + str(mqtt_port))
-        client.connect(mqtt_broker, mqtt_port)
-    except Exception as e:
-        _LOGGER.exception(str(e))
-        _LOGGER.critical("Not connected to MQTT Broker")
-        exit(1)
-    client.loop_start()
-
     # Connect to the bridge
     #
     # Retry a few times before giving up: the initial handshake (StartSessionConfirm)
@@ -765,58 +794,100 @@ def main():
             if attempt >= bridge_connect_attempts:
                 _LOGGER.exception(str(e))
                 _LOGGER.critical("Not connected to bridge nach %d Versuchen" % bridge_connect_attempts)
-                exit(1)
+                # os._exit(), not exit(): comfoconnect.connect() may have already started
+                # the (non-daemon) connection thread on an earlier attempt even though
+                # this last one failed (see connect()'s "didn't reply on time" case) - a
+                # plain exit(1) would then just hang forever waiting for that thread to
+                # finish instead of actually terminating the process.
+                os._exit(1)
             _LOGGER.warning("Verbindung zur Bridge fehlgeschlagen (Versuch %d/%d), erneuter Versuch: %s" % (attempt, bridge_connect_attempts, str(e)))
             time.sleep(2)
 
     connected_flag=True
 
-#    unknown types investigation
-    # unknown = [33, 37, 53, 82, 85, 86, 87, 145, 146, 208, 211, 212, 216, 217, 218, 219, 224, 226, 228, 321, 325, 337, 338, 341, 369, 370, 371, 372, 384, 386, 400, 401, 402, 416, 417, 418, 419]
-    # for y in unknown:
-        # comfoconnect.register_sensor(y)
-        # _LOGGER.debug("Unknown Sensor No.: %d" % y)
-        
 #   Register sensors ################################################################################################
-    # Not every sensor/pdid in sensor_data is necessarily supported by every Comfo
-    # unit/firmware - some (e.g. SETTING_RF_PAIRING) may simply never send a
-    # CnRpdoConfirm back, which previously made register_sensor() time out after 5s
-    # and crash the ENTIRE script (unhandled exception in the startup loop), so no
-    # sensor at all got monitored. Registering each sensor independently means one
-    # unsupported/unresponsive pdid is logged and skipped instead of taking down
-    # the other 40+ working sensors.
+    # Single attempt per sensor (see register_sensor()), no retry - and a hard overall
+    # deadline (SENSOR_REGISTRATION_TIMEOUT) across ALL sensors together, not per sensor.
+    # Any single sensor failing to register (timeout, or the connection dropping
+    # outright) aborts the whole phase immediately - sensor_data is expected to already
+    # reflect the sensors this specific hardware supports, so a failure here is treated
+    # as a real problem, not shrugged off and skipped.
+    #
+    # MQTT (paho) is deliberately not started until this whole phase is done (see below) -
+    # a half-registered plugin publishing whatever it managed to grab in the first few
+    # seconds isn't something Loxone should ever see; better to be fully ready or not
+    # running at all.
     sensor_ids = list(sensor_data.keys())
-    for i, x in enumerate(sensor_ids):
-        try:
-            # register_sensor() gives up silently (returns None) after exhausting its
-            # retries on a plain timeout - it does NOT raise in that case, so the log
-            # message here must check the return value, not just "no exception was
-            # raised". Logging "Register Sensor: X" unconditionally would contradict
-            # the "konnte nicht registriert werden" ERROR register_sensor() already
-            # logged for the exact same sensor a moment earlier.
-            reply = comfoconnect.register_sensor(x)
-            if reply is not None:
-                _LOGGER.info("Register Sensor: %d" % x + " Sensorname: " + sensor_data[x]['NAME'])
+    registration_deadline = time.time() + SENSOR_REGISTRATION_TIMEOUT
+    registration_ok = True
 
-        except OSError as e:
-            # Connection genuinely gone mid-burst (e.g. a reset right during startup).
-            # Hammering through the remaining ~40 sensors with the same doomed call
-            # just produces one error per sensor for the exact same underlying
-            # problem - stop immediately instead. But still remember the sensors we
-            # hadn't gotten to yet (comfoconnect.sensors, keyed like register_sensor()
-            # itself would) so the background connection thread's automatic reconnect
-            # re-registers them once the bridge is reachable again, instead of them
-            # silently never being subscribed at all for the rest of this run.
-            _LOGGER.error(
-                "Verbindung beim Registrieren verloren - breche Erstregistrierung ab (%d von %d Sensoren "
-                "noch offen), automatischer Reconnect übernimmt den Rest: %s" % (len(sensor_ids) - i, len(sensor_ids), str(e))
+    _LOGGER.info("Registriere %d Sensoren (Zeitbudget: %ds)..." % (len(sensor_ids), SENSOR_REGISTRATION_TIMEOUT))
+
+    for i, x in enumerate(sensor_ids):
+        if time.time() > registration_deadline:
+            _LOGGER.critical(
+                "Timeout beim Registrieren der Sensoren - Zeitbudget von %ds überschritten, %d von %d "
+                "Sensoren noch nicht einmal versucht." % (SENSOR_REGISTRATION_TIMEOUT, len(sensor_ids) - i, len(sensor_ids))
             )
-            for remaining in sensor_ids[i:]:
-                comfoconnect.sensors.setdefault(remaining, RPDO_TYPE_MAP.get(remaining))
+            registration_ok = False
             break
 
-        except Exception as e:
-            _LOGGER.error("Sensor %d (%s) konnte nicht registriert werden - Gerät hat nicht geantwortet: %s" % (x, sensor_data[x]['NAME'], str(e)))
+        try:
+            # register_sensor() gives up silently (returns None) on a plain timeout - it
+            # does NOT raise in that case, so this has to check the return value, not
+            # just "no exception was raised". register_sensor() already logged WHY
+            # ("konnte nicht registriert werden") - here we just decide the phase is
+            # over: no skipping, no continuing with the rest.
+            reply = comfoconnect.register_sensor(x)
+            if reply is None:
+                _LOGGER.critical(
+                    "Sensor %d (%s) konnte nicht registriert werden - breche Sensor-Registrierung ab "
+                    "(%d von %d Sensoren noch offen)." % (x, sensor_data[x]['NAME'], len(sensor_ids) - i, len(sensor_ids))
+                )
+                registration_ok = False
+                break
+            _LOGGER.info("Register Sensor: %d" % x + " Sensorname: " + sensor_data[x]['NAME'])
+
+        except OSError as e:
+            # Connection genuinely gone mid-burst - no point continuing the sweep, and no
+            # point remembering the rest for a background reconnect either: registration
+            # failing here is fatal for this run (see below), the process restarts fresh.
+            _LOGGER.critical(
+                "Verbindung beim Registrieren verloren (%d von %d Sensoren noch offen): %s" %
+                (len(sensor_ids) - i, len(sensor_ids), str(e))
+            )
+            registration_ok = False
+            break
+
+    registration_state = "done" if registration_ok else "timeout"
+
+    if not registration_ok:
+        _LOGGER.critical("Sensor-Registrierung nicht rechtzeitig abgeschlossen - beende Prozess, Watchdog/Wrapper startet neu.")
+        # os._exit(), not exit(): the (non-daemon) connection/message threads are
+        # definitely running by this point - see the os._exit() comment above.
+        os._exit(1)
+
+    # This first sweep runs here, in cfc.py's main thread, not in comfoconnect.py's
+    # _connection_thread_loop() (which only handles LATER reconnects) - so it has to
+    # set sensors_ready itself. From here on, every subsequent disconnect/reconnect
+    # clears and re-sets this flag automatically (see _connection_thread_loop()).
+    comfoconnect.sensors_ready = True
+
+    _LOGGER.info("Sensor-Registrierung abgeschlossen: %d von %d Sensoren registriert." % (len(comfoconnect.sensors_confirmed), len(sensor_ids)))
+
+    # Connect to the broker - only now, once sensor registration has actually finished
+    # (see SENSOR_REGISTRATION_TIMEOUT above): starting MQTT any earlier would let Loxone
+    # see (and possibly act on) a plugin that isn't fully ready yet.
+    try:
+        _LOGGER.info("Connecting to MQTT Broker " + str(mqtt_broker) + ":" + str(mqtt_port))
+        client.connect(mqtt_broker, mqtt_port)
+    except Exception as e:
+        _LOGGER.exception(str(e))
+        _LOGGER.critical("Not connected to MQTT Broker")
+        # os._exit(): same reasoning as above - comfoconnect's background threads are
+        # already running at this point, a plain exit(1) would just hang.
+        os._exit(1)
+    client.loop_start()
 
     # Diagnostic-only calls - wrapped so a connection hiccup right at this moment
     # (e.g. still mid-reconnect after the loop above gave up early) can't crash the

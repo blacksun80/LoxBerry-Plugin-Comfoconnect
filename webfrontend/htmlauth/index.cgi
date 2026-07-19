@@ -385,23 +385,36 @@ sub form
 # Status-Sub - liest die Heartbeat-Datei, die cfc.py auf der Ramdisk schreibt.
 #
 # Prüfreihenfolge (jede Stufe schwerwiegender als eine reine "Warnung"):
-#   1. Statusdatei fehlt komplett            -> Plugin läuft nicht
-#   2. MQTT getrennt                         -> kann ohnehin nichts liefern
-#   3. last_alive_ping zu alt (>30s)         -> Verbindungs-Thread tot/hängt
-#   4. last_sensor_data zu alt (>60s),       -> Verbindung/Thread laufen zwar noch,
-#      obwohl Sensoren registriert sind         aber die Box schickt nichts mehr.
-#                                                Das ist ein eigener Fall: der
-#                                                Prozess "lebt" (alive_ping bleibt
-#                                                frisch, weil die Leseschleife
-#                                                einfach weiterdreht), liefert aber
-#                                                keine Daten mehr - ohne diese
-#                                                Prüfung sähe das fälschlich wie
-#                                                "läuft einwandfrei" aus.
-#   5. Nicht alle erwarteten Sensoren         -> bewusst als Fehler behandelt, nicht
-#      registriert                               nur als Warnung: wenn Sensoren nach
-#                                                allen Retries nicht bestätigt sind,
-#                                                fehlt echte Funktionalität.
-#   6. Alles obige unauffällig                -> läuft einwandfrei
+#   1. Statusdatei fehlt komplett             -> Plugin läuft nicht
+#   2. registration_state == timeout          -> Timeout beim Registrieren der
+#                                                 Sensoren (fatal, nur beim ersten
+#                                                 Start moeglich - cfc.py beendet
+#                                                 sich in diesem Fall selbst, der
+#                                                 Watchdog/Wrapper startet neu)
+#   3. !sensors_ready                          -> Registriere Sensoren. Gilt fuer die
+#                                                 allererste Startphase genauso wie
+#                                                 fuer jeden spaeteren Reconnect
+#                                                 mitten im Betrieb (siehe
+#                                                 comfoconnect.py: sensors_ready) -
+#                                                 MQTT bleibt dabei verbunden, es wird
+#                                                 nur nichts published, bis alle
+#                                                 Sensoren wieder registriert sind.
+#                                                 Ein MQTT-Check davor wuerde waehrend
+#                                                 der allerersten Startphase (MQTT
+#                                                 absichtlich noch nicht verbunden)
+#                                                 faelschlich "MQTT getrennt" anzeigen.
+#   4. MQTT getrennt                          -> kann ohnehin nichts liefern
+#   5. last_alive_ping zu alt (>30s)          -> Verbindungs-Thread tot/hängt
+#   6. last_sensor_data zu alt (>60s),        -> Verbindung/Thread laufen zwar noch,
+#      obwohl Sensoren registriert sind          aber die Box schickt nichts mehr.
+#                                                 Das ist ein eigener Fall: der
+#                                                 Prozess "lebt" (alive_ping bleibt
+#                                                 frisch, weil die Leseschleife
+#                                                 einfach weiterdreht), liefert aber
+#                                                 keine Daten mehr - ohne diese
+#                                                 Prüfung sähe das fälschlich wie
+#                                                 "läuft einwandfrei" aus.
+#   7. Alles obige unauffällig                 -> Alle X Sensoren registriert
 #
 # Genutzt sowohl beim initialen Seitenaufbau (sub form) als auch vom
 # AJAX-Status-Endpoint ganz oben, den main.html per JS periodisch abfragt.
@@ -430,9 +443,21 @@ sub getStatus
 				my $data_age  = defined($status->{bridge_last_sensor_data}) ? $now - $status->{bridge_last_sensor_data} : undef;
 				my $mqtt_ok = $status->{mqtt_connected} ? 1 : 0;
 				my $sensors_reg = $status->{sensors_registered} // 0;
-				my $sensors_exp = $status->{sensors_expected} // 0;
+				# Fehlen diese Felder (z.B. Statusdatei eines aelteren Plugin-Stands,
+				# noch nicht ueberschrieben) als "fertig/bereit" behandeln statt
+				# dauerhaft "Registriere Sensoren"/"Timeout" vorzutaeuschen - der neue
+				# Prozess ueberschreibt die Datei ohnehin binnen 1s mit den korrekten
+				# Feldern.
+				my $reg_state = $status->{registration_state} // 'done';
+				my $sensors_ready = exists($status->{sensors_ready}) ? ($status->{sensors_ready} ? 1 : 0) : 1;
 
-				if (!$mqtt_ok) {
+				if ($reg_state eq 'timeout') {
+					$status_text = "Timeout beim Registrieren der Sensoren";
+					$status_class = "cc-status-error";
+				} elsif (!$sensors_ready) {
+					$status_text = "Registriere Sensoren";
+					$status_class = "cc-status-warn";
+				} elsif (!$mqtt_ok) {
 					$status_text = "MQTT getrennt (verbindet automatisch neu)";
 					$status_class = "cc-status-error";
 				} elsif (!defined($alive_age) || $alive_age > 30) {
@@ -441,11 +466,8 @@ sub getStatus
 				} elsif ($sensors_reg > 0 && (!defined($data_age) || $data_age > 60)) {
 					$status_text = "Gestört - seit über 60s keine Sensordaten mehr empfangen";
 					$status_class = "cc-status-error";
-				} elsif ($sensors_exp > 0 && $sensors_reg < $sensors_exp) {
-					$status_text = "Fehler - nur $sensors_reg von $sensors_exp Sensoren registriert";
-					$status_class = "cc-status-error";
 				} else {
-					$status_text = "Läuft einwandfrei ($sensors_reg Sensoren aktiv)";
+					$status_text = "Alle $sensors_reg Sensoren registriert";
 					$status_class = "cc-status-ok";
 				}
 			}

@@ -197,6 +197,19 @@ class ComfoConnect(object):
         # "X sensors active" count.
         self.sensors_confirmed = set()
 
+        # True only while a connection is up AND the (re-)registration sweep for all
+        # known sensors (self.sensors) has actually finished - False from the moment a
+        # disconnect is noticed until the next successful sweep completes. cfc.py's
+        # callback_sensor() checks this before publishing to MQTT: the MQTT connection
+        # itself can (and should) stay up across a bridge reconnect, but publishing
+        # partial/stale-looking data while only some sensors have been re-subscribed
+        # is exactly the "half-ready plugin" the initial startup gate already avoids -
+        # this extends the same idea to every later reconnect, not just the first one.
+        # Set by _connection_thread_loop() on every (re)connect; cfc.py additionally
+        # sets it True itself after ITS OWN initial registration loop at startup
+        # completes (that first pass runs in cfc.py's main thread, not here).
+        self.sensors_ready = False
+
         # Heartbeat/health bookkeeping, read from the outside (cfc.py) to build a
         # status file. These are plain timestamps (time.time(), or None until the
         # first occurrence) updated cheaply in memory - the caller decides how often
@@ -252,21 +265,41 @@ class ComfoConnect(object):
         # Wait for the background thread to finish in case it is still active
         if self._connection_thread != None:
             self._connection_thread.join()
-            self._connection_thread = None
+
+    def mark_disconnecting(self):
+        """Flags an intended disconnection without blocking on the background threads.
+
+        disconnect() (above) does the same flag-setting but then joins the connection
+        thread - fine for a normal shutdown, but too slow/risky for cfc.py's SIGTERM
+        handler, which sends CloseSessionRequest directly via cmd_close_session() and
+        then calls os._exit() shortly after (see the handler for why). Without calling
+        this first, the message/connection threads have no way to know the socket
+        dying moments later (once the bridge processes our CloseSessionRequest) is
+        expected - they'd log a misleading "connection was broken, we will try to
+        reconnect" warning and kick off a doomed reconnect attempt during an
+        intentional shutdown. Call this before cmd_close_session().
+        """
+        self._stopping = True
+        self._disconnecting = True
 
     def is_connected(self):
         """Returns whether there is a connection with the bridge."""
 
         return self._bridge.is_connected()
 
-    def register_sensor(self, sensor_id: int, sensor_type: int = None, retries: int = 3):
+    def register_sensor(self, sensor_id: int, sensor_type: int = None):
         """Register a sensor on the bridge and keep it in memory that we are registered to this sensor.
 
-        A single CnRpdoConfirm going missing (observed in practice as occasional, seemingly
-        random timeouts on otherwise perfectly working sensors during the fast back-to-back
-        registration burst at startup) does not mean the sensor/pdid is unsupported. Retry a
-        few times before giving up - this recovers the vast majority of cases that used to be
-        permanent failures (or, before that, crashed the whole plugin) after a single timeout.
+        Single attempt only - no retry, no cancel-and-retry dance. That used to exist to
+        recover from a single dropped CnRpdoConfirm, but retrying introduced its own risk
+        (a second CnRpdoRequestType for a pdid whose first request might still be in
+        flight, not actually lost, observed to sometimes trigger a bridge-side connection
+        reset) and, in practice, often didn't help anyway - a sensor that doesn't answer
+        within SENSOR_REGISTER_TIMEOUT is either genuinely unsupported by this hardware or
+        will work fine on the NEXT registration pass (after a reconnect). The overall
+        registration phase (all sensors together, see cfc.py's startup loop) has its own
+        hard deadline (SENSOR_REGISTRATION_TIMEOUT) - that's the layer responsible for
+        deciding when enough is enough, not per-sensor retrying here.
         """
 
         if not sensor_type:
@@ -274,63 +307,25 @@ class ComfoConnect(object):
         if sensor_type is None:
             raise Exception("Registering sensor %d with unknown type" % sensor_id)
 
-        # Register on bridge
-        attempt = 0
-        while True:
-            attempt += 1
-            is_last_attempt = attempt >= retries
-            try:
-                # While retries remain, ask _get_reply() to log a plain timeout as WARNING
-                # instead of ERROR - it isn't a real failure yet, just a dropped reply we're
-                # about to retry. Only the final, exhausted attempt should read as ERROR.
-                reply = self.cmd_rpdo_request(sensor_id, sensor_type, quiet_timeout=not is_last_attempt,
-                                               reply_timeout=SENSOR_REGISTER_TIMEOUT)
-                break
+        try:
+            reply = self.cmd_rpdo_request(sensor_id, sensor_type, reply_timeout=SENSOR_REGISTER_TIMEOUT)
 
-            except PyComfoConnectNotAllowed:
-                return None
+        except PyComfoConnectNotAllowed:
+            return None
 
-            except OSError:
-                # The connection itself is gone (write failed, socket dead) - no
-                # amount of local retrying fixes that, only a full reconnect will.
-                # Give up on this sensor immediately and propagate, instead of
-                # burning through 3 local retries (and then doing the same for
-                # every remaining sensor) against a socket that is never coming
-                # back on its own. _connection_thread_loop already catches OSError
-                # here and triggers a proper reconnect.
-                _LOGGER.error("Sensor %d: Verbindung verloren beim Registrieren." % sensor_id)
-                raise
+        except OSError:
+            # The connection itself is gone (write failed, socket dead) - no amount of
+            # local retrying fixes that, only a full reconnect will. Give up on this
+            # sensor immediately and propagate. _connection_thread_loop and cfc.py's
+            # startup loop already catch OSError here and react accordingly.
+            _LOGGER.error("Sensor %d: Verbindung verloren beim Registrieren." % sensor_id)
+            raise
 
-            except ValueError:
-                # Timeout waiting for CnRpdoConfirm.
-                if is_last_attempt:
-                    _LOGGER.error("Sensor %d konnte nach %d Versuchen nicht registriert werden - Gerät hat nicht geantwortet." % (sensor_id, attempt))
-                    return None
-
-                # Before retrying: explicitly tell the bridge to drop whatever it has
-                # pending for this pdid before we ask again. A plain client-side
-                # timeout does NOT mean our first CnRpdoRequestType was lost - it may
-                # simply not have been answered yet (the bridge was still busy, see
-                # the timeout=10 change). Blindly sending a SECOND CnRpdoRequestType
-                # for the same pdid on top of a first one that's still in flight
-                # leaves the bridge with two overlapping subscribe requests for the
-                # same pdid - observed in practice (see log analysis) to be followed
-                # by the bridge resetting the whole connection shortly after a retry,
-                # which is far more costly (full reconnect + every sensor
-                # re-registered) than the extra time this cancel step costs here.
-                # Same timeout=0 "cancel" call unregister_sensor() already uses.
-                # Best-effort only: a plain timeout on the cancel itself isn't fatal
-                # (we tried, that's enough - proceed with the retry regardless), but
-                # a genuine connection loss (OSError) is left to propagate normally,
-                # same as everywhere else in this method.
-                try:
-                    self.cmd_rpdo_request(sensor_id, sensor_type, timeout=0, quiet_timeout=True,
-                                           reply_timeout=SENSOR_REGISTER_TIMEOUT)
-                except ValueError:
-                    pass
-
-                _LOGGER.warning("Sensor %d: keine Antwort (Versuch %d/%d), erneuter Versuch..." % (sensor_id, attempt, retries))
-                time.sleep(0.2)
+        except ValueError:
+            # Timeout waiting for CnRpdoConfirm - not necessarily a real problem, could
+            # simply be a pdid this hardware doesn't support. Logged and skipped, not fatal.
+            _LOGGER.error("Sensor %d konnte nicht registriert werden - Gerät hat nicht geantwortet." % sensor_id)
+            return None
 
         # Register in memory
         self.sensors[sensor_id] = sensor_type
@@ -423,16 +418,27 @@ class ComfoConnect(object):
             # Same %-formatting trap as described in _connection_thread_loop: these
             # must be concatenated into one string, not passed as extra positional
             # args, otherwise logging itself raises TypeError and spams the log.
-            _LOGGER.error("Unexpected error in _command._get_reply for confirm type " + str(confirm_type) + ": " + sys.exc_info()[0].__name__)
+            #
+            # During an intentional shutdown (self._disconnecting, see
+            # mark_disconnecting()) this is expected, not an error: cmd_close_session()
+            # sends CloseSessionRequest and the bridge closes the socket right after,
+            # which surfaces here as exactly this OSError. The caller (the SIGTERM
+            # handler in cfc.py) already logs a calm, accurate INFO line for that case -
+            # log this one quietly too instead of a scary, redundant ERROR right above it.
+            if self._disconnecting:
+                _LOGGER.info("_command._get_reply für confirm type " + str(confirm_type) + " abgebrochen (beabsichtigtes Herunterfahren): " + sys.exc_info()[0].__name__)
+            else:
+                _LOGGER.error("Unexpected error in _command._get_reply for confirm type " + str(confirm_type) + ": " + sys.exc_info()[0].__name__)
             raise
 
     def _get_reply(self, confirm_type=None, timeout=10, use_queue=True, quiet_timeout=False, expected_reference=None, context=None):
         """Pops a message of the queue, optionally looking for a specific type.
 
         quiet_timeout: if True, log a timeout on confirm_type as WARNING instead of
-        ERROR. Used by callers (e.g. register_sensor()) that will retry the command
-        themselves, so a single dropped reply isn't misreported as a hard error while
-        a retry is still pending - only the final, exhausted attempt should read as ERROR.
+        ERROR, for callers that consider a plain timeout non-fatal/expected for their
+        use case and don't want it read as a hard error. Not currently used by any
+        caller (register_sensor() is a single attempt now, so its timeout is final and
+        should read as ERROR) - kept as a general _command()/_get_reply() option.
 
         context: short human-readable label (e.g. "pdid=146") for the timeout log line -
         see _command()'s docstring.
@@ -639,6 +645,10 @@ class ComfoConnect(object):
 
             # Start connection
             if not self.is_connected():
+                # Not ready for MQTT publishing again until the sensors below have all
+                # been (re-)attempted on the new connection - see the attribute comment
+                # in __init__ for why.
+                self.sensors_ready = False
 
                 # Wait a bit to avoid hammering the bridge
                 time.sleep(5)
@@ -708,14 +718,9 @@ class ComfoConnect(object):
                     # count must start back at 0 and only grow as register_sensor() below
                     # actually succeeds again.
                     self.sensors_confirmed = set()
+                    registration_ok = True
                     # need to handle exceptions during sensor re-registration to have a robust library
                     try:
-                        # register_sensor() already retries a few times on a plain response
-                        # timeout (ValueError) and logs+skips that one sensor if it keeps
-                        # failing, instead of raising - so one dropped reply can no longer
-                        # kill this whole thread. A genuine connection failure still raises
-                        # OSError and is handled below (triggers a fresh reconnect).
-                        #
                         # list(...) takes a snapshot of the dict before iterating: cfc.py's
                         # main thread can concurrently add entries to self.sensors (e.g. the
                         # startup registration loop pre-remembering not-yet-attempted sensors
@@ -724,7 +729,22 @@ class ComfoConnect(object):
                         # changed size during iteration" - which used to kill this thread the
                         # same way the bugs fixed earlier did.
                         for sensor_id, sensor_type in list(self.sensors.items()):
-                            self.register_sensor(sensor_id, sensor_type)
+                            reply = self.register_sensor(sensor_id, sensor_type)
+                            if reply is None:
+                                # Every sensor in self.sensors already registered successfully
+                                # on a PREVIOUS connection (that's the only way it got added
+                                # here) - so unlike cfc.py's very first startup sweep, a
+                                # failure here isn't "unsupported hardware", it's a sign this
+                                # particular reconnect attempt is bad. No skipping: abort the
+                                # whole sweep and force a fresh reconnect below, exactly like
+                                # an OSError would - it worked before, it should work again.
+                                _LOGGER.error(
+                                    "Sensor %d konnte bei der Neu-Registrierung nach einem Reconnect "
+                                    "nicht registriert werden - breche ab (kein Überspringen) und "
+                                    "versuche einen frischen Reconnect." % sensor_id
+                                )
+                                registration_ok = False
+                                break
 
                     except OSError:
                         # NOTE: string concatenation, NOT a second argument. logging
@@ -736,10 +756,19 @@ class ComfoConnect(object):
                         # log on every single reconnect. Harmless for program flow,
                         # but it buried the actual message in ~35 lines of noise.
                         _LOGGER.error("Unexpected error in _connection_thread_loop while registering sensors: " + sys.exc_info()[0].__name__)
-                        self._stopping = True   # Set stop handling message flag because of this error in connection
+                        registration_ok = False
 
+                    if not registration_ok:
+                        self._stopping = True   # Set stop handling message flag - forces a fresh reconnect below.
+                        # sensors_ready deliberately left False here - the loop is about
+                        # to reconnect and try the whole sweep again from scratch.
                     else:
                         _LOGGER.info(str(len(self.sensors)) + ' sensor(s) registered, ready event set.')
+                        self.sensors_ready = True
+                else:
+                    # Nothing to (re-)register (e.g. reconnecting before cfc.py's startup
+                    # sweep ever ran) - nothing is blocking readiness either.
+                    self.sensors_ready = True
 
                 # Send the event that we are ready
                 self._connected.set()
@@ -815,18 +844,30 @@ class ComfoConnect(object):
                 message = self._bridge.read_message()
 
             except BrokenPipeError as exc:
-                # Close this thread. The connection_thread will restart us.
-                _LOGGER.warning("The connection was broken. We will try to reconnect." + str(exc))
+                # Close this thread. The connection_thread will restart us - unless
+                # self._disconnecting is set (see mark_disconnecting()/disconnect()),
+                # in which case this socket dying is exactly what we asked for by
+                # sending CloseSessionRequest, not a real failure to report/recover from.
+                if self._disconnecting:
+                    _LOGGER.info("Verbindung getrennt (beabsichtigtes Herunterfahren)." + str(exc))
+                else:
+                    _LOGGER.warning("The connection was broken. We will try to reconnect." + str(exc))
                 self._bridge.disconnect()
                 self._queue.put(_CONNECTION_LOST)
                 return
             except ConnectionResetError as exc:
-                _LOGGER.warning("The connection was reseted. " + str(exc))
+                if self._disconnecting:
+                    _LOGGER.info("Verbindung getrennt (beabsichtigtes Herunterfahren)." + str(exc))
+                else:
+                    _LOGGER.warning("The connection was reseted. " + str(exc))
                 self._bridge.disconnect()
                 self._queue.put(_CONNECTION_LOST)
                 return
             except ConnectionError as exc:
-                _LOGGER.warning("Connection Error: " + str(exc))
+                if self._disconnecting:
+                    _LOGGER.info("Verbindung getrennt (beabsichtigtes Herunterfahren)." + str(exc))
+                else:
+                    _LOGGER.warning("Connection Error: " + str(exc))
                 self._bridge.disconnect()
                 self._queue.put(_CONNECTION_LOST)
                 return
@@ -859,8 +900,12 @@ class ComfoConnect(object):
                     pass
 
                 elif message.cmd.type == GatewayOperation.CloseSessionRequestType:
-                    _LOGGER.info('The Bridge has asked us to close the connection. We will try to reconnect later.')
-                    # Close this thread. The connection_thread will restart us.
+                    if self._disconnecting:
+                        _LOGGER.info('Bridge hat die Session geschlossen (beabsichtigtes Herunterfahren).')
+                    else:
+                        _LOGGER.info('The Bridge has asked us to close the connection. We will try to reconnect later.')
+                    # Close this thread. The connection_thread will restart us (unless
+                    # self._disconnecting is set, see mark_disconnecting()).
                     return
 
                 else:
