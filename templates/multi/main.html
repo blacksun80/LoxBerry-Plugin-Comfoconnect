@@ -1,3 +1,33 @@
+<style>
+	<!-- Eigenes, lokales CSS fuer die Label+Feld-Zeilen - angelehnt an das -->
+	<!-- lb-form-row/lb-form-label/lb-form-field-Muster aus dem offiziellen -->
+	<!-- LoxBerry-4-Sample-Plugin (github.com/mschlenstedt/LoxBerry-Plugin- -->
+	<!-- SamplePlugin-V4), aber mit eigenen Klassennamen und ohne Abhaengigkeit -->
+	<!-- von der Core-components.css. Die lb-* Klassen sind laut Core-CSS-Header -->
+	<!-- ausdruecklich noch nicht fuer Plugins freigegeben ("Plugins keep jQuery -->
+	<!-- Mobile") und womoeglich auf LB3 gar nicht geladen - mit einer eigenen -->
+	<!-- Kopie funktioniert es auf beiden Versionen gleich. -->
+	.cc-row {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 10px;
+		margin-bottom: 10px;
+	}
+	.cc-row:last-child {
+		margin-bottom: 0;
+	}
+	.cc-label {
+		width: 190px;
+		flex-shrink: 0;
+	}
+	.cc-field {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+	}
+</style>
+
 <center style="margin-top: 25px;">
 	<div style="background-color: rgba(255, 255, 200, 0.4); border-radius: 11px; border: 1px solid black; border-spacing: 15px; padding:10px; display:table; margin:0 auto;">
 		<i>
@@ -29,21 +59,21 @@
 				<label id="labelauto"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_KONFIG></label>
 			</td>
 			<td width="55%">
-				<div style="display:flex; align-items:center; margin-bottom:10px;">
-					<div style="width:190px; flex-shrink:0;">
-						<label id="labeliplanc"><TMPL_VAR NAME=T::FORMTABLE.IPLANC></label>
+				<div class="cc-row">
+					<label class="cc-label" id="labeliplanc" for="iplanc"><TMPL_VAR NAME=T::FORMTABLE.IPLANC></label>
+					<div class="cc-field">
+						<input id="iplanc" data-role="none" onChange="disable_rescan()" name="iplanc" type="text" minlength="7" maxlength="15" size="15" pattern="^((\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.){3}(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])$" value="<TMPL_VAR NAME=IPLANC>">
+						<a id="btnrescan" data-icon="refresh" data-role="button" data-mini="true" href="./index.cgi?rescan=1"><TMPL_VAR NAME=T::BUTTON.RESCAN></a>
 					</div>
-					<input id="iplanc" data-role="none" onChange="disable_rescan()" name="iplanc" type="text" minlength="7" maxlength="15" size="15" pattern="^((\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.){3}(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])$" value="<TMPL_VAR NAME=IPLANC>">
-					<a id="btnrescan" data-icon="refresh" data-role="button" data-mini="true" href="./index.cgi?rescan=1" style="margin-left:10px;"><TMPL_VAR NAME=T::BUTTON.RESCAN></a>
 				</div>
-				<div style="display:flex; align-items:center;">
-					<div style="width:190px; flex-shrink:0;">
-						<label id="labelpin"><TMPL_VAR NAME=T::FORMTABLE.PIN></label>
+				<div class="cc-row">
+					<label class="cc-label" id="labelpin" for="pin"><TMPL_VAR NAME=T::FORMTABLE.PIN></label>
+					<div class="cc-field">
+						<input id="pin" name="pin" type="text" class="textfield" data-role="none" value="<TMPL_VAR NAME=PIN>"
+							data-validation="number"
+							data-validation-allowing="range[0000;9999]"
+							data-validation-error-msg="PIN: Bitte einen gültigen PIN zwischen 0000 and 9999 eingeben.">
 					</div>
-					<input id="pin" name="pin" type="text" class="textfield" data-role="none" value="<TMPL_VAR NAME=PIN>"
-						data-validation="number"
-						data-validation-allowing="range[0000;9999]"
-						data-validation-error-msg="PIN: Bitte einen gültigen PIN zwischen 0000 and 9999 eingeben.">
 				</div>
 			</td>
 			<td width="5%" valign="middle">
@@ -62,17 +92,17 @@
 				<label id="labelwatchdog"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_LABEL></label>
 			</td>
 			<td width="55%">
-				<div style="display:flex; align-items:center; margin-bottom:10px;">
-					<div style="width:190px; flex-shrink:0;">
-						<label id="labelwatchdogenabled"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_ENABLED></label>
+				<div class="cc-row">
+					<label class="cc-label" id="labelwatchdogenabled" for="watchdog_enabled"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_ENABLED></label>
+					<div class="cc-field">
+						<input id="watchdog_enabled" name="watchdog_enabled" type="checkbox" value="1" data-role="none" style="margin:0;" <TMPL_VAR NAME=WATCHDOG_ENABLED_CHECKED>>
 					</div>
-					<input id="watchdog_enabled" name="watchdog_enabled" type="checkbox" value="1" data-role="none" style="margin:0;" <TMPL_VAR NAME=WATCHDOG_ENABLED_CHECKED>>
 				</div>
-				<div style="display:flex; align-items:center;">
-					<div style="width:190px; flex-shrink:0;">
-						<label id="labelwatchdogthreshold"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_THRESHOLD></label>
+				<div class="cc-row">
+					<label class="cc-label" id="labelwatchdogthreshold" for="watchdog_threshold"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_THRESHOLD></label>
+					<div class="cc-field">
+						<input id="watchdog_threshold" name="watchdog_threshold" type="number" data-role="none" min="1" max="60" style="width:60px;" value="<TMPL_VAR NAME=WATCHDOG_THRESHOLD>">
 					</div>
-					<input id="watchdog_threshold" name="watchdog_threshold" type="number" data-role="none" min="1" max="60" style="width:60px;" value="<TMPL_VAR NAME=WATCHDOG_THRESHOLD>">
 				</div>
 			</td>
 			<td width="5%" valign="middle">

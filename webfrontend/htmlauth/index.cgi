@@ -102,7 +102,19 @@ $psubfolder =~ s/(.*)\/(.*)\/(.*)$/$2/g;
 if ( $cgi->param('ajax_status') || $cgi->url_param('ajax_status') ) {
 	my ($status_text, $status_class) = getStatus($psubfolder);
 	print $cgi->header( -type => 'application/json', -charset => 'utf-8' );
-	print encode_json({ statustext => $status_text, statusclass => $status_class });
+	# NOTE: encode_json() (and JSON::PP->new with the default utf8(1)) expects a
+	# proper Perl-internal Unicode string and UTF-8-*encodes* it. This script has
+	# no "use utf8;" pragma, so string literals like "Läuft" are just the raw
+	# UTF-8 *bytes* from the source file (each byte already its own "char", no
+	# Unicode flag) - exactly like everywhere else in this script, where that's
+	# fine because the bytes get printed through unchanged. encode_json() doesn't
+	# know that though: it takes those raw bytes and UTF-8-encodes them *again*,
+	# double-encoding every umlaut (e.g. "Läuft" -> "LÃ¤uft" in the browser).
+	# utf8(0) tells JSON::PP the strings are already the bytes we want in the
+	# output - it only handles the JSON structure (quotes, braces, escaping) and
+	# passes string content through untouched, consistent with how the rest of
+	# this script (and the HTML::Template output) already handles UTF-8.
+	print JSON::PP->new->utf8(0)->encode({ statustext => $status_text, statusclass => $status_class });
 	exit;
 }
 
