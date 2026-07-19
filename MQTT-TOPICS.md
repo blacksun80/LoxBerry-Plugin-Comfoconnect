@@ -246,9 +246,10 @@ gepollt. Bei einigen Werten ist zusätzlich eine Mindestpause hinterlegt
 | `COMFOCOOL_STATE` | 784 | Zustand des Kühlmoduls | — |
 | `COMFOCOOL_TEMPERATURE_CONDENSOR` | 802 | Kondensatortemperatur in °C | 3s |
 
-Ohne ComfoCool erscheinen diese Topics nicht — die Anlage kennt die Werte dann
-nicht, die Sensoren werden beim Start übersprungen und in der Statusanzeige als
-„X von Y Sensoren aktiv" ausgewiesen. Das ist der Normalfall und kein Fehler.
+Ohne ComfoCool erscheinen diese Topics nicht. Das Plugin erkennt selbst, ob ein
+Kühlmodul angeschlossen ist — die Anlage meldet ihre Geräte beim Verbindungsaufbau
+von sich aus. Es ist dafür keine Einstellung nötig, und wer ein ComfoCool
+nachrüstet, bekommt die Topics nach dem nächsten Neustart automatisch.
 
 ---
 

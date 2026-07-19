@@ -12,7 +12,23 @@ import json
 from mqtt_data import sensor_data
 import logging
 
-interval = [0 for x in range(300)]
+# Naechster erlaubter Sendezeitpunkt je Sensor (pdid -> Zeitstempel), fuer die
+# 'PUSH'-Mindestpause aus mqtt_data.py.
+#
+# Bewusst ein Dictionary und KEINE Liste fester Groesse: Frueher stand hier
+# "[0 for x in range(300)]", also 300 Plaetze, indiziert nach pdid. Das ging so
+# lange gut, wie alle pdids unter 300 lagen - beim Eintragen der ComfoCool-Werte
+# (pdid 784 und 802) warf interval[802] dann einen IndexError, der den
+# Message-Thread beendete und das Plugin in eine Reconnect-Schleife schickte.
+# Mit einem Dictionary gibt es diese stille Obergrenze nicht mehr.
+interval = {}
+
+# Anzahl der Sensoren, die auf DIESER Anlage ueberhaupt registriert werden sollen.
+# Nicht einfach len(sensor_data): Sensoren fuer nicht angeschlossenes Zubehoer (siehe
+# 'ONLY_WITH_PRODUCT' in mqtt_data.py) werden gar nicht erst versucht und duerfen in
+# der Statusanzeige auch nicht als fehlend gelten - sonst staende dort dauerhaft
+# "50 von 52" in Gelb, obwohl alles in Ordnung ist. Wird in main() gesetzt.
+sensors_expected = len(sensor_data)
 
 # Sensor-data monitoring, read from the plugin config in main(). Mirrored into the
 # status file so index.cgi's getStatus() (polled every second via AJAX) can evaluate
@@ -709,7 +725,9 @@ def callback_sensor(var, value):
 
     # Senden an den MQTT Broker nur bei Änderungen und nach Ablauf der PUSH Zeit, parametriert in mqtt_data.py
     if 'PUSH' in sensor_data[var]:
-        if (time.time() > interval[var]):
+        # .get() mit Vorgabewert: beim allerersten Wert eines Sensors gibt es noch
+        # keinen Eintrag, und 0 bedeutet "darf sofort gesendet werden".
+        if (time.time() > interval.get(var, 0)):
             (rc, mid) = client.publish(mqtt_topic + sensor_data[var]['NAME'], value, qos=0)
             interval[var] = time.time() + sensor_data[var]['PUSH']
             
@@ -771,7 +789,7 @@ def write_status_loop():
                     # them are actually confirmed. sensors_confirmed only contains sensors
                     # the bridge has actually confirmed in the *current* session.
                     'sensors_registered': len(comfoconnect.sensors_confirmed) if comfoconnect else 0,
-                    'sensors_expected': len(sensor_data),
+                    'sensors_expected': sensors_expected,
                 }
 
                 # Write to a tmp file and rename over the real one - index.cgi (or the
@@ -838,7 +856,7 @@ def publish_sensorwatch_state():
 
 
 def main():
-    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, sensorwatch_enabled, sensorwatch_timeout_sec, comfocool_off_time
+    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, sensorwatch_enabled, sensorwatch_timeout_sec, comfocool_off_time, sensors_expected
 
     loglevel=logging.ERROR
     search = False
@@ -1135,7 +1153,38 @@ def main():
     # MQTT ist zu diesem Zeitpunkt bereits verbunden und das Veroeffentlichen haengt
     # nicht an diesem Durchlauf - Werte bereits registrierter Sensoren gehen sofort
     # raus, waehrend die uebrigen noch angemeldet werden (siehe callback_sensor()).
-    sensor_ids = list(sensor_data.keys())
+    # Sensoren, die an ein bestimmtes Zusatzgeraet gebunden sind (siehe
+    # 'ONLY_WITH_PRODUCT' in mqtt_data.py), werden nur registriert, wenn sich dieses
+    # Geraet an der Anlage gemeldet hat. Die Anlage teilt ihre Geraeteliste von selbst
+    # kurz nach dem Verbindungsaufbau mit - has_product() wartet notfalls kurz darauf.
+    #
+    # Noetig, weil die Anlage z.B. die ComfoCool-pdids AUCH OHNE Modul annimmt und mit
+    # 0 beantwortet. Am Verhalten der Anlage allein liesse sich also nicht erkennen,
+    # ob das Geraet ueberhaupt existiert.
+    # Jede Produkt-ID nur EINMAL abfragen und das Ergebnis merken. has_product()
+    # wartet im ungünstigsten Fall bis zum Zeitlimit - pro Sensor gefragt, wären das
+    # bei zwei ComfoCool-Sensoren doppelte Wartezeit beim Start jeder Anlage ohne
+    # Modul, ohne jeden Nutzen.
+    produkt_vorhanden = {}
+    for daten in sensor_data.values():
+        p = daten.get('ONLY_WITH_PRODUCT')
+        if p and p not in produkt_vorhanden:
+            produkt_vorhanden[p] = comfoconnect.has_product(p)
+
+    sensor_ids = []
+    nicht_vorhanden = []
+    for pdid, daten in sensor_data.items():
+        noetiges_produkt = daten.get('ONLY_WITH_PRODUCT')
+        if noetiges_produkt and not produkt_vorhanden.get(noetiges_produkt):
+            nicht_vorhanden.append(daten['NAME'])
+            continue
+        sensor_ids.append(pdid)
+
+    if nicht_vorhanden:
+        _LOGGER.info("Nicht angeschlossenes Zubehör - folgende Sensoren entfallen: %s"
+                     % ", ".join(nicht_vorhanden))
+
+    sensors_expected = len(sensor_ids)
     connection_lost = False
     uebersprungen = []
 

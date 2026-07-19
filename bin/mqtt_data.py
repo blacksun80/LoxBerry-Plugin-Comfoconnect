@@ -199,15 +199,23 @@ sensor_data = {
 
     # ComfoCool (Kuehlmodul, optionales Zubehoer).
     #
-    # Anlagen ohne ComfoCool kennen diese Werte nicht. Das ist unkritisch: nicht
-    # unterstuetzte Sensoren werden beim Start uebersprungen und in der
-    # Statusanzeige als "X von Y Sensoren" ausgewiesen (siehe register_sensor()).
+    # 'ONLY_WITH_PRODUCT' bedeutet: nur registrieren, wenn sich ein Geraet mit
+    # dieser Produkt-ID an der Anlage gemeldet hat (6 = ComfoCool, siehe
+    # PRODUCT_ID_MAP in comfoconnect.py).
+    #
+    # Notwendig, weil die Anlage diese pdids AUCH OHNE angeschlossenes ComfoCool
+    # anstandslos annimmt und mit 0 beantwortet - gemessen an einer Anlage ohne
+    # Modul. Ohne diese Bremse bekaeme jeder Nutzer zwei Topics mit sinnlosen
+    # Nullwerten, und man koennte am Verhalten der Anlage nicht erkennen, ob ein
+    # ComfoCool vorhanden ist oder nicht.
     784: {
-        'NAME' : 'COMFOCOOL_STATE'
+        'NAME' : 'COMFOCOOL_STATE',
+        'ONLY_WITH_PRODUCT' : 6
         },
     802: {
         'NAME' : 'COMFOCOOL_TEMPERATURE_CONDENSOR',
         'CONV'  :   "%i / 10",
-        'PUSH'  :  3
+        'PUSH'  :  3,
+        'ONLY_WITH_PRODUCT' : 6
         },
     }
