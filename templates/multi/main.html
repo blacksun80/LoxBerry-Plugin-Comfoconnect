@@ -46,6 +46,13 @@
 	   externen Schriftart, damit nichts nachgeladen werden muss. */
 	.cc-plugin {
 		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		/* Der LoxBerry-Inhaltsbereich ist voll bildschirmbreit. Ohne Begrenzung
+		   ziehen sich die gerahmten Bloecke auf einem Desktop ueber die gesamte
+		   Breite, wodurch der Hilfetext meterweit von den Feldern entfernt steht,
+		   auf die er sich bezieht. Zentriert und begrenzt bleiben Rahmen und
+		   Zuordnung lesbar; auf schmalen Geraeten greift die Begrenzung nicht. */
+		max-width: 1150px;
+		margin: 0 auto;
 	}
 
 	/* Ersetzt die alte, kursive Intro-Box (Klartext-<i>-Tag + Inline-Styles) durch
@@ -71,22 +78,30 @@
 	}
 
 	/* Gerahmte Themenbloecke. Ersetzen die frueheren Tabellenzeilen samt separater
-	   Label-Spalte: die Gruppenueberschrift steckt jetzt in der <legend>, wodurch
-	   die 20%-Spalte links komplett entfaellt und der Block deutlich flacher wird.
-	   <fieldset>/<legend> statt div+Ueberschrift, weil das die semantisch richtige
-	   Gruppierung zusammengehoerender Formularfelder ist (Screenreader lesen die
-	   Legend zu jedem Feld mit vor). */
+	   Label-Spalte: die Gruppenueberschrift steht jetzt im Block selbst, wodurch die
+	   20%-Spalte links komplett entfaellt und der Block deutlich flacher wird.
+
+	   Bewusst <div> und NICHT <fieldset>/<legend>, obwohl letzteres die semantisch
+	   schoenere Gruppierung waere: jQuery Mobile und das LoxBerry-Core-CSS setzen
+	   fieldset per Tag-Selektor auf "border:0; padding:0; margin:0" zurueck. Das
+	   schlaegt eine reine Klassenregel und haette den Rahmen komplett verschluckt -
+	   in der Praxis genau so passiert (Gruppen ohne Rahmen, Zeilen ineinander
+	   laufend, weil auch das Padding weg war). Mit div gibt es diesen Reset nicht.
+	   Die !important bleiben als Absicherung gegen weitere Tag-Selektoren aus dem
+	   umgebenden Theme - dieselbe Ueberlegung wie bei .cc-label oben. */
 	.cc-group {
-		border: 1px solid #d5d5d5;
-		border-radius: 8px;
-		padding: 10px 16px 12px 16px;
-		margin: 0 0 12px 0;
+		display: block;
+		border: 1px solid #d5d5d5 !important;
+		border-radius: 8px !important;
+		padding: 10px 16px 12px 16px !important;
+		margin: 0 0 12px 0 !important;
 	}
-	.cc-group > legend {
+	.cc-group-title {
 		font-weight: bold;
-		padding: 0 8px;
 		font-size: 0.95em;
 		color: #333;
+		margin: 0 0 8px 0 !important;
+		padding: 0;
 	}
 	/* Felder links, Hilfetext rechts daneben - vorher lag der Hilfetext in einer
 	   eigenen Tabellenspalte. flex-wrap sorgt dafuer, dass er auf schmalen Schirmen
@@ -181,8 +196,8 @@
 <form method="post" data-ajax="false" name="main_form" id="main_form" action="./index.cgi">
 	<input type="hidden" name="saveformdata" value="1">
 
-	<fieldset class="cc-group">
-		<legend><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_KONFIG></legend>
+	<div class="cc-group">
+		<div class="cc-group-title"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_KONFIG></div>
 		<div class="cc-group-body">
 			<div class="cc-group-fields">
 				<div class="cc-row">
@@ -206,10 +221,10 @@
 				<span class="cc-hint-text"><TMPL_VAR NAME=T::FORMTABLE.ZEHNDER_HELP2></span>
 			</div>
 		</div>
-	</fieldset>
+	</div>
 
-	<fieldset class="cc-group">
-		<legend><TMPL_VAR NAME=T::FORMTABLE.SENSORWATCH_LABEL></legend>
+	<div class="cc-group">
+		<div class="cc-group-title"><TMPL_VAR NAME=T::FORMTABLE.SENSORWATCH_LABEL></div>
 		<div class="cc-group-body">
 			<div class="cc-group-fields">
 				<div class="cc-row">
@@ -239,12 +254,12 @@
 				<span class="cc-hint-text"><TMPL_VAR NAME=T::FORMTABLE.SENSORWATCH_HELP></span>
 			</div>
 		</div>
-	</fieldset>
+	</div>
 
-	<fieldset class="cc-group">
-		<legend>MQTT</legend>
+	<div class="cc-group">
+		<div class="cc-group-title">MQTT</div>
 		<p class="<TMPL_VAR NAME=mqtthintclass>" style="margin:0;"><TMPL_VAR NAME=mqtthint></p>
-	</fieldset>
+	</div>
 
 	<div id="form-error-message" class="form-error-message"></div>
 
