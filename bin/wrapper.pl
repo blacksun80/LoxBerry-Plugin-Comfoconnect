@@ -140,38 +140,36 @@ foreach $arg (@ARGV) {
         }
     }
 
-    # Vom Watchdog-Cronjob aufgerufen (nur wenn in den Plugin-Einstellungen
-    # aktiviert). Prüft, ob cfc.py läuft UND sich innerhalb des eingestellten
-    # Zeitfensters noch beim Heartbeat gemeldet hat (last_alive_ping in der
-    # Statusdatei) - ein Prozess kann laufen, aber trotzdem "hängen" (z.B. wenn der
-    # Verbindungs-Thread zur Zehnder-Box gestorben ist), das reine "läuft der
-    # Prozess"-Kriterium alleine würde das nicht erkennen.
+    # Vom Überwachungs-Cronjob aufgerufen. Der Cronjob existiert überhaupt nur, wenn
+    # in den Plugin-Einstellungen BEIDES aktiviert ist: die Überwachung der
+    # Sensorwerte UND der automatische Neustart (siehe WatchdogCronjob() in
+    # index.cgi). Beides wird hier trotzdem nochmal geprüft - der Cronjob könnte aus
+    # einer früheren Konfiguration übrig geblieben sein, und ein Neustart gegen den
+    # ausdrücklichen Wunsch des Benutzers wäre das Letzte, was passieren darf.
     #
-    # Zusätzlich wird bridge_last_sensor_data geprüft: last_alive_ping bleibt
-    # nämlich frisch, solange die Leseschleife im Verbindungs-Thread einfach
-    # weiterdreht (sie hat einen 1s-Select-Timeout und aktualisiert den Ping bei
-    # jedem Durchlauf, auch wenn dabei nie eine echte Nachricht ankommt) - eine
-    # Session, die die Zehnder-Box serverseitig verworfen hat, ohne dass der
-    # TCP-Socket das sauber meldet, würde vom alive_ping-Kriterium allein NICHT
-    # erkannt. Nur relevant, wenn schon Sensoren registriert waren (sonst schlägt
-    # das direkt nach dem Start fälschlich an, bevor die erste Registrierung
-    # überhaupt durch ist).
+    # Geprüft wird bridge_last_sensor_data: ob überhaupt noch Messwerte von der
+    # Anlage ankommen. Das ist bewusst das einzige Kriterium für "hängt" - die
+    # Verbindung kann stehen und Keepalives können beantwortet werden, während
+    # trotzdem keine Sensordaten mehr fließen (genau der Fall, den man sonst nirgends
+    # bemerkt). Nur relevant, wenn schon Sensoren registriert waren, sonst schlüge es
+    # direkt nach dem Start an, bevor die erste Registrierung überhaupt durch ist.
+    #
+    # Ein gar nicht laufender Prozess wird ebenfalls neu gestartet - wer den
+    # automatischen Neustart einschaltet, will genau das.
     if ($arg eq "checkwatchdog") {
         my $jsonobj = LoxBerry::JSON->new();
         my $pcfg = $jsonobj->open(filename => "$installfolder/config/plugins/$psubfolder/$psubfolder.json");
 
-        if (!$pcfg || !$pcfg->{'MAIN'}->{'WATCHDOG_ENABLED'}) {
+        if (!$pcfg || !$pcfg->{'MAIN'}->{'SENSORWATCH_ENABLED'} || !$pcfg->{'MAIN'}->{'SENSORWATCH_RESTART'}) {
             exit(0);
         }
 
-        my $threshold_min = $pcfg->{'MAIN'}->{'WATCHDOG_THRESHOLD_MIN'};
-        $threshold_min = 3 if (!$threshold_min || $threshold_min !~ /^\d+$/);
-        my $threshold_sec = $threshold_min * 60;
+        my $timeout_sec = $pcfg->{'MAIN'}->{'SENSORWATCH_TIMEOUT_SEC'};
+        $timeout_sec = 60 if (!$timeout_sec || $timeout_sec !~ /^\d+$/ || $timeout_sec < 10);
 
         my $running = scalar(grep{/cfc.py/} `ps aux`);
-        my $stale_alive = 1;
         my $stale_data = 0;
-        my $reason = "reagiert seit über $threshold_min Minute(n) nicht mehr";
+        my $reason = "sendet seit über ${timeout_sec}s keine Sensordaten mehr (Verbindung hängt vermutlich)";
 
         if (-e $statusfile) {
             local $/ = undef;
@@ -180,23 +178,16 @@ foreach $arg (@ARGV) {
                 close($fh);
                 my $status = eval { decode_json($json_text) };
                 if ($status) {
-                    if ($status->{bridge_last_alive_ping}) {
-                        my $age = time() - $status->{bridge_last_alive_ping};
-                        $stale_alive = ($age > $threshold_sec) ? 1 : 0;
-                    }
                     if (($status->{sensors_registered} // 0) > 0 && $status->{bridge_last_sensor_data}) {
                         my $data_age = time() - $status->{bridge_last_sensor_data};
-                        $stale_data = ($data_age > $threshold_sec) ? 1 : 0;
+                        $stale_data = ($data_age > $timeout_sec) ? 1 : 0;
                     }
                 }
             }
         }
 
-        my $stale = ($stale_alive || $stale_data) ? 1 : 0;
-        $reason = "sendet seit über $threshold_min Minute(n) keine Sensordaten mehr (Verbindung hängt vermutlich)" if ($stale_data && !$stale_alive);
-
-        if (!$running || $stale) {
-            LOGWARN "Watchdog: ComfoConnect " . ($running ? $reason : "läuft nicht") . " - starte neu.";
+        if (!$running || $stale_data) {
+            LOGWARN "Überwachung: ComfoConnect " . ($running ? $reason : "läuft nicht") . " - starte neu.";
             if ($running) {
                 system("pkill -f $installfolder/bin/plugins/$psubfolder/cfc.py >> $logfile 2>&1");
                 # Kurze, best-effort Wartezeit auf den sauberen Shutdown (siehe Kommentar

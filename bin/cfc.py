@@ -19,23 +19,26 @@ import logging
 
 interval = [0 for x in range(300)]
 
-# Overall budget for the ENTIRE initial sensor-registration phase (all sensors
-# together), not per sensor - see the registration loop in main(). Individual
-# sensors get one attempt each (SENSOR_REGISTER_TIMEOUT in comfoconnect.py caps a
-# single attempt at 120s) - no retries, no cancel/dereg dance: that complexity
-# turned out not to be worth it in practice (see git history) and this hard
-# overall deadline is the simpler, more predictable replacement. Kept comfortably
-# above SENSOR_REGISTER_TIMEOUT so a single slow-but-successful sensor can't blow
-# past the overall budget before this check even gets to look at the clock again
-# (the deadline is only checked between sensors, not while a single attempt is
-# still in flight).
-SENSOR_REGISTRATION_TIMEOUT = 180
-
 # Set once in main() as the registration phase progresses, read by
 # write_status_loop() (-> status.json -> index.cgi's getStatus()). One of:
-# "in_progress" (still registering), "timeout" (didn't finish in time or lost the
-# connection - fatal, process exits), "done" (all sensors attempted successfully).
+# "in_progress" (still registering), "timeout" (a sensor didn't answer within the
+# standard reply timeout - fatal, process exits), "done" (all sensors registered,
+# or the sweep was interrupted by a connection loss that the background reconnect
+# is already recovering from).
+#
+# There is deliberately no overall deadline across the whole sweep anymore: each
+# individual request already has the standard 5s reply timeout, and a sensor
+# failing that aborts the phase immediately - so the sweep can't silently drag on
+# regardless. On real hardware all 50 sensors register in well under a second.
 registration_state = "in_progress"
+
+# Sensor-data monitoring, read from the plugin config in main(). Only mirrored into
+# the status file so index.cgi's getStatus() (polled every 2s via AJAX) can evaluate
+# it without having to open and parse the config file on every single request. cfc.py
+# itself doesn't act on these - the status page decides what to display, and
+# wrapper.pl's checkwatchdog decides whether to restart.
+sensorwatch_enabled = False
+sensorwatch_timeout_sec = 60
 
 # Set by on_connect()/on_disconnect() - read by the status-writer thread. paho's own
 # reconnect (client.reconnect_delay_set()) already handles recovering the MQTT link by
@@ -467,20 +470,14 @@ def on_log(client, userdata, level, buf):
     _LOGGER.debug("Paho: " + buf)
 
 def callback_sensor(var, value):
-    # The MQTT connection itself can (and should) stay up across a bridge reconnect -
-    # only the publishing is gated. comfoconnect.sensors_ready is False from the moment
-    # a disconnect is noticed until the (re-)registration sweep for all known sensors
-    # finishes again (see the attribute comment in comfoconnect.py's __init__) - a value
-    # arriving for some already-re-registered sensor while others are still pending would
-    # otherwise trickle out to Loxone as a confusing partial update instead of a clean,
-    # all-at-once "we're fully back" - same reasoning as gating the very first publish
-    # after startup on the initial registration sweep (see main()).
-    if not comfoconnect.sensors_ready:
-        _LOGGER.debug(
-            "Sensor %d: Wert %s verworfen, noch nicht (wieder) vollständig registriert (kein Publish)." % (var, str(value))
-        )
-        return
-
+    # No gating on registration progress here: every value that arrives is published
+    # straight away, including during the initial registration sweep and during the
+    # re-registration after a reconnect. A sensor only ever sends data once the bridge
+    # has confirmed ITS OWN subscription, so an early value is a real, current reading -
+    # withholding it just delays fresh data reaching Loxone for no benefit. On real
+    # hardware the whole 50-sensor sweep completes in well under a second anyway.
+    # comfoconnect.sensors_ready still exists, but purely to drive the status display
+    # (see write_status_loop()/index.cgi), not to block anything.
     if (var == 81 or var == 82 or var == 86 or var == 87):
         value=int(to_little(value), base=16)
         if value == 4294967295:
@@ -532,6 +529,10 @@ def write_status_loop():
                     'pid': os.getpid(),
                     'now': time.time(),
                     'registration_state': registration_state,
+                    # Mirrored config, see the module-level comment - index.cgi reads
+                    # these instead of opening the config file on every status poll.
+                    'sensorwatch_enabled': sensorwatch_enabled,
+                    'sensorwatch_timeout_sec': sensorwatch_timeout_sec,
                     # True only once (re-)registration has actually finished on the
                     # CURRENT connection - False again for the whole gap during a later
                     # reconnect, even though registration_state itself stays "done"
@@ -567,7 +568,7 @@ def write_status_loop():
 
 
 def main():
-    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, unknown, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, registration_state
+    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, unknown, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, registration_state, sensorwatch_enabled, sensorwatch_timeout_sec
     
     connected_flag = 0
     loglevel=logging.ERROR
@@ -616,6 +617,16 @@ def main():
 
         device_ip		= pcfg['MAIN']['IPLANC']                                # Look in your router administration and get the ip of the comfoconnect device and set it as static lease
         pin     		= int(pcfg['MAIN']['PIN'])                              # Set PIN of vent unit !
+
+        # Sensor-data monitoring - only mirrored into the status file for the web
+        # frontend, cfc.py doesn't act on it itself (see the module-level comment).
+        # .get() with defaults: a config written by an older plugin version won't have
+        # these keys yet, and a missing monitoring setting must not stop the plugin.
+        sensorwatch_enabled = str(pcfg['MAIN'].get('SENSORWATCH_ENABLED', '0')) == '1'
+        try:
+            sensorwatch_timeout_sec = int(pcfg['MAIN'].get('SENSORWATCH_TIMEOUT_SEC', 60))
+        except (TypeError, ValueError):
+            sensorwatch_timeout_sec = 60
 
     except Exception as e:
         _LOGGER.exception(str(e))
@@ -779,13 +790,12 @@ def main():
 
     # Connect to the broker. Deliberately done BEFORE the bridge/sensor registration
     # below, not after: the MQTT connection itself has nothing to do with whether the
-    # ventilation data is ready yet, and keeping it separate means the plugin shows up
-    # as "Online" on the broker (and can already receive commands) immediately, instead
-    # of only after up to SENSOR_REGISTRATION_TIMEOUT seconds. What actually needs to
-    # wait for registration is PUBLISHING sensor values - and that is gated separately,
-    # by comfoconnect.sensors_ready (see callback_sensor()), not by delaying the
-    # connection itself. Same reasoning applies to every later reconnect to the bridge:
-    # MQTT stays up throughout, only sensors_ready flips off and on around it.
+    # ventilation data is ready yet, and connecting first means the plugin shows up as
+    # "Online" on the broker (and can already receive commands) immediately, plus every
+    # sensor value can be published the moment it arrives - including values arriving
+    # while the registration sweep is still running (see callback_sensor()). MQTT then
+    # stays up across every later bridge reconnect too; only the bridge side goes away
+    # and comes back.
     try:
         _LOGGER.info("Connecting to MQTT Broker " + str(mqtt_broker) + ":" + str(mqtt_port))
         client.connect(mqtt_broker, mqtt_port)
@@ -827,32 +837,25 @@ def main():
     connected_flag=True
 
 #   Register sensors ################################################################################################
-    # Single attempt per sensor (see register_sensor()), no retry - and a hard overall
-    # deadline (SENSOR_REGISTRATION_TIMEOUT) across ALL sensors together, not per sensor.
-    # Any single sensor failing to register (timeout, or the connection dropping
-    # outright) aborts the whole phase immediately - sensor_data is expected to already
-    # reflect the sensors this specific hardware supports, so a failure here is treated
-    # as a real problem, not shrugged off and skipped.
+    # Single attempt per sensor (see register_sensor()), no retry, and no overall
+    # deadline across the sweep - each individual request already has the standard 5s
+    # reply timeout, and any single sensor failing to register (that timeout, or the
+    # connection dropping outright) ends the phase right there. sensor_data is expected
+    # to already reflect the sensors this specific hardware supports, so a failure here
+    # is treated as a real problem, not shrugged off and skipped.
     #
-    # MQTT is already connected at this point (see above) - comfoconnect.sensors_ready
-    # (set True below once this sweep succeeds) is what actually keeps callback_sensor()
-    # from publishing anything half-ready in the meantime.
+    # MQTT is already connected at this point (see above) and publishing is NOT gated on
+    # this sweep - values for sensors that are already subscribed go out to Loxone right
+    # away while the rest are still being registered (see callback_sensor()).
+    # comfoconnect.sensors_ready, set True below once this sweep succeeds, only feeds the
+    # status display.
     sensor_ids = list(sensor_data.keys())
-    registration_deadline = time.time() + SENSOR_REGISTRATION_TIMEOUT
     registration_ok = True
     connection_lost = False
 
-    _LOGGER.info("Registriere %d Sensoren (Zeitbudget: %ds)..." % (len(sensor_ids), SENSOR_REGISTRATION_TIMEOUT))
+    _LOGGER.info("Registriere %d Sensoren..." % len(sensor_ids))
 
     for i, x in enumerate(sensor_ids):
-        if time.time() > registration_deadline:
-            _LOGGER.critical(
-                "Timeout beim Registrieren der Sensoren - Zeitbudget von %ds überschritten, %d von %d "
-                "Sensoren noch nicht einmal versucht." % (SENSOR_REGISTRATION_TIMEOUT, len(sensor_ids) - i, len(sensor_ids))
-            )
-            registration_ok = False
-            break
-
         try:
             # register_sensor() gives up silently (returns None) on a plain timeout - it
             # does NOT raise in that case, so this has to check the return value, not
@@ -910,7 +913,7 @@ def main():
         )
     elif not registration_ok:
         registration_state = "timeout"
-        _LOGGER.critical("Sensor-Registrierung nicht rechtzeitig abgeschlossen - beende Prozess, Watchdog/Wrapper startet neu.")
+        _LOGGER.critical("Sensor-Registrierung fehlgeschlagen - beende Prozess, Watchdog/Wrapper startet neu.")
         # os._exit(), not exit(): the (non-daemon) connection/message threads are
         # definitely running by this point - see the os._exit() comment above.
         os._exit(1)

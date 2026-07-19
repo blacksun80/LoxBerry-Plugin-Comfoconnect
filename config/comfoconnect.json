@@ -7,8 +7,9 @@
       "MQTTTOPIC" : "ComfoConnect/",
       "MQTTUSER" : "",
       "PIN" : "0000",
-      "SKRIPTNAME" : "comfoconnect",
-      "WATCHDOG_ENABLED" : "0",
-      "WATCHDOG_THRESHOLD_MIN" : "3"
+      "SENSORWATCH_ENABLED" : "0",
+      "SENSORWATCH_RESTART" : "0",
+      "SENSORWATCH_TIMEOUT_SEC" : "60",
+      "SKRIPTNAME" : "comfoconnect"
    }
 }

@@ -70,17 +70,6 @@ my  $serial;
 my  $crontabtmp = "$lbplogdir/crontab.temp";
 
 ##########################################################################
-# Read crontab
-##########################################################################
-
-my $crontab = new Config::Crontab;
-$crontab->system(1); ## Wichtig, damit der User im File berücksichtigt wird
-$crontab->read( -file => "$lbhomedir/system/cron/cron.d/$lbpplugindir" );
-
-#my $log = LoxBerry::Log->new(name => 'CGI',);
-LOGSTART("ComfoConnect CGI");
-
-##########################################################################
 # Read Settings
 ##########################################################################
 
@@ -94,11 +83,17 @@ $psubfolder =~ s/(.*)\/(.*)\/(.*)$/$2/g;
 ##########################################################################
 # AJAX-Status-Endpoint
 ##########################################################################
-# Wird von main.html per JS alle paar Sekunden gepollt, damit sich die
-# Statusanzeige aktualisiert ohne die ganze Seite (und damit ungespeicherte
-# Formulareingaben) neu zu laden. Bewusst vor allen teureren Schritten
-# (general.cfg, MQTT-Credentials, Template-Laden) platziert, da $psubfolder
-# das einzige ist, was getStatus() braucht - hält das Polling leichtgewichtig.
+# Wird von main.html per JS jede Sekunde gepollt, damit sich die Statusanzeige
+# aktualisiert ohne die ganze Seite (und damit ungespeicherte Formulareingaben)
+# neu zu laden.
+#
+# Steht bewusst so früh wie möglich - noch VOR dem Einlesen der Crontab und vor
+# LOGSTART. Beides wird hier nicht gebraucht ($psubfolder ist alles, was
+# getStatus() braucht), kostet aber bei jedem einzelnen Aufruf einen Dateizugriff
+# samt Parsen, und LOGSTART schreibt zusätzlich bei jedem Aufruf ins CGI-Log -
+# einmal pro Sekunde, solange die Seite offen ist, wäre das reine Verschwendung
+# und würde das Log zumüllen. Alles Weitere (general.cfg, MQTT-Credentials,
+# Template-Laden) liegt ohnehin dahinter.
 if ( $cgi->param('ajax_status') || $cgi->url_param('ajax_status') ) {
 	my ($status_text, $status_class) = getStatus($psubfolder);
 	print $cgi->header( -type => 'application/json', -charset => 'utf-8' );
@@ -117,6 +112,19 @@ if ( $cgi->param('ajax_status') || $cgi->url_param('ajax_status') ) {
 	print JSON::PP->new->utf8(0)->encode({ statustext => $status_text, statusclass => $status_class });
 	exit;
 }
+
+##########################################################################
+# Read crontab
+##########################################################################
+# Erst hier, nach dem AJAX-Endpoint oben - für den reinen Statusabruf wird die
+# Crontab nicht gebraucht.
+
+my $crontab = new Config::Crontab;
+$crontab->system(1); ## Wichtig, damit der User im File berücksichtigt wird
+$crontab->read( -file => "$lbhomedir/system/cron/cron.d/$lbpplugindir" );
+
+#my $log = LoxBerry::Log->new(name => 'CGI',);
+LOGSTART("ComfoConnect CGI");
 
 # Start with HTML header
 # print $cgi->header(
@@ -276,13 +284,30 @@ sub form
         $pcfg->{'MAIN'}->{'IPLANC'} = $cgi->param('iplanc');
         $pcfg->{'MAIN'}->{'PIN'} = $cgi->param('pin');
 
-        # Watchdog: Checkbox liefert nur einen Wert, wenn sie angehakt ist
-        $pcfg->{'MAIN'}->{'WATCHDOG_ENABLED'} = $cgi->param('watchdog_enabled') ? "1" : "0";
-        my $watchdog_threshold = $cgi->param('watchdog_threshold');
-        if (!$watchdog_threshold || $watchdog_threshold !~ /^\d+$/ || $watchdog_threshold < 1) {
-            $watchdog_threshold = 3;
+        # Überwachung der Sensorwerte. Checkboxen liefern nur einen Wert, wenn sie
+        # angehakt sind.
+        $pcfg->{'MAIN'}->{'SENSORWATCH_ENABLED'} = $cgi->param('sensorwatch_enabled') ? "1" : "0";
+
+        # Zeitfeld und Neustart-Checkbox sind im Formular deaktiviert, solange die
+        # Überwachung aus ist - deaktivierte Felder sendet der Browser gar nicht mit.
+        # Deshalb nur übernehmen, wenn die Überwachung aktiv ist, sonst würde die
+        # gespeicherte Zeit bei jedem Speichern mit ausgeschalteter Überwachung auf den
+        # Standardwert zurückfallen und die Neustart-Option stillschweigend verloren gehen.
+        if ($pcfg->{'MAIN'}->{'SENSORWATCH_ENABLED'} eq "1") {
+            my $sensorwatch_timeout = $cgi->param('sensorwatch_timeout');
+            if (!$sensorwatch_timeout || $sensorwatch_timeout !~ /^\d+$/ || $sensorwatch_timeout < 10) {
+                $sensorwatch_timeout = 60;
+            }
+            $pcfg->{'MAIN'}->{'SENSORWATCH_TIMEOUT_SEC'} = $sensorwatch_timeout;
+            $pcfg->{'MAIN'}->{'SENSORWATCH_RESTART'} = $cgi->param('sensorwatch_restart') ? "1" : "0";
         }
-        $pcfg->{'MAIN'}->{'WATCHDOG_THRESHOLD_MIN'} = $watchdog_threshold;
+
+        # Reste der früheren Watchdog-Einstellungen aus Configs vorheriger Versionen
+        # entfernen. Sie werden nirgends mehr gelesen (die Überwachung heißt jetzt
+        # SENSORWATCH_* und zählt in Sekunden statt Minuten) und würden sonst
+        # dauerhaft als toter Ballast in der Datei stehen bleiben.
+        delete $pcfg->{'MAIN'}->{'WATCHDOG_ENABLED'};
+        delete $pcfg->{'MAIN'}->{'WATCHDOG_THRESHOLD_MIN'};
 
         $jsonobj->write();
 
@@ -295,10 +320,11 @@ sub form
 			Cronjob("Install");
 		}
 
-		# Watchdog-Cronjob unabhängig vom Startup-Cronjob verwalten, damit er sich
-		# unabhängig an-/abschalten lässt.
+		# Neustart-Cronjob unabhängig vom Startup-Cronjob verwalten. Nur nötig, wenn
+		# die Überwachung läuft UND daraus auch ein Neustart folgen soll - ohne
+		# Neustart-Option wertet nur die Statusanzeige aus, dafür braucht es keinen Cron.
 		WatchdogCronjob("Uninstall");
-		if ($pcfg->{'MAIN'}->{'WATCHDOG_ENABLED'} eq "1") {
+		if ($pcfg->{'MAIN'}->{'SENSORWATCH_ENABLED'} eq "1" && $pcfg->{'MAIN'}->{'SENSORWATCH_RESTART'} eq "1") {
 			WatchdogCronjob("Install");
 		}
 	}
@@ -337,9 +363,10 @@ sub form
     $maintemplate->param( PIN 		    => $pcfg->{'MAIN'}->{'PIN'});
     $maintemplate->param( TOPIC 		=> $pcfg->{'MAIN'}->{'MQTTTOPIC'} . "#");
 
-    # Watchdog-Einstellungen fürs Formular
-    $maintemplate->param( WATCHDOG_ENABLED_CHECKED => ($pcfg->{'MAIN'}->{'WATCHDOG_ENABLED'} eq "1") ? "checked" : "" );
-    $maintemplate->param( WATCHDOG_THRESHOLD => $pcfg->{'MAIN'}->{'WATCHDOG_THRESHOLD_MIN'} || "3" );
+    # Überwachungs-Einstellungen fürs Formular
+    $maintemplate->param( SENSORWATCH_ENABLED_CHECKED => ($pcfg->{'MAIN'}->{'SENSORWATCH_ENABLED'} eq "1") ? "checked" : "" );
+    $maintemplate->param( SENSORWATCH_RESTART_CHECKED => ($pcfg->{'MAIN'}->{'SENSORWATCH_RESTART'} eq "1") ? "checked" : "" );
+    $maintemplate->param( SENSORWATCH_TIMEOUT => $pcfg->{'MAIN'}->{'SENSORWATCH_TIMEOUT_SEC'} || "60" );
 
     ##
     # Statusanzeige - Logik steckt in getStatus() weiter unten, damit sich der
@@ -405,16 +432,23 @@ sub form
 #                                                 faelschlich "MQTT getrennt" anzeigen.
 #   4. MQTT getrennt                          -> kann ohnehin nichts liefern
 #   5. last_alive_ping zu alt (>30s)          -> Verbindungs-Thread tot/hängt
-#   6. last_sensor_data zu alt (>60s),        -> Verbindung/Thread laufen zwar noch,
-#      obwohl Sensoren registriert sind          aber die Box schickt nichts mehr.
-#                                                 Das ist ein eigener Fall: der
-#                                                 Prozess "lebt" (alive_ping bleibt
-#                                                 frisch, weil die Leseschleife
-#                                                 einfach weiterdreht), liefert aber
-#                                                 keine Daten mehr - ohne diese
-#                                                 Prüfung sähe das fälschlich wie
-#                                                 "läuft einwandfrei" aus.
-#   7. Alles obige unauffällig                 -> Alle X Sensoren registriert
+#   6. last_sensor_data aelter als der         -> Verbindung/Thread laufen zwar noch,
+#      eingestellte Wert, obwohl Sensoren         aber die Anlage schickt nichts mehr.
+#      registriert sind UND die Ueberwachung      Der Prozess "lebt" (alive_ping bleibt
+#      eingeschaltet ist                          frisch, weil die Leseschleife einfach
+#                                                 weiterdreht) und Keepalives werden
+#                                                 beantwortet - ohne diese Pruefung
+#                                                 saehe das faelschlich wie "laeuft
+#                                                 einwandfrei" aus. Ist die Ueberwachung
+#                                                 nicht aktiviert, wird hier bewusst gar
+#                                                 nichts ausgewertet und der Status
+#                                                 bleibt unveraendert.
+#   7. Alles obige unauffällig                 -> Laeuft, X Sensoren + Alter der zuletzt
+#                                                 empfangenen Sensordaten. Das Alter ist
+#                                                 der eigentliche Lebensbeweis: eine
+#                                                 statische Meldung wie "X Sensoren
+#                                                 registriert" sieht auch dann noch gut
+#                                                 aus, wenn laengst nichts mehr fliesst.
 #
 # Genutzt sowohl beim initialen Seitenaufbau (sub form) als auch vom
 # AJAX-Status-Endpoint ganz oben, den main.html per JS periodisch abfragt.
@@ -452,6 +486,12 @@ sub getStatus
 				my $reg_state = $status->{registration_state} // 'done';
 				my $sensors_ready = exists($status->{sensors_ready}) ? ($status->{sensors_ready} ? 1 : 0) : 1;
 
+				# Einstellungen der Sensorwert-Überwachung. cfc.py schreibt sie mit in
+				# die Statusdatei, damit dieser (alle 2s per AJAX aufgerufene) Pfad nicht
+				# zusätzlich die Config-Datei öffnen muss.
+				my $watch_on = $status->{sensorwatch_enabled} ? 1 : 0;
+				my $watch_timeout = $status->{sensorwatch_timeout_sec} // 60;
+
 				if ($reg_state eq 'timeout') {
 					$status_text = "Timeout beim Registrieren der Sensoren";
 					$status_class = "cc-status-error";
@@ -470,11 +510,20 @@ sub getStatus
 				} elsif (!defined($alive_age) || $alive_age > 30) {
 					$status_text = "Gestört - keine Verbindung zur ComfoConnect LAN C";
 					$status_class = "cc-status-error";
-				} elsif ($sensors_reg > 0 && (!defined($data_age) || $data_age > 60)) {
-					$status_text = "Gestört - seit über 60s keine Sensordaten mehr empfangen";
+				} elsif ($watch_on && $sensors_reg > 0 && (!defined($data_age) || $data_age > $watch_timeout)) {
+					$status_text = "Gestört - seit über ${watch_timeout}s keine Sensordaten mehr empfangen";
 					$status_class = "cc-status-error";
 				} else {
-					$status_text = "Alle $sensors_reg Sensoren registriert";
+					# Alter der letzten Sensordaten mit anzeigen: eine reine
+					# "X Sensoren registriert"-Meldung steht auch dann noch unveraendert
+					# da, wenn seit Minuten nichts mehr ankommt. Der mitlaufende Zaehler
+					# (Seite pollt alle 2s) ist der sichtbare Lebensbeweis - und er ist
+					# auch dann da, wenn die Ueberwachung ausgeschaltet ist, nur eben ohne
+					# dass daraus jemals eine Stoerung wird.
+					$status_text = "Läuft - $sensors_reg Sensoren aktiv";
+					if (defined($data_age)) {
+						$status_text .= ", letzte Daten " . formatAge($data_age);
+					}
 					$status_class = "cc-status-ok";
 				}
 			}
@@ -485,6 +534,25 @@ sub getStatus
 	}
 
 	return ($status_text, $status_class);
+}
+
+#####################################################
+# Kleines Alter in lesbarer Form ("gerade eben" / "vor 12s" / "vor 3m 05s").
+# Negative Werte sind moeglich, wenn die Uhr zwischen dem Schreiben der
+# Statusdatei und dem Lesen hier minimal springt (NTP) - dann lieber
+# "gerade eben" als ein unsinniges "vor -1s".
+#####################################################
+
+sub formatAge
+{
+	my $age = shift;
+
+	return "gerade eben" if (!defined($age) || $age < 1);
+	return "vor ${age}s" if ($age < 60);
+
+	my $min = int($age / 60);
+	my $sec = $age % 60;
+	return sprintf("vor %dm %02ds", $min, $sec);
 }
 
 #####################################################

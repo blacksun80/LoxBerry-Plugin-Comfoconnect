@@ -12,18 +12,6 @@ from .zehnder_pb2 import *
 
 KEEPALIVE = 60
 
-# Sensor registration during the startup burst competes with the bridge flushing
-# leftover notifications/confirms from a "resumed" session (observed up to ~8.81s
-# on its own, see the takeover/resumed comments in _connection_thread_loop) - give
-# it more headroom than the 10s used for regular runtime commands (RMI calls
-# forwarded from the Miniserver via MQTT), which don't have to compete with that
-# startup backlog and should stay snappy. Generous on purpose: a single sensor
-# failing this now aborts the ENTIRE registration phase (no retry, no skipping -
-# see register_sensor()/cfc.py's registration loop), so a spurious timeout here is
-# far more costly than it used to be. Better to wait than to restart the whole
-# process over a bridge that was just a bit slow to answer one request.
-SENSOR_REGISTER_TIMEOUT = 120
-
 DEFAULT_LOCAL_UUID = bytes.fromhex('00000000000000000000000000001337')
 DEFAULT_LOCAL_DEVICENAME = 'pycomfoconnect'
 DEFAULT_PIN = 0
@@ -32,9 +20,9 @@ _LOGGER = logging.getLogger('comfoconnect')
 
 # Sentinel pushed onto self._queue by _message_thread_loop the moment it detects
 # the connection is dead (BrokenPipeError/ConnectionResetError/ConnectionError).
-# Without this, a call blocked in _get_reply()'s self._queue.get(timeout=10) has no
+# Without this, a call blocked in _get_reply()'s self._queue.get(timeout=5) has no
 # way to find out the connection already died in the *other* thread - it just sits
-# there uselessly until its own independent 10s timeout expires, which is why the
+# there uselessly until its own independent 5s timeout expires, which is why the
 # log used to show the "connection was reseted" warning followed several seconds
 # later by a seemingly unrelated "Timeout waiting for response" error for a
 # message that could obviously never arrive anymore. Pushing this sentinel wakes
@@ -174,7 +162,7 @@ class ComfoConnect(object):
         # on the wire while writing concurrently (corrupting the message framing).
         # Only covers the write side, not the wait-for-reply side, so two commands can
         # still be in flight and waiting on their own replies at the same time without
-        # blocking each other for up to 10s.
+        # blocking each other for up to 5s.
         self._command_lock = threading.Lock()
 
         self._connected = threading.Event()
@@ -203,12 +191,15 @@ class ComfoConnect(object):
 
         # True only while a connection is up AND the (re-)registration sweep for all
         # known sensors (self.sensors) has actually finished - False from the moment a
-        # disconnect is noticed until the next successful sweep completes. cfc.py's
-        # callback_sensor() checks this before publishing to MQTT: the MQTT connection
-        # itself can (and should) stay up across a bridge reconnect, but publishing
-        # partial/stale-looking data while only some sensors have been re-subscribed
-        # is exactly the "half-ready plugin" the initial startup gate already avoids -
-        # this extends the same idea to every later reconnect, not just the first one.
+        # disconnect is noticed until the next successful sweep completes.
+        #
+        # PURELY INFORMATIONAL: this drives the status display only (cfc.py's status
+        # file -> index.cgi shows "Registriere Sensoren" while it's False). It does NOT
+        # gate MQTT publishing - callback_sensor() publishes every value immediately,
+        # including during a registration sweep. A sensor only starts sending data once
+        # the bridge has confirmed its own subscription, so such a value is a real,
+        # current reading and there's no reason to withhold it.
+        #
         # Set by _connection_thread_loop() on every (re)connect; cfc.py additionally
         # sets it True itself after ITS OWN initial registration loop at startup
         # completes (that first pass runs in cfc.py's main thread, not here).
@@ -312,11 +303,13 @@ class ComfoConnect(object):
         (a second CnRpdoRequestType for a pdid whose first request might still be in
         flight, not actually lost, observed to sometimes trigger a bridge-side connection
         reset) and, in practice, often didn't help anyway - a sensor that doesn't answer
-        within SENSOR_REGISTER_TIMEOUT is either genuinely unsupported by this hardware or
-        will work fine on the NEXT registration pass (after a reconnect). The overall
-        registration phase (all sensors together, see cfc.py's startup loop) has its own
-        hard deadline (SENSOR_REGISTRATION_TIMEOUT) - that's the layer responsible for
-        deciding when enough is enough, not per-sensor retrying here.
+        within the standard reply timeout is either genuinely unsupported by this hardware
+        or will work fine on the NEXT registration pass (after a reconnect).
+
+        Uses the same plain reply timeout as every other command - on real hardware the
+        bridge confirms each subscription within a few milliseconds (a full 50-sensor
+        sweep measured at well under a second), so anything approaching seconds here
+        already means something is genuinely wrong, not just slow.
         """
 
         if not sensor_type:
@@ -325,7 +318,7 @@ class ComfoConnect(object):
             raise Exception("Registering sensor %d with unknown type" % sensor_id)
 
         try:
-            reply = self.cmd_rpdo_request(sensor_id, sensor_type, reply_timeout=SENSOR_REGISTER_TIMEOUT)
+            reply = self.cmd_rpdo_request(sensor_id, sensor_type)
 
         except PyComfoConnectNotAllowed:
             return None
@@ -363,17 +356,16 @@ class ComfoConnect(object):
         self.sensors.pop(sensor_id, None)
 
         # Unregister on bridge
-        self.cmd_rpdo_request(sensor_id, sensor_type, timeout=0, reply_timeout=SENSOR_REGISTER_TIMEOUT)
+        self.cmd_rpdo_request(sensor_id, sensor_type, timeout=0)
 
     def _command(self, command, params=None, use_queue=True, quiet_timeout=False, reply_timeout=None, context=None):
         """Sends a command and wait for a response if the request is known to return a result.
 
-        reply_timeout: overrides _get_reply()'s default wait (10s) for just this call.
+        reply_timeout: overrides _get_reply()'s default wait (5s) for just this call.
         Used by cmd_close_session() during graceful shutdown, where we want to give the
         bridge a brief chance to confirm but must not block process exit for the full
-        10s if it doesn't (see the SIGTERM handler in cfc.py), and by cmd_rpdo_request()
-        during sensor registration, which gets a longer 20s budget (SENSOR_REGISTER_TIMEOUT)
-        to cope with the startup "resumed session" backlog.
+        5s if it doesn't (see the SIGTERM handler in cfc.py). Everything else - including
+        sensor registration - just uses the plain 5s default.
 
         context: short human-readable label (e.g. "pdid=146") included in _get_reply()'s
         timeout log line, so a timeout message identifies what it was actually waiting for
@@ -442,13 +434,19 @@ class ComfoConnect(object):
             # which surfaces here as exactly this OSError. The caller (the SIGTERM
             # handler in cfc.py) already logs a calm, accurate INFO line for that case -
             # log this one quietly too instead of a scary, redundant ERROR right above it.
+            # .__name__, not str(): str() of a protobuf class gives
+            # "<class 'zehnder_pb2.CloseSessionConfirm'>" - and LoxBerry's web log viewer
+            # renders the log as HTML, so it swallows that whole thing as an unknown tag
+            # and the type silently disappears from the displayed line (it IS in the raw
+            # file, just invisible where you'd normally read it). The bare name shows up
+            # fine and is the only interesting part anyway.
             if self._disconnecting:
-                _LOGGER.info("_command._get_reply für confirm type " + str(confirm_type) + " abgebrochen (beabsichtigtes Herunterfahren): " + sys.exc_info()[0].__name__)
+                _LOGGER.info("_command._get_reply für confirm type " + confirm_type.__name__ + " abgebrochen (beabsichtigtes Herunterfahren): " + sys.exc_info()[0].__name__)
             else:
-                _LOGGER.error("Unexpected error in _command._get_reply for confirm type " + str(confirm_type) + ": " + sys.exc_info()[0].__name__)
+                _LOGGER.error("Unexpected error in _command._get_reply for confirm type " + confirm_type.__name__ + ": " + sys.exc_info()[0].__name__)
             raise
 
-    def _get_reply(self, confirm_type=None, timeout=10, use_queue=True, quiet_timeout=False, expected_reference=None, context=None):
+    def _get_reply(self, confirm_type=None, timeout=5, use_queue=True, quiet_timeout=False, expected_reference=None, context=None):
         """Pops a message of the queue, optionally looking for a specific type.
 
         quiet_timeout: if True, log a timeout on confirm_type as WARNING instead of
@@ -462,7 +460,7 @@ class ComfoConnect(object):
 
         expected_reference: the message.cmd.reference value of OUR OWN request. When the
         bridge is backed up (busy flushing notifications for already-registered sensors,
-        see the timeout=10 change above), confirms can arrive many seconds late and out of
+        see the timeout handling above), confirms can arrive many seconds late and out of
         order relative to when we gave up waiting and retried. Without this check, a stale
         confirm belonging to an earlier, already-abandoned attempt - carrying the SAME
         message class (e.g. CnRpdoConfirmType) but a DIFFERENT reference number - used to
@@ -620,14 +618,20 @@ class ComfoConnect(object):
 
                 if time.time() - start > timeout:
                     # Identify what exactly we were waiting for, so the log line is useful
-                    # on its own instead of just naming the confirm class.
-                    detail = str(confirm_type)
+                    # on its own instead of just naming the confirm class. .__name__ rather
+                    # than str() so it stays visible in LoxBerry's HTML log viewer - see the
+                    # comment in _command()'s OSError handler.
+                    detail = confirm_type.__name__ if confirm_type is not None else "(kein Typ)"
                     if context:
                         detail += " (" + context + ")"
                     if expected_reference is not None:
                         detail += " reference=" + str(expected_reference)
 
-                    if str(confirm_type) == "<class 'zehnder_pb2.CnRmiResponse'>":
+                    # Identity check against the imported class, not a string comparison
+                    # against its repr - the old "<class 'zehnder_pb2.CnRmiResponse'>"
+                    # string would silently stop matching if the module/class were ever
+                    # renamed or the protobuf runtime changed how it formats a class.
+                    if confirm_type is CnRmiResponse:
                         # We got no message for confirm_type CnRmiResponse
                         _LOGGER.error("Timeout waiting for response. " + detail)
                         return False

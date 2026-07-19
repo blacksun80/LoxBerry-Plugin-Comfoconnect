@@ -68,6 +68,16 @@
 		color: #666;
 	}
 
+	/* Zeilen, die von einer uebergeordneten Checkbox abhaengen (siehe
+	   update_sensorwatch_fields unten). Das disabled-Attribut alleine graut zwar das
+	   Eingabefeld aus, nicht aber dessen Label - ohne diese Regel sieht die Zeile
+	   halb aktiv aus. Rein optisch: die eigentliche Sperre macht das disabled-Attribut,
+	   nicht diese Klasse. */
+	.cc-dependent.cc-disabled label,
+	.cc-dependent.cc-disabled input {
+		opacity: 0.45;
+	}
+
 	/* Statusbox: eigene Klassen statt der LoxBerry-Systemklasse "hint" (die ist nur
 	   kleiner grauer Hinweistext, keine Farbe). Jeder Zustand bekommt zusaetzlich ein
 	   Symbol vorangestellt (per ::before, siehe unten), damit der Status auch ohne
@@ -169,19 +179,29 @@
 
 		<tr>
 			<td width="20%" valign="top">
-				<label id="labelwatchdog"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_LABEL></label>
+				<label id="labelsensorwatch"><TMPL_VAR NAME=T::FORMTABLE.SENSORWATCH_LABEL></label>
 			</td>
 			<td width="55%">
 				<div class="cc-row">
-					<label class="cc-label" id="labelwatchdogenabled" for="watchdog_enabled"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_ENABLED></label>
+					<label class="cc-label" id="labelsensorwatchenabled" for="sensorwatch_enabled"><TMPL_VAR NAME=T::FORMTABLE.SENSORWATCH_ENABLED></label>
 					<div class="cc-field">
-						<input id="watchdog_enabled" name="watchdog_enabled" type="checkbox" value="1" data-role="none" style="margin:0;" <TMPL_VAR NAME=WATCHDOG_ENABLED_CHECKED>>
+						<input id="sensorwatch_enabled" name="sensorwatch_enabled" type="checkbox" value="1" data-role="none" style="margin:0;" onChange="update_sensorwatch_fields()" <TMPL_VAR NAME=SENSORWATCH_ENABLED_CHECKED>>
 					</div>
 				</div>
-				<div class="cc-row">
-					<label class="cc-label" id="labelwatchdogthreshold" for="watchdog_threshold"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_THRESHOLD></label>
+				<!-- Die beiden folgenden Zeilen haengen an der Checkbox oben - sie werden per
+				     JS (update_sensorwatch_fields) aktiviert/deaktiviert und optisch
+				     ausgegraut, damit sofort sichtbar ist dass sie ohne aktivierte
+				     Ueberwachung keine Wirkung haben. -->
+				<div class="cc-row cc-dependent" id="row_sensorwatch_timeout">
+					<label class="cc-label" id="labelsensorwatchtimeout" for="sensorwatch_timeout"><TMPL_VAR NAME=T::FORMTABLE.SENSORWATCH_TIMEOUT></label>
 					<div class="cc-field">
-						<input id="watchdog_threshold" name="watchdog_threshold" type="number" data-role="none" min="1" max="60" style="width:80px !important;" value="<TMPL_VAR NAME=WATCHDOG_THRESHOLD>">
+						<input id="sensorwatch_timeout" name="sensorwatch_timeout" type="number" data-role="none" min="10" max="3600" style="width:80px !important;" value="<TMPL_VAR NAME=SENSORWATCH_TIMEOUT>">
+					</div>
+				</div>
+				<div class="cc-row cc-dependent" id="row_sensorwatch_restart">
+					<label class="cc-label" id="labelsensorwatchrestart" for="sensorwatch_restart"><TMPL_VAR NAME=T::FORMTABLE.SENSORWATCH_RESTART></label>
+					<div class="cc-field">
+						<input id="sensorwatch_restart" name="sensorwatch_restart" type="checkbox" value="1" data-role="none" style="margin:0;" <TMPL_VAR NAME=SENSORWATCH_RESTART_CHECKED>>
 					</div>
 				</div>
 			</td>
@@ -189,7 +209,7 @@
 				&nbsp;
 			</td>
 			<td width="20%">
-				<span class="cc-hint-text"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_HELP></span>
+				<span class="cc-hint-text"><TMPL_VAR NAME=T::FORMTABLE.SENSORWATCH_HELP></span>
 			</td>
 		</tr>
 
@@ -247,18 +267,33 @@
 		}
 	}
 
+	<!-- Zeitfeld und Neustart-Checkbox haengen an der Ueberwachungs-Checkbox: ohne -->
+	<!-- aktivierte Ueberwachung wird gar nichts ausgewertet, also waeren beide -->
+	<!-- wirkungslos. disabled statt nur ausgrauen, damit sie sich auch wirklich -->
+	<!-- nicht bedienen lassen (und der Browser sie nicht mitsendet - index.cgi -->
+	<!-- behaelt die gespeicherten Werte in dem Fall bei, siehe dort). -->
+	function update_sensorwatch_fields() {
+		var on = $( "#sensorwatch_enabled" ).is( ":checked" );
+		$( "#sensorwatch_timeout, #sensorwatch_restart" ).prop( "disabled", !on );
+		$( "#row_sensorwatch_timeout, #row_sensorwatch_restart" ).toggleClass( "cc-disabled", !on );
+	}
+	update_sensorwatch_fields();
+
 	<!-- Statusanzeige periodisch per AJAX aktualisieren, ohne die Seite neu zu -->
 	<!-- laden - ein voller Reload wuerde z.B. gerade eingetippte, noch nicht -->
-	<!-- gespeicherte Formulardaten verwerfen. 2s Poll + 1s Schreibintervall in -->
-	<!-- cfc.py (statt vorher 10s/5s) fuer eine deutlich schnellere Reaktion auf -->
-	<!-- Statusaenderungen - echtes "sofort bei Aenderung" (Push per WebSocket/SSE) -->
-	<!-- passt nicht zum zustandslosen CGI-Modell von LoxBerry, das ist der -->
-	<!-- naechstbeste Kompromiss. -->
+	<!-- gespeicherte Formulardaten verwerfen. 1s Poll, passend zum 1s- -->
+	<!-- Schreibintervall von cfc.py: damit tickt insbesondere die Altersanzeige -->
+	<!-- der letzten Sensordaten sichtbar mit, statt in 2s-Spruengen zu springen. -->
+	<!-- Laeuft nur, solange diese Seite im Browser offen ist - schliesst man den -->
+	<!-- Tab, hoert das Polling sofort auf und es entsteht keinerlei Last mehr. -->
+	<!-- Der Endpoint in index.cgi ist dafuer bewusst schlank gehalten (siehe dort). -->
+	<!-- Echtes "sofort bei Aenderung" (Push per WebSocket/SSE) passt nicht zum -->
+	<!-- zustandslosen CGI-Modell von LoxBerry, das ist der naechstbeste Kompromiss. -->
 	function refreshStatus() {
 		$.getJSON( './index.cgi?ajax_status=1', function( data ) {
 			$( "#statustext" ).text( data.statustext );
 			$( "#statusbox" ).removeClass( "cc-status-ok cc-status-warn cc-status-error" ).addClass( data.statusclass );
 		} );
 	}
-	setInterval( refreshStatus, 2000 );
+	setInterval( refreshStatus, 1000 );
 </script>
