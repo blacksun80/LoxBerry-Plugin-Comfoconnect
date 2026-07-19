@@ -421,123 +421,151 @@ class ComfoConnect(object):
 
         start = time.time()
 
-        while True:
-            message = None
+        # Messages pulled off self._queue that turn out not to be ours (wrong
+        # reference, or a genuine type mismatch) - buffered locally and only put
+        # back onto the shared queue once this call is about to return, instead of
+        # immediately re-queueing each one on the spot. Immediately re-queueing
+        # caused a tight infinite loop in practice: a single orphaned confirm (e.g.
+        # a very late reply for an attempt we'd already given up on and retried
+        # past) gets popped, found not to match, pushed straight back onto the same
+        # queue - which this same loop then immediately pops again, since nothing
+        # else is there to get in between. That spins as fast as the CPU allows,
+        # burning 100% of a core and flooding the log (observed: tens of thousands
+        # of "Ignoring confirm..." lines within a few milliseconds) until the
+        # timeout eventually fires. Buffering locally means every pass through the
+        # loop makes real progress - either finding our own message further back in
+        # the queue, or genuinely blocking in queue.get() for something new to
+        # arrive - and nothing is lost: anyone else who still needs one of these
+        # gets it back once we're done here (success, timeout, or error).
+        deferred = []
 
-            if use_queue:
-                try:
-                    # Fetch the message from the queue.  The network thread has put it there for us.
-                    message = self._queue.get(timeout=timeout)
-                    if message:
-                        self._queue.task_done()
+        try:
+            while True:
+                message = None
 
-                        # The message thread died because the connection is gone - don't
-                        # wait out the rest of our own timeout for a reply that can never
-                        # arrive, fail immediately instead.
-                        if message is _CONNECTION_LOST:
-                            raise BrokenPipeError('Connection lost while waiting for a reply.')
-                except queue.Empty:
-                    # We got no message
-                    pass
+                if use_queue:
+                    try:
+                        # Fetch the message from the queue.  The network thread has put it there for us.
+                        message = self._queue.get(timeout=timeout)
+                        if message:
+                            self._queue.task_done()
 
-            else:
-                # Fetch the message directly from the socket
-                message = self._bridge.read_message(timeout=timeout)
-
-            if message:
-                # Whether this particular message is actually the one we're waiting for -
-                # right type, and (if we know our own reference) the matching reference too.
-                # Status codes below are only meaningful for OUR OWN request's reply: a
-                # BAD_REQUEST/NOT_EXIST/etc. on some other, unrelated stale/out-of-order
-                # message must not be misattributed to the request we're currently making
-                # (that used to happen here, since the status check ran unconditionally on
-                # every message before the type/reference was even looked at).
-                is_ours = confirm_type is not None and message.msg.__class__ == confirm_type and (
-                    expected_reference is None or message.cmd.reference == expected_reference
-                )
-
-                if confirm_type is None or is_ours:
-                    # Check status code
-                    if message.cmd.result == GatewayOperation.OK:
+                            # The message thread died because the connection is gone - don't
+                            # wait out the rest of our own timeout for a reply that can never
+                            # arrive, fail immediately instead.
+                            if message is _CONNECTION_LOST:
+                                raise BrokenPipeError('Connection lost while waiting for a reply.')
+                    except queue.Empty:
+                        # We got no message
                         pass
-                    elif message.cmd.result == GatewayOperation.BAD_REQUEST:
-                        raise PyComfoConnectBadRequest()
-                    elif message.cmd.result == GatewayOperation.INTERNAL_ERROR:
-                        raise PyComfoConnectInternalError()
-                    elif message.cmd.result == GatewayOperation.NOT_REACHABLE:
-                        raise PyComfoConnectNotReachable()
-                    elif message.cmd.result == GatewayOperation.OTHER_SESSION:
-                        raise PyComfoConnectOtherSession(message.msg.devicename)
-                    elif message.cmd.result == GatewayOperation.NOT_ALLOWED:
-                        raise PyComfoConnectNotAllowed()
-                    elif message.cmd.result == GatewayOperation.NO_RESOURCES:
-                        raise PyComfoConnectNoResources()
-                    elif message.cmd.result == GatewayOperation.NOT_EXIST:
-                        raise PyComfoConnectNotExist()
-                    elif message.cmd.result == GatewayOperation.RMI_ERROR:
-                        raise PyComfoConnectRmiError()
 
-                if confirm_type is None:
-                    # We just need a message
-                    return message
-                elif is_ours:
-                    # We need the message with the correct type AND, if we know which
-                    # reference we're actually waiting for, the matching reference - see
-                    # the expected_reference docstring above for why the reference check
-                    # matters (right type alone isn't enough once replies can arrive
-                    # several seconds late and out of order).
-                    return message
-                elif message.msg.__class__ == confirm_type:
-                    # Right type, but for a different (older or newer) request than the
-                    # one we're currently waiting on - not ours, put it back so whoever
-                    # actually sent that request can still find it, and keep waiting for
-                    # our own reference to show up.
-                    self._queue.put(message)
-                    _LOGGER.debug(
-                        "Ignoring confirm for a different reference while waiting for "
-                        + str(expected_reference) + ": got reference " + str(message.cmd.reference)
+                else:
+                    # Fetch the message directly from the socket
+                    message = self._bridge.read_message(timeout=timeout)
+
+                if message:
+                    # Whether this particular message is actually the one we're waiting for -
+                    # right type, and (if we know our own reference) the matching reference too.
+                    # Status codes below are only meaningful for OUR OWN request's reply: a
+                    # BAD_REQUEST/NOT_EXIST/etc. on some other, unrelated stale/out-of-order
+                    # message must not be misattributed to the request we're currently making
+                    # (that used to happen here, since the status check ran unconditionally on
+                    # every message before the type/reference was even looked at).
+                    is_ours = confirm_type is not None and message.msg.__class__ == confirm_type and (
+                        expected_reference is None or message.cmd.reference == expected_reference
                     )
-                elif message.cmd.type == GatewayOperation.CnRpdoNotificationType:
-                    # Not a mismatched reply - this is a completely normal, unsolicited
-                    # sensor-value push that can arrive at any time, including while we're
-                    # waiting for an unrelated confirm (e.g. during the initial
-                    # StartSessionConfirm handshake right after a reconnect/takeover, before
-                    # the bridge has finished flushing notifications tied to the previous
-                    # session). _message_thread_loop routes these the same way once it takes
-                    # over - do it here too instead of logging a scary "incorrect type"
-                    # warning and stranding the message in self._queue (which nobody
-                    # drains while use_queue=False, e.g. during cmd_start_session), which
-                    # used to eat into this call's own timeout budget for no reason and
-                    # could make the initial handshake fail/crash if enough of these arrived
-                    # in a row.
-                    self._handle_rpdo_notification(message)
-                elif message.cmd.type in (
-                    GatewayOperation.GatewayNotificationType,
-                    GatewayOperation.CnNodeNotificationType,
-                    GatewayOperation.CnAlarmNotificationType,
-                ):
-                    # Same idea for the other unsolicited notification types
-                    # _message_thread_loop knows about - nothing to reply to, just noise
-                    # while we're waiting for our own confirm. Log at debug, not warning.
-                    _LOGGER.debug("Ignoring unsolicited notification while waiting for a reply: " + str(message.cmd.type))
-                else:
-                    # A genuine mismatch: some other command's reply, unexpectedly out of
-                    # order. This is the case the original code was written for - put it
-                    # back so whoever is actually waiting for it can still find it.
-                    self._queue.put(message)
-                    _LOGGER.warning("We got a message with an incorrect type." + str(message.msg.__class__))
 
-            if time.time() - start > timeout:
-                if str(confirm_type) == "<class 'zehnder_pb2.CnRmiResponse'>":
-                    # We got no message for confirm_type CnRmiResponse
-                    _LOGGER.error("Timeout waiting for response." + str(confirm_type))
-                    return False
-                else:
-                    if quiet_timeout:
-                        _LOGGER.warning("Timeout waiting for response." + str(confirm_type))
+                    if confirm_type is None or is_ours:
+                        # Check status code
+                        if message.cmd.result == GatewayOperation.OK:
+                            pass
+                        elif message.cmd.result == GatewayOperation.BAD_REQUEST:
+                            raise PyComfoConnectBadRequest()
+                        elif message.cmd.result == GatewayOperation.INTERNAL_ERROR:
+                            raise PyComfoConnectInternalError()
+                        elif message.cmd.result == GatewayOperation.NOT_REACHABLE:
+                            raise PyComfoConnectNotReachable()
+                        elif message.cmd.result == GatewayOperation.OTHER_SESSION:
+                            raise PyComfoConnectOtherSession(message.msg.devicename)
+                        elif message.cmd.result == GatewayOperation.NOT_ALLOWED:
+                            raise PyComfoConnectNotAllowed()
+                        elif message.cmd.result == GatewayOperation.NO_RESOURCES:
+                            raise PyComfoConnectNoResources()
+                        elif message.cmd.result == GatewayOperation.NOT_EXIST:
+                            raise PyComfoConnectNotExist()
+                        elif message.cmd.result == GatewayOperation.RMI_ERROR:
+                            raise PyComfoConnectRmiError()
+
+                    if confirm_type is None:
+                        # We just need a message
+                        return message
+                    elif is_ours:
+                        # We need the message with the correct type AND, if we know which
+                        # reference we're actually waiting for, the matching reference - see
+                        # the expected_reference docstring above for why the reference check
+                        # matters (right type alone isn't enough once replies can arrive
+                        # several seconds late and out of order).
+                        return message
+                    elif message.msg.__class__ == confirm_type:
+                        # Right type, but for a different (older or newer) request than the
+                        # one we're currently waiting on - not ours. Defer it (see comment
+                        # above on `deferred`) instead of putting it straight back onto
+                        # self._queue, so this same loop doesn't just immediately pop it
+                        # again next iteration.
+                        deferred.append(message)
+                        _LOGGER.debug(
+                            "Ignoring confirm for a different reference while waiting for "
+                            + str(expected_reference) + ": got reference " + str(message.cmd.reference)
+                        )
+                    elif message.cmd.type == GatewayOperation.CnRpdoNotificationType:
+                        # Not a mismatched reply - this is a completely normal, unsolicited
+                        # sensor-value push that can arrive at any time, including while we're
+                        # waiting for an unrelated confirm (e.g. during the initial
+                        # StartSessionConfirm handshake right after a reconnect/takeover, before
+                        # the bridge has finished flushing notifications tied to the previous
+                        # session). _message_thread_loop routes these the same way once it takes
+                        # over - do it here too instead of logging a scary "incorrect type"
+                        # warning and stranding the message in self._queue (which nobody
+                        # drains while use_queue=False, e.g. during cmd_start_session), which
+                        # used to eat into this call's own timeout budget for no reason and
+                        # could make the initial handshake fail/crash if enough of these arrived
+                        # in a row.
+                        self._handle_rpdo_notification(message)
+                    elif message.cmd.type in (
+                        GatewayOperation.GatewayNotificationType,
+                        GatewayOperation.CnNodeNotificationType,
+                        GatewayOperation.CnAlarmNotificationType,
+                    ):
+                        # Same idea for the other unsolicited notification types
+                        # _message_thread_loop knows about - nothing to reply to, just noise
+                        # while we're waiting for our own confirm. Log at debug, not warning.
+                        _LOGGER.debug("Ignoring unsolicited notification while waiting for a reply: " + str(message.cmd.type))
                     else:
+                        # A genuine mismatch: some other command's reply, unexpectedly out of
+                        # order. This is the case the original code was written for - defer it
+                        # (see comment above on `deferred`) so whoever is actually waiting for
+                        # it can still find it once we're done here, without this loop
+                        # immediately re-popping the same message.
+                        deferred.append(message)
+                        _LOGGER.warning("We got a message with an incorrect type." + str(message.msg.__class__))
+
+                if time.time() - start > timeout:
+                    if str(confirm_type) == "<class 'zehnder_pb2.CnRmiResponse'>":
+                        # We got no message for confirm_type CnRmiResponse
                         _LOGGER.error("Timeout waiting for response." + str(confirm_type))
-                    raise ValueError('Timeout waiting for response.')
+                        return False
+                    else:
+                        if quiet_timeout:
+                            _LOGGER.warning("Timeout waiting for response." + str(confirm_type))
+                        else:
+                            _LOGGER.error("Timeout waiting for response." + str(confirm_type))
+                        raise ValueError('Timeout waiting for response.')
+        finally:
+            # Give back anything we picked up along the way that wasn't ours, so
+            # whoever it actually belongs to (or the next call, or _message_thread_loop's
+            # own routing) can still find it - see the `deferred` comment above.
+            for m in deferred:
+                self._queue.put(m)
 
     # ==================================================================================================================
     # Connection thread

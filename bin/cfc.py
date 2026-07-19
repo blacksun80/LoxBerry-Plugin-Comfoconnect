@@ -40,7 +40,7 @@ def on_connect(client, userdata, flags, rc):
     if rc==0:
         _LOGGER.info("Connection returned result: "+mqtt.connack_string(rc))
     else:
-        _LOGGER.error("Disconnection returned result: "+mqtt.connack_string(rc))
+        _LOGGER.error("Connection returned result: "+mqtt.connack_string(rc))
 
     mqtt_connected = (rc == 0)
     mqtt_last_change = time.time()
@@ -91,10 +91,17 @@ def on_disconnect(client, userdata, rc):
     global mqtt_connected, mqtt_last_change
 
     # Closing the session #############################################################################################
+    # NOTE: rc here is NOT a CONNACK code - mqtt.connack_string(rc) used to be called
+    # on it, which produces a technically-valid-looking but WRONG message (e.g. rc=1
+    # prints "unacceptable protocol version" - a CONNACK-only meaning - even though
+    # every single one of these disconnects was directly preceded by a genuinely
+    # successful CONNACK 0/Accepted just milliseconds earlier). paho's own docs say
+    # this rc is an internal MQTTErrorCode it converts to for MQTT v3.x, not
+    # something the broker sent - error_string() is the correct lookup here.
     if rc==0:
-        _LOGGER.info("Disconnection returned result: "+mqtt.connack_string(rc))
+        _LOGGER.info("MQTT-Verbindung sauber getrennt.")
     else:
-        _LOGGER.error("Disconnection returned result: "+mqtt.connack_string(rc))
+        _LOGGER.error("MQTT-Verbindung unerwartet getrennt (Code %s: %s) - verbindet automatisch neu." % (str(rc), mqtt.error_string(rc)))
 
     mqtt_connected = False
     mqtt_last_change = time.time()
@@ -606,12 +613,22 @@ def main():
     # plugin working unchanged on systems that still ship paho-mqtt 1.x (e.g. LoxBerry 3,
     # Debian bullseye's python3-paho-mqtt 1.5.1) as well as on systems where paho-mqtt 2.x
     # is installed (e.g. some LoxBerry 4 setups).
+    # Unique per process (PID suffix), not a fixed "ComfoConnect" - during a
+    # "Speichern"-triggered restart, the old and new cfc.py processes can briefly
+    # overlap (see wait_for_cfc_exit() in wrapper.pl). Two MQTT clients connecting
+    # with the SAME client_id make the broker evict whichever one is already
+    # connected every time the other (re)connects - observed in practice as a
+    # rapid connect/disconnect loop for several seconds after every restart (each
+    # disconnect misleadingly logged, before the on_disconnect fix above, as
+    # "unacceptable protocol version"). A unique ID per process avoids the
+    # collision entirely, regardless of how long any overlap lasts.
+    mqtt_client_id = "ComfoConnect-%d" % os.getpid()
     if hasattr(mqtt, "CallbackAPIVersion"):
         # paho-mqtt >= 2.0
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, "ComfoConnect", clean_session=True)
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, mqtt_client_id, clean_session=True)
     else:
         # paho-mqtt < 2.0
-        client = mqtt.Client("ComfoConnect", clean_session=True)
+        client = mqtt.Client(mqtt_client_id, clean_session=True)
     client.on_subscribe         = on_subscribe
     client.on_publish           = on_publish
     client.on_connect           = on_connect
@@ -656,22 +673,44 @@ def main():
                 # full 10s default if the bridge doesn't answer - takeover=True on
                 # the next startup remains the safety net for that case.
                 comfoconnect.cmd_close_session(reply_timeout=3)
+                _LOGGER.info("Session bei der Zehnder-Box abgemeldet.")
         except Exception as e:
-            _LOGGER.warning("Konnte Session bei der Zehnder-Box nicht sauber schließen: " + str(e))
+            # In practice the bridge tends to just close the TCP connection right
+            # after processing this request instead of sending an explicit
+            # CloseSessionConfirm back first - from here that's indistinguishable
+            # from "connection lost"/a timeout, even though the session was almost
+            # certainly closed exactly as requested (the request itself did get
+            # sent - if it hadn't, is_connected() above would already be False).
+            # Nothing more to verify or retry here, and it's not an actual problem,
+            # so INFO rather than WARNING.
+            _LOGGER.info("CloseSessionRequest gesendet, Bridge hat die Verbindung direkt danach getrennt (normal): " + str(e))
 
         try:
-            comfoconnect.disconnect()
-        except Exception as e:
-            _LOGGER.warning("Fehler beim Trennen von der Zehnder-Box: " + str(e))
-
-        try:
-            client.loop_stop()
+            # disconnect() before loop_stop(): sends the clean DISCONNECT packet
+            # while the network thread is still running to actually flush it, then
+            # stop the thread. Doing it in the other order risks the DISCONNECT
+            # never truly leaving the socket, in which case the broker only notices
+            # via the TCP connection dropping - functionally similar, but less clean.
             client.disconnect()
+            client.loop_stop()
         except Exception:
             pass
 
         _LOGGER.info("Sauber heruntergefahren.")
-        sys.exit(0)
+
+        # NOT sys.exit(0): by the time SIGTERM can arrive here, main() has usually
+        # already returned and the interpreter is already inside its own shutdown
+        # sequence (threading._shutdown(), waiting for the non-daemon connection
+        # thread to finish - that's what has kept the process alive this whole
+        # time). Raising SystemExit via sys.exit() from a signal handler firing in
+        # the middle of that produces a harmless but ugly "Exception ignored in...
+        # SystemExit: 0" traceback in the log. os._exit() terminates the process
+        # immediately at the OS level, skipping Python's normal
+        # exception-based/atexit shutdown machinery entirely - safe here since
+        # everything worth cleaning up (the bridge session, the MQTT connection)
+        # was already handled explicitly above; there's nothing left for Python's
+        # own shutdown to do that we need.
+        os._exit(0)
 
     signal.signal(signal.SIGTERM, handle_sigterm)
 
