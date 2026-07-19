@@ -503,7 +503,13 @@ def write_status_loop():
                     'bridge_last_alive_ping': comfoconnect.last_alive_ping if comfoconnect else None,
                     'bridge_last_keepalive_ok': comfoconnect.last_keepalive_ok if comfoconnect else None,
                     'bridge_last_sensor_data': comfoconnect.last_sensor_data if comfoconnect else None,
-                    'sensors_registered': len(comfoconnect.sensors) if comfoconnect else 0,
+                    # NOTE: comfoconnect.sensors is a work list (everything we know about
+                    # and should try to (re-)register), not a success count - it's already
+                    # at its final size as soon as a connection drop pre-remembers the not-
+                    # yet-attempted sensors for the reconnect logic, long before most of
+                    # them are actually confirmed. sensors_confirmed only contains sensors
+                    # the bridge has actually confirmed in the *current* session.
+                    'sensors_registered': len(comfoconnect.sensors_confirmed) if comfoconnect else 0,
                     'sensors_expected': len(sensor_data),
                 }
 

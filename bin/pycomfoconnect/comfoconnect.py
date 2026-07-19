@@ -20,9 +20,9 @@ _LOGGER = logging.getLogger('comfoconnect')
 
 # Sentinel pushed onto self._queue by _message_thread_loop the moment it detects
 # the connection is dead (BrokenPipeError/ConnectionResetError/ConnectionError).
-# Without this, a call blocked in _get_reply()'s self._queue.get(timeout=5) has no
+# Without this, a call blocked in _get_reply()'s self._queue.get(timeout=10) has no
 # way to find out the connection already died in the *other* thread - it just sits
-# there uselessly until its own independent 5s timeout expires, which is why the
+# there uselessly until its own independent 10s timeout expires, which is why the
 # log used to show the "connection was reseted" warning followed several seconds
 # later by a seemingly unrelated "Timeout waiting for response" error for a
 # message that could obviously never arrive anymore. Pushing this sentinel wakes
@@ -137,6 +137,21 @@ class ComfoConnect(object):
         self._reference = 1
 
         self._queue = queue.Queue()
+
+        # Guards reference-number generation and the actual socket write in
+        # _command() (see there). Two different threads legitimately call _command()
+        # concurrently in normal operation - the main thread doing the startup sensor
+        # registration burst / diagnostic queries, and the background message thread
+        # sending its periodic cmd_keepalive() - and without this lock both the
+        # "self._reference += 1" read-modify-write and the raw socket.sendall() call
+        # are unsynchronized: two threads could hand out the SAME reference number
+        # (breaking the reference-matching in _get_reply()) or interleave their bytes
+        # on the wire while writing concurrently (corrupting the message framing).
+        # Only covers the write side, not the wait-for-reply side, so two commands can
+        # still be in flight and waiting on their own replies at the same time without
+        # blocking each other for up to 10s.
+        self._command_lock = threading.Lock()
+
         self._connected = threading.Event()
         self._stopping = False          # signals stopping message handling
         self._disconnecting = False     # signals intended disconnection in progress
@@ -144,6 +159,22 @@ class ComfoConnect(object):
         self._connection_thread = None
 
         self.sensors = {}
+
+        # self.sensors above is really a work list of "sensors we know about and
+        # should (re-)register on every reconnect" - cfc.py pre-populates entries
+        # into it for sensors that haven't been attempted yet (so a dropped
+        # connection mid-burst doesn't lose track of them), and every reconnect's
+        # re-registration pass iterates the whole thing again regardless of
+        # whether each entry has actually been confirmed by the bridge yet. That
+        # makes len(self.sensors) meaningless as a "how many are really working
+        # right now" count - it was already at its final size before most entries
+        # were ever confirmed. This separate set only ever gains a sensor_id once
+        # the bridge has actually confirmed that specific registration (see
+        # register_sensor()), and gets reset at the start of every reconnect's
+        # re-registration pass since RPDO subscriptions don't survive a
+        # reconnect - cfc.py's status file reads this, not self.sensors, for the
+        # "X sensors active" count.
+        self.sensors_confirmed = set()
 
         # Heartbeat/health bookkeeping, read from the outside (cfc.py) to build a
         # status file. These are plain timestamps (time.time(), or None until the
@@ -258,6 +289,7 @@ class ComfoConnect(object):
 
         # Register in memory
         self.sensors[sensor_id] = sensor_type
+        self.sensors_confirmed.add(sensor_id)
 
         return reply
 
@@ -279,37 +311,48 @@ class ComfoConnect(object):
     def _command(self, command, params=None, use_queue=True, quiet_timeout=False):
         """Sends a command and wait for a response if the request is known to return a result."""
 
-        # Construct the message
-        message = Message.create(
-            self._local_uuid,
-            self._bridge.uuid,
-            command,
-            {'reference': self._reference},
-            params
-        )
+        # Reference-number generation and the actual socket write both have to be
+        # atomic across threads - see the _command_lock comment in __init__ for why
+        # (main thread's sensor registration/diagnostics vs. the message thread's
+        # periodic keepalive both call _command() and can genuinely overlap).
+        with self._command_lock:
+            # Remember our own reference number so _get_reply() can verify that whatever
+            # confirm-type message it later receives actually answers *this* request,
+            # not some other, unrelated request that happens to still be in flight (see
+            # _get_reply's expected_reference parameter for why that distinction matters).
+            my_reference = self._reference
 
-        # Increase message reference
-        self._reference += 1
+            # Construct the message
+            message = Message.create(
+                self._local_uuid,
+                self._bridge.uuid,
+                command,
+                {'reference': my_reference},
+                params
+            )
 
-        # Be careful when sending message, we need to catch a broken connection here.
-        # Previously this swallowed the error and returned False, which no caller
-        # checked - execution just carried on to wait a full timeout for a reply to
-        # a message that was never sent. Re-raise instead, so callers that expect
-        # OSError (register_sensor, _connection_thread_loop) find out immediately
-        # and can trigger a proper reconnect instead of a doomed retry.
-        try:
-            self._bridge.write_message(message)
+            # Increase message reference
+            self._reference += 1
 
-        except OSError:
-            _LOGGER.error("Unexpected error in _command._bridge.write_message: " + sys.exc_info()[0].__name__)
-            raise
+            # Be careful when sending message, we need to catch a broken connection here.
+            # Previously this swallowed the error and returned False, which no caller
+            # checked - execution just carried on to wait a full timeout for a reply to
+            # a message that was never sent. Re-raise instead, so callers that expect
+            # OSError (register_sensor, _connection_thread_loop) find out immediately
+            # and can trigger a proper reconnect instead of a doomed retry.
+            try:
+                self._bridge.write_message(message)
+
+            except OSError:
+                _LOGGER.error("Unexpected error in _command._bridge.write_message: " + sys.exc_info()[0].__name__)
+                raise
 
         try:
             # Check if this command has a confirm type set
             confirm_type = message.class_to_confirm[command]
 
             # Read a message
-            reply = self._get_reply(confirm_type, use_queue=use_queue, quiet_timeout=quiet_timeout)
+            reply = self._get_reply(confirm_type, use_queue=use_queue, quiet_timeout=quiet_timeout, expected_reference=my_reference)
 
             return reply
 
@@ -323,13 +366,26 @@ class ComfoConnect(object):
             _LOGGER.error("Unexpected error in _command._get_reply for confirm type " + str(confirm_type) + ": " + sys.exc_info()[0].__name__)
             raise
 
-    def _get_reply(self, confirm_type=None, timeout=5, use_queue=True, quiet_timeout=False):
+    def _get_reply(self, confirm_type=None, timeout=10, use_queue=True, quiet_timeout=False, expected_reference=None):
         """Pops a message of the queue, optionally looking for a specific type.
 
         quiet_timeout: if True, log a timeout on confirm_type as WARNING instead of
         ERROR. Used by callers (e.g. register_sensor()) that will retry the command
         themselves, so a single dropped reply isn't misreported as a hard error while
         a retry is still pending - only the final, exhausted attempt should read as ERROR.
+
+        expected_reference: the message.cmd.reference value of OUR OWN request. When the
+        bridge is backed up (busy flushing notifications for already-registered sensors,
+        see the timeout=10 change above), confirms can arrive many seconds late and out of
+        order relative to when we gave up waiting and retried. Without this check, a stale
+        confirm belonging to an earlier, already-abandoned attempt - carrying the SAME
+        message class (e.g. CnRpdoConfirmType) but a DIFFERENT reference number - used to
+        satisfy this wait anyway, since only the class was checked. That silently handed
+        register_sensor() a "success" for the wrong request: no timeout, no warning, but
+        the confirm for the actual current attempt (and the real sensor data) could still
+        be minutes away or never verified at all. Observed directly in a log: retry #2 for
+        a sensor's registration was quietly satisfied by a ~9s-late confirm meant for a
+        completely different, already-abandoned earlier attempt.
         """
 
         start = time.time()
@@ -358,32 +414,58 @@ class ComfoConnect(object):
                 message = self._bridge.read_message(timeout=timeout)
 
             if message:
-                # Check status code
-                if message.cmd.result == GatewayOperation.OK:
-                    pass
-                elif message.cmd.result == GatewayOperation.BAD_REQUEST:
-                    raise PyComfoConnectBadRequest()
-                elif message.cmd.result == GatewayOperation.INTERNAL_ERROR:
-                    raise PyComfoConnectInternalError()
-                elif message.cmd.result == GatewayOperation.NOT_REACHABLE:
-                    raise PyComfoConnectNotReachable()
-                elif message.cmd.result == GatewayOperation.OTHER_SESSION:
-                    raise PyComfoConnectOtherSession(message.msg.devicename)
-                elif message.cmd.result == GatewayOperation.NOT_ALLOWED:
-                    raise PyComfoConnectNotAllowed()
-                elif message.cmd.result == GatewayOperation.NO_RESOURCES:
-                    raise PyComfoConnectNoResources()
-                elif message.cmd.result == GatewayOperation.NOT_EXIST:
-                    raise PyComfoConnectNotExist()
-                elif message.cmd.result == GatewayOperation.RMI_ERROR:
-                    raise PyComfoConnectRmiError()
+                # Whether this particular message is actually the one we're waiting for -
+                # right type, and (if we know our own reference) the matching reference too.
+                # Status codes below are only meaningful for OUR OWN request's reply: a
+                # BAD_REQUEST/NOT_EXIST/etc. on some other, unrelated stale/out-of-order
+                # message must not be misattributed to the request we're currently making
+                # (that used to happen here, since the status check ran unconditionally on
+                # every message before the type/reference was even looked at).
+                is_ours = confirm_type is not None and message.msg.__class__ == confirm_type and (
+                    expected_reference is None or message.cmd.reference == expected_reference
+                )
+
+                if confirm_type is None or is_ours:
+                    # Check status code
+                    if message.cmd.result == GatewayOperation.OK:
+                        pass
+                    elif message.cmd.result == GatewayOperation.BAD_REQUEST:
+                        raise PyComfoConnectBadRequest()
+                    elif message.cmd.result == GatewayOperation.INTERNAL_ERROR:
+                        raise PyComfoConnectInternalError()
+                    elif message.cmd.result == GatewayOperation.NOT_REACHABLE:
+                        raise PyComfoConnectNotReachable()
+                    elif message.cmd.result == GatewayOperation.OTHER_SESSION:
+                        raise PyComfoConnectOtherSession(message.msg.devicename)
+                    elif message.cmd.result == GatewayOperation.NOT_ALLOWED:
+                        raise PyComfoConnectNotAllowed()
+                    elif message.cmd.result == GatewayOperation.NO_RESOURCES:
+                        raise PyComfoConnectNoResources()
+                    elif message.cmd.result == GatewayOperation.NOT_EXIST:
+                        raise PyComfoConnectNotExist()
+                    elif message.cmd.result == GatewayOperation.RMI_ERROR:
+                        raise PyComfoConnectRmiError()
 
                 if confirm_type is None:
                     # We just need a message
                     return message
-                elif message.msg.__class__ == confirm_type:
-                    # We need the message with the correct type
+                elif is_ours:
+                    # We need the message with the correct type AND, if we know which
+                    # reference we're actually waiting for, the matching reference - see
+                    # the expected_reference docstring above for why the reference check
+                    # matters (right type alone isn't enough once replies can arrive
+                    # several seconds late and out of order).
                     return message
+                elif message.msg.__class__ == confirm_type:
+                    # Right type, but for a different (older or newer) request than the
+                    # one we're currently waiting on - not ours, put it back so whoever
+                    # actually sent that request can still find it, and keep waiting for
+                    # our own reference to show up.
+                    self._queue.put(message)
+                    _LOGGER.debug(
+                        "Ignoring confirm for a different reference while waiting for "
+                        + str(expected_reference) + ": got reference " + str(message.cmd.reference)
+                    )
                 elif message.cmd.type == GatewayOperation.CnRpdoNotificationType:
                     # Not a mismatched reply - this is a completely normal, unsolicited
                     # sensor-value push that can arrive at any time, including while we're
@@ -471,8 +553,24 @@ class ComfoConnect(object):
                 else: 
                     self._stopping = False  # Clear Stop message handling flag
 
-            # Only start background thread if we truly are connected, otherwise try reconnecting again 
+            # Only start background thread if we truly are connected, otherwise try reconnecting again
             if self.is_connected():
+                # Reset the queue here, synchronously, BEFORE starting the message
+                # thread - not as the first line inside _message_thread_loop() itself.
+                # thread.start() returns as soon as the OS has scheduled the new
+                # thread, not once it has actually run any code, so this loop carries
+                # straight on to register_sensor() below while the new thread's very
+                # first instructions are still pending. If _message_thread_loop() were
+                # the one resetting self._queue, a _get_reply() call from the
+                # registration loop below could grab a reference to the OLD Queue
+                # object in that window, then the reset swaps self._queue to a new one
+                # out from under it - the waiting call is now stuck listening on an
+                # orphaned queue that will never receive anything, and just times out
+                # uselessly even though a real reply arrived. Doing the reset here
+                # instead, synchronously in this same thread right before start(),
+                # closes that window entirely.
+                self._queue = queue.Queue()
+
                 # Start background thread
                 self._message_thread = threading.Thread(target=self._message_thread_loop)
                 self._message_thread.start()
@@ -480,6 +578,11 @@ class ComfoConnect(object):
                 # Re-register for sensor updates
                 if len(self.sensors)>0:
                     _LOGGER.info('Reconnected to Bridge. Registering sensors...')
+                    # Fresh session - none of the previous confirmations are valid anymore
+                    # (RPDO subscriptions don't survive a reconnect), so the "confirmed"
+                    # count must start back at 0 and only grow as register_sensor() below
+                    # actually succeeds again.
+                    self.sensors_confirmed = set()
                     # need to handle exceptions during sensor re-registration to have a robust library
                     try:
                         # register_sensor() already retries a few times on a plain response
@@ -553,8 +656,12 @@ class ComfoConnect(object):
     def _message_thread_loop(self):
         """Listen for incoming messages and queue them or send them to a callback method."""
 
-        # Reinitialise the queues
-        self._queue = queue.Queue()
+        # NOTE: self._queue is deliberately NOT reset here anymore - it's reset
+        # synchronously in _connection_thread_loop() right before this thread is
+        # started, to avoid a race where a _get_reply() call already running (e.g.
+        # from the sensor registration loop right after connect()) could grab a
+        # reference to the queue object that's about to be replaced out from under
+        # it. See the comment there for details.
 
         next_keepalive = 0
 
