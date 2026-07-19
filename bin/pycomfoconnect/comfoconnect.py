@@ -12,6 +12,14 @@ from .zehnder_pb2 import *
 
 KEEPALIVE = 60
 
+# Sensor registration during the startup burst competes with the bridge flushing
+# leftover notifications/confirms from a "resumed" session (observed up to ~8.81s
+# on its own, see the takeover/resumed comments in _connection_thread_loop) - give
+# it more headroom than the 10s used for regular runtime commands (RMI calls
+# forwarded from the Miniserver via MQTT), which don't have to compete with that
+# startup backlog and should stay snappy.
+SENSOR_REGISTER_TIMEOUT = 20
+
 DEFAULT_LOCAL_UUID = bytes.fromhex('00000000000000000000000000001337')
 DEFAULT_LOCAL_DEVICENAME = 'pycomfoconnect'
 DEFAULT_PIN = 0
@@ -138,6 +146,19 @@ class ComfoConnect(object):
 
         self._queue = queue.Queue()
 
+        # References we've personally given up on (a plain client-side timeout in
+        # _get_reply(), see there) - a confirm for one of these that shows up later
+        # is permanently orphaned: whoever originally sent that request has already
+        # moved on (retried with a new reference, or given up for good), so nobody
+        # will ever be waiting for it again. Without tracking this, such a confirm
+        # gets deferred, handed back to self._queue, picked up again by the NEXT
+        # unrelated wait, found not to match either, deferred again... forever, for
+        # the remaining lifetime of the connection - one harmless but permanently
+        # recurring "Ignoring confirm..." log line per subsequent _command() call.
+        # Bounded in practice: only grows on a timeout (rare), and is cleared on
+        # every reconnect along with self._queue itself.
+        self._abandoned_references = set()
+
         # Guards reference-number generation and the actual socket write in
         # _command() (see there). Two different threads legitimately call _command()
         # concurrently in normal operation - the main thread doing the startup sensor
@@ -262,7 +283,8 @@ class ComfoConnect(object):
                 # While retries remain, ask _get_reply() to log a plain timeout as WARNING
                 # instead of ERROR - it isn't a real failure yet, just a dropped reply we're
                 # about to retry. Only the final, exhausted attempt should read as ERROR.
-                reply = self.cmd_rpdo_request(sensor_id, sensor_type, quiet_timeout=not is_last_attempt)
+                reply = self.cmd_rpdo_request(sensor_id, sensor_type, quiet_timeout=not is_last_attempt,
+                                               reply_timeout=SENSOR_REGISTER_TIMEOUT)
                 break
 
             except PyComfoConnectNotAllowed:
@@ -302,7 +324,8 @@ class ComfoConnect(object):
                 # a genuine connection loss (OSError) is left to propagate normally,
                 # same as everywhere else in this method.
                 try:
-                    self.cmd_rpdo_request(sensor_id, sensor_type, timeout=0, quiet_timeout=True)
+                    self.cmd_rpdo_request(sensor_id, sensor_type, timeout=0, quiet_timeout=True,
+                                           reply_timeout=SENSOR_REGISTER_TIMEOUT)
                 except ValueError:
                     pass
 
@@ -328,15 +351,21 @@ class ComfoConnect(object):
         self.sensors.pop(sensor_id, None)
 
         # Unregister on bridge
-        self.cmd_rpdo_request(sensor_id, sensor_type, timeout=0)
+        self.cmd_rpdo_request(sensor_id, sensor_type, timeout=0, reply_timeout=SENSOR_REGISTER_TIMEOUT)
 
-    def _command(self, command, params=None, use_queue=True, quiet_timeout=False, reply_timeout=None):
+    def _command(self, command, params=None, use_queue=True, quiet_timeout=False, reply_timeout=None, context=None):
         """Sends a command and wait for a response if the request is known to return a result.
 
         reply_timeout: overrides _get_reply()'s default wait (10s) for just this call.
         Used by cmd_close_session() during graceful shutdown, where we want to give the
         bridge a brief chance to confirm but must not block process exit for the full
-        10s if it doesn't - see the SIGTERM handler in cfc.py.
+        10s if it doesn't (see the SIGTERM handler in cfc.py), and by cmd_rpdo_request()
+        during sensor registration, which gets a longer 20s budget (SENSOR_REGISTER_TIMEOUT)
+        to cope with the startup "resumed session" backlog.
+
+        context: short human-readable label (e.g. "pdid=146") included in _get_reply()'s
+        timeout log line, so a timeout message identifies what it was actually waiting for
+        instead of just the confirm type.
         """
 
         # Reference-number generation and the actual socket write both have to be
@@ -380,7 +409,7 @@ class ComfoConnect(object):
             confirm_type = message.class_to_confirm[command]
 
             # Read a message
-            get_reply_kwargs = {'use_queue': use_queue, 'quiet_timeout': quiet_timeout, 'expected_reference': my_reference}
+            get_reply_kwargs = {'use_queue': use_queue, 'quiet_timeout': quiet_timeout, 'expected_reference': my_reference, 'context': context}
             if reply_timeout is not None:
                 get_reply_kwargs['timeout'] = reply_timeout
             reply = self._get_reply(confirm_type, **get_reply_kwargs)
@@ -397,13 +426,16 @@ class ComfoConnect(object):
             _LOGGER.error("Unexpected error in _command._get_reply for confirm type " + str(confirm_type) + ": " + sys.exc_info()[0].__name__)
             raise
 
-    def _get_reply(self, confirm_type=None, timeout=10, use_queue=True, quiet_timeout=False, expected_reference=None):
+    def _get_reply(self, confirm_type=None, timeout=10, use_queue=True, quiet_timeout=False, expected_reference=None, context=None):
         """Pops a message of the queue, optionally looking for a specific type.
 
         quiet_timeout: if True, log a timeout on confirm_type as WARNING instead of
         ERROR. Used by callers (e.g. register_sensor()) that will retry the command
         themselves, so a single dropped reply isn't misreported as a hard error while
         a retry is still pending - only the final, exhausted attempt should read as ERROR.
+
+        context: short human-readable label (e.g. "pdid=146") for the timeout log line -
+        see _command()'s docstring.
 
         expected_reference: the message.cmd.reference value of OUR OWN request. When the
         bridge is backed up (busy flushing notifications for already-registered sensors,
@@ -508,15 +540,29 @@ class ComfoConnect(object):
                         return message
                     elif message.msg.__class__ == confirm_type:
                         # Right type, but for a different (older or newer) request than the
-                        # one we're currently waiting on - not ours. Defer it (see comment
-                        # above on `deferred`) instead of putting it straight back onto
-                        # self._queue, so this same loop doesn't just immediately pop it
-                        # again next iteration.
-                        deferred.append(message)
-                        _LOGGER.debug(
-                            "Ignoring confirm for a different reference while waiting for "
-                            + str(expected_reference) + ": got reference " + str(message.cmd.reference)
-                        )
+                        # one we're currently waiting on - not ours.
+                        if message.cmd.reference in self._abandoned_references:
+                            # We ourselves already gave up on this exact reference (a plain
+                            # timeout, see below) - nobody is ever going to claim it, so
+                            # discard it here and now instead of deferring it. Deferring
+                            # would just hand it back onto self._queue, where the NEXT
+                            # unrelated wait pops it, rejects it again, and defers it again -
+                            # forever, for the rest of this connection's lifetime (harmless,
+                            # but a permanently recurring log line for something we already
+                            # know is dead).
+                            _LOGGER.debug(
+                                "Discarding orphaned confirm for a reference we already gave up on: "
+                                + str(message.cmd.reference)
+                            )
+                        else:
+                            # Defer it (see comment above on `deferred`) instead of putting it
+                            # straight back onto self._queue, so this same loop doesn't just
+                            # immediately pop it again next iteration.
+                            deferred.append(message)
+                            _LOGGER.debug(
+                                "Ignoring confirm for a different reference while waiting for "
+                                + str(expected_reference) + ": got reference " + str(message.cmd.reference)
+                            )
                     elif message.cmd.type == GatewayOperation.CnRpdoNotificationType:
                         # Not a mismatched reply - this is a completely normal, unsolicited
                         # sensor-value push that can arrive at any time, including while we're
@@ -550,15 +596,30 @@ class ComfoConnect(object):
                         _LOGGER.warning("We got a message with an incorrect type." + str(message.msg.__class__))
 
                 if time.time() - start > timeout:
+                    # Identify what exactly we were waiting for, so the log line is useful
+                    # on its own instead of just naming the confirm class.
+                    detail = str(confirm_type)
+                    if context:
+                        detail += " (" + context + ")"
+                    if expected_reference is not None:
+                        detail += " reference=" + str(expected_reference)
+
                     if str(confirm_type) == "<class 'zehnder_pb2.CnRmiResponse'>":
                         # We got no message for confirm_type CnRmiResponse
-                        _LOGGER.error("Timeout waiting for response." + str(confirm_type))
+                        _LOGGER.error("Timeout waiting for response. " + detail)
                         return False
                     else:
+                        # We're giving up on this reference for good here (the caller may
+                        # retry, but that happens with a brand-new reference number) - if a
+                        # confirm for it still shows up later, it's permanently orphaned. See
+                        # the "Discarding orphaned confirm" branch above.
+                        if expected_reference is not None:
+                            self._abandoned_references.add(expected_reference)
+
                         if quiet_timeout:
-                            _LOGGER.warning("Timeout waiting for response." + str(confirm_type))
+                            _LOGGER.warning("Timeout waiting for response. " + detail)
                         else:
-                            _LOGGER.error("Timeout waiting for response." + str(confirm_type))
+                            _LOGGER.error("Timeout waiting for response. " + detail)
                         raise ValueError('Timeout waiting for response.')
         finally:
             # Give back anything we picked up along the way that wasn't ours, so
@@ -629,6 +690,11 @@ class ComfoConnect(object):
                 # instead, synchronously in this same thread right before start(),
                 # closes that window entirely.
                 self._queue = queue.Queue()
+
+                # A fresh connection means a fresh set of reference numbers too (see
+                # __init__) - any previously abandoned reference can never legitimately
+                # reappear on this new connection, so drop the bookkeeping along with it.
+                self._abandoned_references = set()
 
                 # Start background thread
                 self._message_thread = threading.Thread(target=self._message_thread_loop)
@@ -950,7 +1016,7 @@ class ComfoConnect(object):
         return True
 
     def cmd_rpdo_request(self, pdid: int, type: int = 1, zone: int = 1, timeout=None, use_queue: bool = True,
-                          quiet_timeout: bool = False):
+                          quiet_timeout: bool = False, reply_timeout=None):
         """Register a RPDO request."""
 
         reply = self._command(
@@ -962,7 +1028,9 @@ class ComfoConnect(object):
                 'timeout': timeout
             },
             use_queue=use_queue,
-            quiet_timeout=quiet_timeout
+            quiet_timeout=quiet_timeout,
+            reply_timeout=reply_timeout,
+            context="pdid=%d" % pdid
         )
         return reply
 

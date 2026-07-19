@@ -674,16 +674,26 @@ def main():
                 # the next startup remains the safety net for that case.
                 comfoconnect.cmd_close_session(reply_timeout=3)
                 _LOGGER.info("Session bei der Zehnder-Box abgemeldet.")
-        except Exception as e:
-            # In practice the bridge tends to just close the TCP connection right
-            # after processing this request instead of sending an explicit
-            # CloseSessionConfirm back first - from here that's indistinguishable
-            # from "connection lost"/a timeout, even though the session was almost
-            # certainly closed exactly as requested (the request itself did get
-            # sent - if it hadn't, is_connected() above would already be False).
-            # Nothing more to verify or retry here, and it's not an actual problem,
-            # so INFO rather than WARNING.
+        except OSError as e:
+            # The bridge tends to just close the TCP connection right after
+            # processing this request instead of sending an explicit
+            # CloseSessionConfirm back first - the connection dying WHILE we're
+            # waiting is a pretty strong sign the request was received and acted
+            # on (the request itself did get sent - if it hadn't, is_connected()
+            # above would already be False). Nothing more to verify here, and it's
+            # not an actual problem, so INFO rather than WARNING.
             _LOGGER.info("CloseSessionRequest gesendet, Bridge hat die Verbindung direkt danach getrennt (normal): " + str(e))
+        except ValueError as e:
+            # Different from the OSError case above: this is a PLAIN timeout - the
+            # connection itself did NOT drop, the bridge just never answered within
+            # reply_timeout. Unlike the OSError case, we genuinely don't know
+            # whether the session actually got closed - could still be sitting open
+            # on the bridge's side. takeover=True on the next startup is the safety
+            # net either way, so there's nothing more to do here, but the log
+            # shouldn't claim "normal"/success for something it can't verify.
+            _LOGGER.warning("CloseSessionRequest gesendet, aber keine Bestätigung erhalten (Timeout) - Session evtl. noch offen, takeover beim nächsten Start übernimmt das: " + str(e))
+        except Exception as e:
+            _LOGGER.warning("Konnte Session bei der Zehnder-Box nicht sauber schließen: " + str(e))
 
         try:
             # disconnect() before loop_stop(): sends the clean DISCONNECT packet
