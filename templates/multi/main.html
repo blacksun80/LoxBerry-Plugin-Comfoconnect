@@ -37,6 +37,21 @@
 		align-items: center;
 		gap: 10px;
 	}
+
+	/* Statusbox-Farben - eigene Klassen statt der LoxBerry-Systemklasse "hint"
+	   (die ist nur kleiner grauer Hinweistext, keine Farbe). */
+	.cc-status-ok {
+		background: #eaf6e6;
+		border-color: #7ac142 !important;
+	}
+	.cc-status-warn {
+		background: #fff3cd;
+		border-color: #d4a017 !important;
+	}
+	.cc-status-error {
+		background: #fbe3e3;
+		border-color: #c0392b !important;
+	}
 </style>
 
 <center style="margin-top: 25px;">
@@ -80,7 +95,7 @@
 				<div class="cc-row">
 					<label class="cc-label" id="labelpin" for="pin"><TMPL_VAR NAME=T::FORMTABLE.PIN></label>
 					<div class="cc-field">
-						<input id="pin" name="pin" type="text" class="textfield" data-role="none" style="width:60px;" value="<TMPL_VAR NAME=PIN>"
+						<input id="pin" name="pin" type="text" class="textfield" data-role="none" style="width:50px !important;" value="<TMPL_VAR NAME=PIN>"
 							data-validation="number"
 							data-validation-allowing="range[0000;9999]"
 							data-validation-error-msg="PIN: Bitte einen gültigen PIN zwischen 0000 and 9999 eingeben.">
@@ -112,7 +127,7 @@
 				<div class="cc-row">
 					<label class="cc-label" id="labelwatchdogthreshold" for="watchdog_threshold"><TMPL_VAR NAME=T::FORMTABLE.WATCHDOG_THRESHOLD></label>
 					<div class="cc-field">
-						<input id="watchdog_threshold" name="watchdog_threshold" type="number" data-role="none" min="1" max="60" style="width:60px;" value="<TMPL_VAR NAME=WATCHDOG_THRESHOLD>">
+						<input id="watchdog_threshold" name="watchdog_threshold" type="number" data-role="none" min="1" max="60" style="width:50px !important;" value="<TMPL_VAR NAME=WATCHDOG_THRESHOLD>">
 					</div>
 				</div>
 			</td>
@@ -178,12 +193,16 @@
 
 	<!-- Statusanzeige periodisch per AJAX aktualisieren, ohne die Seite neu zu -->
 	<!-- laden - ein voller Reload wuerde z.B. gerade eingetippte, noch nicht -->
-	<!-- gespeicherte Formulardaten verwerfen. -->
+	<!-- gespeicherte Formulardaten verwerfen. 2s Poll + 1s Schreibintervall in -->
+	<!-- cfc.py (statt vorher 10s/5s) fuer eine deutlich schnellere Reaktion auf -->
+	<!-- Statusaenderungen - echtes "sofort bei Aenderung" (Push per WebSocket/SSE) -->
+	<!-- passt nicht zum zustandslosen CGI-Modell von LoxBerry, das ist der -->
+	<!-- naechstbeste Kompromiss. -->
 	function refreshStatus() {
 		$.getJSON( './index.cgi?ajax_status=1', function( data ) {
 			$( "#statustext" ).text( data.statustext );
-			$( "#statusbox" ).removeClass( "hint notityRedMqtt" ).addClass( data.statusclass );
+			$( "#statusbox" ).removeClass( "cc-status-ok cc-status-warn cc-status-error" ).addClass( data.statusclass );
 		} );
 	}
-	setInterval( refreshStatus, 10000 );
+	setInterval( refreshStatus, 2000 );
 </script>

@@ -482,9 +482,15 @@ def write_status_loop():
     Runs in its own daemon thread. Deliberately does not import/depend on the
     connection thread's internals beyond reading comfoconnect's plain, cheap
     in-memory timestamps (see comfoconnect.py: last_alive_ping/last_keepalive_ok/
-    last_sensor_data) - it just samples and writes them every 5s. This is a
+    last_sensor_data) - it just samples and writes them every 1s. This is a
     nice-to-have diagnostic feature: any error here is logged and swallowed, it
     must never be able to take down the actual plugin.
+
+    1s instead of the original 5s: this is a plain JSON write to a ramdisk
+    (tmpfs), not real disk I/O, so there's no SD-card-wear concern to weigh
+    against faster updates - the only real cost is CPU for a tiny JSON dump,
+    which is negligible. Combined with the shorter webfrontend poll interval,
+    this brings worst-case status staleness down from ~15s to ~3s.
     """
     while True:
         try:
@@ -511,7 +517,7 @@ def write_status_loop():
         except Exception as e:
             _LOGGER.debug("Konnte Statusdatei nicht schreiben: " + str(e))
 
-        time.sleep(5)
+        time.sleep(1)
 
 
 def main():
@@ -645,14 +651,28 @@ def main():
     client.loop_start()
 
     # Connect to the bridge
-    try:
-        _LOGGER.info("Connect to the bridge")
-        comfoconnect.connect(True)  # Disconnect existing clients.
+    #
+    # Retry a few times before giving up: the initial handshake (StartSessionConfirm)
+    # can occasionally fail on a plain timeout - e.g. right after a "Speichern"-triggered
+    # restart with takeover=True, the bridge may still be flushing CnRpdoNotificationType
+    # messages tied to the previous session before it gets around to replying to our new
+    # StartSessionRequestType, and that can eat into the handshake's timeout budget. That
+    # used to be fatal (exit(1) on the very first failed attempt) even though it's usually
+    # a transient, one-off race that a fresh attempt a couple seconds later resolves fine.
+    bridge_connect_attempts = 5
+    for attempt in range(1, bridge_connect_attempts + 1):
+        try:
+            _LOGGER.info("Connect to the bridge (Versuch %d/%d)" % (attempt, bridge_connect_attempts))
+            comfoconnect.connect(True)  # Disconnect existing clients.
+            break
 
-    except Exception as e:
-        _LOGGER.exception(str(e))
-        _LOGGER.critical("Not connected to bridge")
-        exit(1)
+        except Exception as e:
+            if attempt >= bridge_connect_attempts:
+                _LOGGER.exception(str(e))
+                _LOGGER.critical("Not connected to bridge nach %d Versuchen" % bridge_connect_attempts)
+                exit(1)
+            _LOGGER.warning("Verbindung zur Bridge fehlgeschlagen (Versuch %d/%d), erneuter Versuch: %s" % (attempt, bridge_connect_attempts, str(e)))
+            time.sleep(2)
 
     connected_flag=True
 

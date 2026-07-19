@@ -384,9 +384,33 @@ class ComfoConnect(object):
                 elif message.msg.__class__ == confirm_type:
                     # We need the message with the correct type
                     return message
+                elif message.cmd.type == GatewayOperation.CnRpdoNotificationType:
+                    # Not a mismatched reply - this is a completely normal, unsolicited
+                    # sensor-value push that can arrive at any time, including while we're
+                    # waiting for an unrelated confirm (e.g. during the initial
+                    # StartSessionConfirm handshake right after a reconnect/takeover, before
+                    # the bridge has finished flushing notifications tied to the previous
+                    # session). _message_thread_loop routes these the same way once it takes
+                    # over - do it here too instead of logging a scary "incorrect type"
+                    # warning and stranding the message in self._queue (which nobody
+                    # drains while use_queue=False, e.g. during cmd_start_session), which
+                    # used to eat into this call's own timeout budget for no reason and
+                    # could make the initial handshake fail/crash if enough of these arrived
+                    # in a row.
+                    self._handle_rpdo_notification(message)
+                elif message.cmd.type in (
+                    GatewayOperation.GatewayNotificationType,
+                    GatewayOperation.CnNodeNotificationType,
+                    GatewayOperation.CnAlarmNotificationType,
+                ):
+                    # Same idea for the other unsolicited notification types
+                    # _message_thread_loop knows about - nothing to reply to, just noise
+                    # while we're waiting for our own confirm. Log at debug, not warning.
+                    _LOGGER.debug("Ignoring unsolicited notification while waiting for a reply: " + str(message.cmd.type))
                 else:
-                    # We got a message with an incorrect type. Hopefully, this doesn't happen to often,
-                    # since we just put it back on the queue.
+                    # A genuine mismatch: some other command's reply, unexpectedly out of
+                    # order. This is the case the original code was written for - put it
+                    # back so whoever is actually waiting for it can still find it.
                     self._queue.put(message)
                     _LOGGER.warning("We got a message with an incorrect type." + str(message.msg.__class__))
 

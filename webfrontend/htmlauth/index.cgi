@@ -398,7 +398,10 @@ sub getStatus
 
 	my $statusfile = "/var/run/shm/$psubfolder/status.json";
 	my $status_text = "Unbekannt";
-	my $status_class = "hint";
+	# cc-status-ok (gruen) / cc-status-warn (gelb) / cc-status-error (rot) - eigene
+	# Klassen in main.html, da "hint" bei LoxBerry nur ein kleiner grauer Hinweistext
+	# ist (keine Farbe) und es keine passende gruene System-Klasse gibt.
+	my $status_class = "cc-status-warn";
 
 	if (-e $statusfile) {
 		local $/ = undef;
@@ -415,22 +418,22 @@ sub getStatus
 
 				if (!$mqtt_ok) {
 					$status_text = "MQTT getrennt (verbindet automatisch neu)";
-					$status_class = "notityRedMqtt";
+					$status_class = "cc-status-error";
 				} elsif (!defined($alive_age) || $alive_age > 30) {
 					$status_text = "Gestört - keine Verbindung zur Zehnder-Box";
-					$status_class = "notityRedMqtt";
+					$status_class = "cc-status-error";
 				} elsif ($sensors_exp > 0 && $sensors_reg < $sensors_exp) {
 					$status_text = "Eingeschränkt - nur $sensors_reg von $sensors_exp Sensoren aktiv";
-					$status_class = "hint";
+					$status_class = "cc-status-warn";
 				} else {
 					$status_text = "Läuft einwandfrei ($sensors_reg Sensoren aktiv)";
-					$status_class = "hint";
+					$status_class = "cc-status-ok";
 				}
 			}
 		}
 	} else {
 		$status_text = "Plugin läuft nicht (Statusdatei fehlt)";
-		$status_class = "notityRedMqtt";
+		$status_class = "cc-status-error";
 	}
 
 	return ($status_text, $status_class);
