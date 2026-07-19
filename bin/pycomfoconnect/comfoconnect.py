@@ -306,7 +306,10 @@ class ComfoConnect(object):
             return None
 
         except OSError:
-            _LOGGER.error("Unexpected error in _command._get_reply for confirm type", str(confirm_type), ": ", sys.exc_info()[0])
+            # Same %-formatting trap as described in _connection_thread_loop: these
+            # must be concatenated into one string, not passed as extra positional
+            # args, otherwise logging itself raises TypeError and spams the log.
+            _LOGGER.error("Unexpected error in _command._get_reply for confirm type " + str(confirm_type) + ": " + str(sys.exc_info()[0]))
             raise
 
     def _get_reply(self, confirm_type=None, timeout=5, use_queue=True, quiet_timeout=False):
@@ -455,7 +458,15 @@ class ComfoConnect(object):
                             self.register_sensor(sensor_id, sensor_type)
 
                     except OSError:
-                        _LOGGER.error("Unexpected error in _connection_thread_loop while registering sensors:", sys.exc_info()[0])
+                        # NOTE: string concatenation, NOT a second argument. logging
+                        # treats extra positional args as %-format arguments for the
+                        # message - passing one without a matching %s in the string
+                        # raises "TypeError: not all arguments converted during string
+                        # formatting" inside logging itself, which then dumps a full
+                        # "--- Logging error ---" block plus two tracebacks into the
+                        # log on every single reconnect. Harmless for program flow,
+                        # but it buried the actual message in ~35 lines of noise.
+                        _LOGGER.error("Unexpected error in _connection_thread_loop while registering sensors: " + str(sys.exc_info()[0]))
                         self._stopping = True   # Set stop handling message flag because of this error in connection
 
                     else:
@@ -522,7 +533,8 @@ class ComfoConnect(object):
                     self.last_keepalive_ok = time.time()
 
                 except OSError:
-                    _LOGGER.error("Wanted to send keep alive, but hit an unexpected error in _message_thread_loop: ", sys.exc_info()[0])
+                    # Same %-formatting trap - concatenate, don't pass as extra arg.
+                    _LOGGER.error("Wanted to send keep alive, but hit an unexpected error in _message_thread_loop: " + str(sys.exc_info()[0]))
                     return
 
             try:

@@ -91,6 +91,21 @@ $version = "2.0.0.1";
 $psubfolder = abs_path($0);
 $psubfolder =~ s/(.*)\/(.*)\/(.*)$/$2/g;
 
+##########################################################################
+# AJAX-Status-Endpoint
+##########################################################################
+# Wird von main.html per JS alle paar Sekunden gepollt, damit sich die
+# Statusanzeige aktualisiert ohne die ganze Seite (und damit ungespeicherte
+# Formulareingaben) neu zu laden. Bewusst vor allen teureren Schritten
+# (general.cfg, MQTT-Credentials, Template-Laden) platziert, da $psubfolder
+# das einzige ist, was getStatus() braucht - hält das Polling leichtgewichtig.
+if ( $cgi->param('ajax_status') || $cgi->url_param('ajax_status') ) {
+	my ($status_text, $status_class) = getStatus($psubfolder);
+	print $cgi->header( -type => 'application/json', -charset => 'utf-8' );
+	print encode_json({ statustext => $status_text, statusclass => $status_class });
+	exit;
+}
+
 # Start with HTML header
 # print $cgi->header(
 	# type	=>	'text/html',
@@ -315,48 +330,11 @@ sub form
     $maintemplate->param( WATCHDOG_THRESHOLD => $pcfg->{'MAIN'}->{'WATCHDOG_THRESHOLD_MIN'} || "3" );
 
     ##
-    # Statusanzeige - liest die Heartbeat-Datei, die cfc.py auf der Ramdisk schreibt.
-    # "Gestört", wenn seit >30s kein Lebenszeichen vom Verbindungs-Thread zur
-    # Zehnder-Box kam, oder wenn MQTT gerade getrennt ist. Reine Sensor-Updates
-    # allein sagen nichts aus (manche Sensoren senden legitim lange nichts), daher
-    # last_alive_ping statt last_sensor_data als Haupt-Kriterium.
+    # Statusanzeige - Logik steckt in getStatus() weiter unten, damit sich der
+    # AJAX-Endpoint oben (fürs Live-Polling) und dieser initiale Seitenaufbau
+    # dieselbe Auswertung teilen statt sie zweimal zu pflegen.
     ##
-    my $statusfile = "/var/run/shm/$psubfolder/status.json";
-    my $status_text = "Unbekannt";
-    my $status_class = "hint";
-
-    if (-e $statusfile) {
-        local $/ = undef;
-        if (open(my $fh, '<', $statusfile)) {
-            my $json_text = <$fh>;
-            close($fh);
-            my $status = eval { decode_json($json_text) };
-            if ($status) {
-                my $now = time();
-                my $alive_age = defined($status->{bridge_last_alive_ping}) ? $now - $status->{bridge_last_alive_ping} : undef;
-                my $mqtt_ok = $status->{mqtt_connected} ? 1 : 0;
-                my $sensors_reg = $status->{sensors_registered} // 0;
-                my $sensors_exp = $status->{sensors_expected} // 0;
-
-                if (!$mqtt_ok) {
-                    $status_text = "MQTT getrennt (verbindet automatisch neu)";
-                    $status_class = "notityRedMqtt";
-                } elsif (!defined($alive_age) || $alive_age > 30) {
-                    $status_text = "Gestört - keine Verbindung zur Zehnder-Box";
-                    $status_class = "notityRedMqtt";
-                } elsif ($sensors_exp > 0 && $sensors_reg < $sensors_exp) {
-                    $status_text = "Eingeschränkt - nur $sensors_reg von $sensors_exp Sensoren aktiv";
-                    $status_class = "hint";
-                } else {
-                    $status_text = "Läuft einwandfrei ($sensors_reg Sensoren aktiv)";
-                    $status_class = "hint";
-                }
-            }
-        }
-    } else {
-        $status_text = "Plugin läuft nicht (Statusdatei fehlt)";
-        $status_class = "notityRedMqtt";
-    }
+    my ($status_text, $status_class) = getStatus($psubfolder);
 
     $maintemplate->param( STATUSTEXT => $status_text );
     $maintemplate->param( STATUSCLASS => $status_class );
@@ -389,6 +367,61 @@ sub form
 
 	exit;
 
+}
+
+#####################################################
+# Status-Sub - liest die Heartbeat-Datei, die cfc.py auf der Ramdisk schreibt.
+# "Gestört", wenn seit >30s kein Lebenszeichen vom Verbindungs-Thread zur
+# Zehnder-Box kam, oder wenn MQTT gerade getrennt ist. Reine Sensor-Updates
+# allein sagen nichts aus (manche Sensoren senden legitim lange nichts), daher
+# last_alive_ping statt last_sensor_data als Haupt-Kriterium.
+#
+# Genutzt sowohl beim initialen Seitenaufbau (sub form) als auch vom
+# AJAX-Status-Endpoint ganz oben, den main.html per JS periodisch abfragt.
+#####################################################
+
+sub getStatus
+{
+	my $psubfolder = shift;
+
+	my $statusfile = "/var/run/shm/$psubfolder/status.json";
+	my $status_text = "Unbekannt";
+	my $status_class = "hint";
+
+	if (-e $statusfile) {
+		local $/ = undef;
+		if (open(my $fh, '<', $statusfile)) {
+			my $json_text = <$fh>;
+			close($fh);
+			my $status = eval { decode_json($json_text) };
+			if ($status) {
+				my $now = time();
+				my $alive_age = defined($status->{bridge_last_alive_ping}) ? $now - $status->{bridge_last_alive_ping} : undef;
+				my $mqtt_ok = $status->{mqtt_connected} ? 1 : 0;
+				my $sensors_reg = $status->{sensors_registered} // 0;
+				my $sensors_exp = $status->{sensors_expected} // 0;
+
+				if (!$mqtt_ok) {
+					$status_text = "MQTT getrennt (verbindet automatisch neu)";
+					$status_class = "notityRedMqtt";
+				} elsif (!defined($alive_age) || $alive_age > 30) {
+					$status_text = "Gestört - keine Verbindung zur Zehnder-Box";
+					$status_class = "notityRedMqtt";
+				} elsif ($sensors_exp > 0 && $sensors_reg < $sensors_exp) {
+					$status_text = "Eingeschränkt - nur $sensors_reg von $sensors_exp Sensoren aktiv";
+					$status_class = "hint";
+				} else {
+					$status_text = "Läuft einwandfrei ($sensors_reg Sensoren aktiv)";
+					$status_class = "hint";
+				}
+			}
+		}
+	} else {
+		$status_text = "Plugin läuft nicht (Statusdatei fehlt)";
+		$status_class = "notityRedMqtt";
+	}
+
+	return ($status_text, $status_class);
 }
 
 #####################################################

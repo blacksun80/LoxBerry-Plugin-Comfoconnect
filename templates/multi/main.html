@@ -9,8 +9,8 @@
 <div style="height:15px;"></div>
 
 <center>
-	<div class="<TMPL_VAR NAME=STATUSCLASS>" style="border-radius: 11px; border: 1px solid black; padding:10px; display:table; margin:0 auto;">
-		<b><TMPL_VAR NAME=T::FORMTABLE.STATUS_LABEL></b> <TMPL_VAR NAME=STATUSTEXT>
+	<div id="statusbox" class="<TMPL_VAR NAME=STATUSCLASS>" style="border-radius: 11px; border: 1px solid black; padding:10px; display:table; margin:0 auto;">
+		<b><TMPL_VAR NAME=T::FORMTABLE.STATUS_LABEL></b> <span id="statustext"><TMPL_VAR NAME=STATUSTEXT></span>
 	</div>
 </center>
 
@@ -134,4 +134,15 @@
 			$( "#btnrescan" ).removeClass('ui-disabled');
 		}
 	}
+
+	<!-- Statusanzeige periodisch per AJAX aktualisieren, ohne die Seite neu zu -->
+	<!-- laden - ein voller Reload wuerde z.B. gerade eingetippte, noch nicht -->
+	<!-- gespeicherte Formulardaten verwerfen. -->
+	function refreshStatus() {
+		$.getJSON( './index.cgi?ajax_status=1', function( data ) {
+			$( "#statustext" ).text( data.statustext );
+			$( "#statusbox" ).removeClass( "hint notityRedMqtt" ).addClass( data.statusclass );
+		} );
+	}
+	setInterval( refreshStatus, 10000 );
 </script>
