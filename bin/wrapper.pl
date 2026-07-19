@@ -108,6 +108,15 @@ foreach $arg (@ARGV) {
             LOGINF "cfc.py already running.";
             LOGINF "Stoppe ComfoConnect...";
             system("pkill -f $installfolder/bin/plugins/$psubfolder/cfc.py >> $logfile 2>&1");
+
+            # cfc.py bekommt durch pkill (SIGTERM, kein -9) jetzt die Chance, sich per
+            # CloseSessionRequest sauber bei der Zehnder-Box abzumelden, bevor der
+            # Prozess beendet wird - kurz warten, bis er das tatsächlich getan hat,
+            # statt den neuen Prozess sofort parallel dazu zu starten. Sonst trifft der
+            # neue Prozess womöglich noch auf eine Box, die die alte Session noch nicht
+            # losgelassen hat (der "resumed"-Verzögerungseffekt, den der saubere
+            # Shutdown eigentlich vermeiden soll).
+            wait_for_cfc_exit($installfolder, $psubfolder);
         }
 
         if ($arg eq "restart") {
@@ -188,10 +197,44 @@ foreach $arg (@ARGV) {
 
         if (!$running || $stale) {
             LOGWARN "Watchdog: ComfoConnect " . ($running ? $reason : "läuft nicht") . " - starte neu.";
-            system("pkill -f $installfolder/bin/plugins/$psubfolder/cfc.py >> $logfile 2>&1") if $running;
+            if ($running) {
+                system("pkill -f $installfolder/bin/plugins/$psubfolder/cfc.py >> $logfile 2>&1");
+                # Kurze, best-effort Wartezeit auf den sauberen Shutdown (siehe Kommentar
+                # oben bei "restart") - falls der Prozess wirklich haengt (genau der Fall,
+                # den der Watchdog hier abfaengt), reagiert er evtl. gar nicht auf SIGTERM;
+                # dann verstreicht die Wartezeit einfach ungenutzt und wir starten trotzdem neu.
+                wait_for_cfc_exit($installfolder, $psubfolder);
+            }
             system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile > /dev/null 2>>$logfile &");
         }
         exit(0);
     }
+}
+
+##########################################################################
+# wait_for_cfc_exit - best-effort, kurze Wartezeit nach einem pkill auf
+# cfc.py, bevor ein neuer Prozess gestartet wird. cfc.py bekommt durch das
+# reine pkill (SIGTERM statt -9) inzwischen einen Moment, sich per
+# CloseSessionRequest sauber bei der Zehnder-Box abzumelden (siehe der
+# SIGTERM-Handler in cfc.py) - ohne diese Wartezeit wuerde der naechste
+# Prozess sofort parallel dazu starten und moeglicherweise noch auf eine
+# Session treffen, die die Box noch nicht losgelassen hat.
+#
+# Bricht spaetestens nach $max_wait Sekunden ab und laesst den Aufrufer
+# einfach weitermachen - haengt der alte Prozess wirklich (z.B. der Fall, den
+# der Watchdog behandelt), soll das den Neustart nicht blockieren.
+##########################################################################
+
+sub wait_for_cfc_exit
+{
+    my ($installfolder, $psubfolder) = @_;
+    my $max_wait = 5; # Sekunden - deckt cfc.py's eigenes 3s-Timeout fuer die
+                       # CloseSessionRequest-Antwort plus etwas Puffer ab.
+
+    for (my $i = 0; $i < $max_wait * 5; $i++) {
+        return 1 if (!scalar(grep{/cfc.py/} `ps aux`));
+        select(undef, undef, undef, 0.2); # 200ms
+    }
+    return 0;
 }
 

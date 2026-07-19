@@ -5,6 +5,7 @@ import datetime
 import os
 import time
 import threading
+import signal
 from time import sleep
 from binascii import unhexlify
 from random import randint
@@ -634,6 +635,45 @@ def main():
         _LOGGER.exception(str(e))
 
     comfoconnect.callback_sensor = callback_sensor
+
+    # Graceful shutdown on SIGTERM (wrapper.pl's plain `pkill -f cfc.py`, used both by
+    # a "Speichern"-triggered restart and by the watchdog). Without this the process
+    # just dies instantly with no warning to the bridge - observed in practice: the
+    # bridge then keeps the old session "alive" for several seconds ("resumed: true"
+    # on the next StartSessionConfirm), replaying a backlog of leftover messages tied
+    # to the old session before it gets around to confirming the NEW process's
+    # StartSessionRequest. Explicitly closing the session here lets the next startup
+    # connect cleanly and immediately instead of eating into its own connect timeout.
+    # Registered here (not earlier) so `comfoconnect` and `client` already exist for
+    # every SIGTERM this could plausibly catch - a signal arriving in the brief window
+    # before this line has nothing to clean up yet anyway (no session established).
+    def handle_sigterm(signum, frame):
+        _LOGGER.info("SIGTERM empfangen - fahre sauber herunter (melde Session bei der Zehnder-Box ab)...")
+
+        try:
+            if comfoconnect.is_connected():
+                # Short, bounded timeout: this must not hold up "Speichern" for the
+                # full 10s default if the bridge doesn't answer - takeover=True on
+                # the next startup remains the safety net for that case.
+                comfoconnect.cmd_close_session(reply_timeout=3)
+        except Exception as e:
+            _LOGGER.warning("Konnte Session bei der Zehnder-Box nicht sauber schließen: " + str(e))
+
+        try:
+            comfoconnect.disconnect()
+        except Exception as e:
+            _LOGGER.warning("Fehler beim Trennen von der Zehnder-Box: " + str(e))
+
+        try:
+            client.loop_stop()
+            client.disconnect()
+        except Exception:
+            pass
+
+        _LOGGER.info("Sauber heruntergefahren.")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, handle_sigterm)
 
     # Start writing the health-status file (ramdisk, see --statusfile) in the
     # background. Started early (before the broker/bridge are even connected) so the
