@@ -1,19 +1,14 @@
 #!/usr/bin/python3
-import argparse
 import paho.mqtt.client as mqtt
 import datetime
 import os
 import time
 import threading
 import signal
-from time import sleep
-from binascii import unhexlify
-from random import randint
 from pycomfoconnect import *
 import getopt
 import sys
 import json
-import configparser
 from mqtt_data import sensor_data
 import logging
 
@@ -32,13 +27,28 @@ interval = [0 for x in range(300)]
 # regardless. On real hardware all 50 sensors register in well under a second.
 registration_state = "in_progress"
 
-# Sensor-data monitoring, read from the plugin config in main(). Only mirrored into
-# the status file so index.cgi's getStatus() (polled every 2s via AJAX) can evaluate
-# it without having to open and parse the config file on every single request. cfc.py
-# itself doesn't act on these - the status page decides what to display, and
-# wrapper.pl's checkwatchdog decides whether to restart.
+# Sensor-data monitoring, read from the plugin config in main(). Mirrored into the
+# status file so index.cgi's getStatus() (polled every second via AJAX) can evaluate
+# it without having to open and parse the config file on every single request, and
+# evaluated in write_status_loop() to publish SENSORWATCH_TOPIC (below).
 sensorwatch_enabled = False
 sensorwatch_timeout_sec = 60
+
+# MQTT topic reporting whether the ventilation unit has stopped sending sensor data:
+# "1" = timeout detected, "0" = data is flowing (or monitoring is switched off).
+#
+# Without this the timeout was only ever visible in the plugin's own web page, or
+# indirectly through the plugin restarting itself - so with monitoring enabled but
+# automatic restart switched off, nothing outside the browser noticed at all. As a
+# retained topic it can be wired straight into Loxone like any other sensor value.
+#
+# Published only on change (plus once per MQTT (re)connect, see on_connect) rather
+# than every second, so it doesn't add a message per second to the broker forever.
+SENSORWATCH_TOPIC = "SENSOR_TIMEOUT"
+
+# Last value published to SENSORWATCH_TOPIC. None means "nothing published yet on
+# this MQTT connection" and forces the next evaluation to publish, whatever it finds.
+sensorwatch_published = None
 
 # Set by on_connect()/on_disconnect() - read by the status-writer thread. paho's own
 # reconnect (client.reconnect_delay_set()) already handles recovering the MQTT link by
@@ -56,7 +66,7 @@ def on_publish(client, userdata, mid):
     pass
 
 def on_connect(client, userdata, flags, rc):
-    global mqtt_connected, mqtt_last_change
+    global mqtt_connected, mqtt_last_change, sensorwatch_published
 
     if rc==0:
         _LOGGER.info("Connection returned result: "+mqtt.connack_string(rc))
@@ -65,6 +75,13 @@ def on_connect(client, userdata, flags, rc):
 
     mqtt_connected = (rc == 0)
     mqtt_last_change = time.time()
+
+    # Vergessen, was zuletzt gesendet wurde, damit write_status_loop() den
+    # Sensor-Timeout-Zustand auf dieser (neuen) Verbindung einmal frisch sendet.
+    # Retained-Nachrichten leben zwar im Broker weiter, aber nach einem
+    # Broker-Neustart waeren sie weg - und da wir nur bei Aenderung senden, wuerde
+    # das Topic sonst bis zur naechsten echten Zustandsaenderung leer bleiben.
+    sensorwatch_published = None
 
     client.publish(mqtt_topic + "Status", payload="Online", qos=0, retain=True)
 
@@ -417,7 +434,7 @@ def _dispatch_message(topic, value):
 def on_subscribe(client, userdata, mid, granted_qos):
     _LOGGER.info("Subscribed: "+str(mid)+" "+str(granted_qos))
 
-def bridge_discovery(ip, debug, search):
+def bridge_discovery(ip, search):
     ## Bridge discovery ################################################################################################
     # Method 1: Use discovery to initialise Bridge
     if search:
@@ -555,7 +572,7 @@ def write_status_loop():
                 }
 
                 # Write to a tmp file and rename over the real one - index.cgi (or the
-                # watchdog script) must never be able to read a half-written file.
+                # restart check) must never be able to read a half-written file.
                 tmpfile = statusfile + '.tmp'
                 with open(tmpfile, 'w') as f:
                     json.dump(status, f)
@@ -564,13 +581,62 @@ def write_status_loop():
         except Exception as e:
             _LOGGER.debug("Konnte Statusdatei nicht schreiben: " + str(e))
 
+        try:
+            publish_sensorwatch_state()
+        except Exception as e:
+            # Wie beim Schreiben der Statusdatei: eine Diagnosefunktion darf das
+            # eigentliche Plugin niemals mit in den Abgrund reissen.
+            _LOGGER.debug("Konnte Sensor-Timeout-Status nicht veröffentlichen: " + str(e))
+
         time.sleep(1)
 
 
+def publish_sensorwatch_state():
+    """Publishes SENSORWATCH_TOPIC whenever the sensor-data timeout state changes.
+
+    Bewusst dieselbe Auswertung wie getStatus() in index.cgi: Timeout nur melden,
+    wenn die Überwachung eingeschaltet ist UND bereits Sensoren registriert waren
+    (sonst würde direkt nach dem Start ein Timeout gemeldet, bevor überhaupt Daten
+    kommen konnten). Sind beide Bedingungen erfüllt, aber es kam noch nie ein Wert,
+    gilt das ebenfalls als Timeout - genau wie im Webfrontend.
+
+    Ist die Überwachung ausgeschaltet, wird konsequent "0" veröffentlicht statt gar
+    nichts: das Topic ist retained, ein hängengebliebenes "1" von früher würde sonst
+    für immer eine Störung vortäuschen, die niemand mehr auswertet.
+    """
+    global sensorwatch_published
+
+    if not comfoconnect or not mqtt_connected:
+        return
+
+    timeout_active = 0
+    if sensorwatch_enabled and len(comfoconnect.sensors_confirmed) > 0:
+        last = comfoconnect.last_sensor_data
+        if last is None or (time.time() - last) > sensorwatch_timeout_sec:
+            timeout_active = 1
+
+    if timeout_active == sensorwatch_published:
+        return
+
+    (rc, mid) = client.publish(mqtt_topic + SENSORWATCH_TOPIC, timeout_active, qos=0, retain=True)
+    if rc == 0:
+        sensorwatch_published = timeout_active
+        if timeout_active:
+            _LOGGER.warning(
+                "Seit über %ds keine Sensordaten mehr empfangen - %s%s = 1 gesendet."
+                % (sensorwatch_timeout_sec, mqtt_topic, SENSORWATCH_TOPIC)
+            )
+        else:
+            _LOGGER.info("Sensordaten fließen (wieder) - %s%s = 0 gesendet." % (mqtt_topic, SENSORWATCH_TOPIC))
+    else:
+        # Nicht als gesendet vermerken, damit es beim naechsten Durchlauf (1s spaeter)
+        # erneut versucht wird, statt den Zustand stillschweigend zu verlieren.
+        _LOGGER.error("Konnte %s%s nicht senden, RC=%s" % (mqtt_topic, SENSORWATCH_TOPIC, str(rc)))
+
+
 def main():
-    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, unknown, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, registration_state, sensorwatch_enabled, sensorwatch_timeout_sec
-    
-    connected_flag = 0
+    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, registration_state, sensorwatch_enabled, sensorwatch_timeout_sec
+
     loglevel=logging.ERROR
     search = False
     boost_mode_time = b'\x84\x03'
@@ -586,7 +652,6 @@ def main():
             configfile = args
         elif opt in ("-f", "--logfile"):
             logfile = args
-            logfileArg = args
         elif opt in ("-l", "--loglevel"):
             loglevel = map_loglevel(args)
         elif opt in ("-s", "--search"):
@@ -600,7 +665,11 @@ def main():
         debug = False
 
     _LOGGER = setup_logger("COMFOCONNECT")
-    _LOGGER.debug("logfile: " + logfileArg)
+    # logfile statt einer zweiten, identischen Kopie der Option: die gab es hier
+    # frueher als eigene Variable, die aber nur gesetzt wurde, WENN --logfile
+    # uebergeben wurde - ohne die Option waere diese Zeile mit einem NameError
+    # abgestuerzt, noch bevor irgendetwas geloggt werden konnte.
+    _LOGGER.debug("logfile: " + str(logfile))
     _LOGGER.info("loglevel: " + logging.getLevelName(_LOGGER.level))
     
     # Get configurations from file
@@ -639,7 +708,7 @@ def main():
 #   Connect to Comfocontrol device  #####################################################################################
 #   Detect Bridge
     if search:
-        bridge = bridge_discovery(device_ip, debug, search)
+        bridge = bridge_discovery(device_ip, search)
         _LOGGER.info("Bridge gefunden")
         pcfg['MAIN']['IPLANC'] = bridge.host
         #Config.set('MAIN','IPLANC', bridge.host)
@@ -684,7 +753,7 @@ def main():
     client.will_set(mqtt_topic + "Status", payload="Offline", qos=0, retain=True)
 
         
-    bridge = bridge_discovery(device_ip, debug, search)
+    bridge = bridge_discovery(device_ip, search)
 
     # Connect to the bridge
     try:
@@ -722,10 +791,16 @@ def main():
 
         try:
             if comfoconnect.is_connected():
-                # Short, bounded timeout: this must not hold up "Speichern" for the
-                # full 10s default if the bridge doesn't answer - takeover=True on
-                # the next startup remains the safety net for that case.
-                comfoconnect.cmd_close_session(reply_timeout=3)
+                # Plain 5s default like every other command - no special short timeout
+                # here. In practice this never waits at all: the bridge answers a
+                # CloseSessionRequest by simply closing the TCP socket rather than
+                # sending a CloseSessionConfirm, and the message thread turns that into
+                # an immediate wake-up (see _CONNECTION_LOST in comfoconnect.py) instead
+                # of letting the caller sit out its timeout. Measured end-to-end in the
+                # log: request sent and process fully shut down within ~5ms. The timeout
+                # only matters if the bridge neither answers nor drops the connection -
+                # and takeover=True on the next startup covers that case anyway.
+                comfoconnect.cmd_close_session()
                 _LOGGER.info("Session bei der Zehnder-Box abgemeldet.")
         except OSError as e:
             # The bridge tends to just close the TCP connection right after
@@ -739,7 +814,7 @@ def main():
         except ValueError as e:
             # Different from the OSError case above: this is a PLAIN timeout - the
             # connection itself did NOT drop, the bridge just never answered within
-            # reply_timeout. Unlike the OSError case, we genuinely don't know
+            # the standard reply timeout. Unlike the OSError case, we genuinely don't know
             # whether the session actually got closed - could still be sitting open
             # on the bridge's side. takeover=True on the next startup is the safety
             # net either way, so there's nothing more to do here, but the log
@@ -833,8 +908,6 @@ def main():
                 os._exit(1)
             _LOGGER.warning("Verbindung zur Bridge fehlgeschlagen (Versuch %d/%d), erneuter Versuch: %s" % (attempt, bridge_connect_attempts, str(e)))
             time.sleep(2)
-
-    connected_flag=True
 
 #   Register sensors ################################################################################################
     # Single attempt per sensor (see register_sensor()), no retry, and no overall

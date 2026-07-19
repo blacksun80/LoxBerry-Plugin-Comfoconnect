@@ -219,8 +219,14 @@ foreach $arg (@ARGV) {
 sub wait_for_cfc_exit
 {
     my ($installfolder, $psubfolder) = @_;
-    my $max_wait = 5; # Sekunden - deckt cfc.py's eigenes 3s-Timeout fuer die
-                       # CloseSessionRequest-Antwort plus etwas Puffer ab.
+    my $max_wait = 5; # Sekunden. Im Normalfall ist cfc.py nach wenigen
+                       # Millisekunden weg: die Zehnder-Box beantwortet den
+                       # CloseSessionRequest, indem sie die Verbindung schliesst,
+                       # und cfc.py wacht dadurch sofort auf statt sein Timeout
+                       # abzuwarten. Die 5s greifen nur, wenn die Box weder
+                       # antwortet noch die Verbindung kappt - dann startet der
+                       # neue Prozess eben parallel an, was dank eindeutiger
+                       # MQTT-Client-ID und takeover=True unkritisch ist.
 
     for (my $i = 0; $i < $max_wait * 5; $i++) {
         return 1 if (!scalar(grep{/cfc.py/} `ps aux`));

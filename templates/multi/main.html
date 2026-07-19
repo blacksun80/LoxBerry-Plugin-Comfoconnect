@@ -65,7 +65,12 @@
 		border: 1px solid #e6dba0;
 		padding: 8px 14px;
 		display: table;
-		margin: 10px auto;
+		/* Kein Abstand nach oben - der Block schliesst direkt an den Seitenrand an.
+		   Der dadurch gewonnene Platz geht an die Statusanzeige darunter (siehe
+		   #statusbox), die als einziges Element der Seite laufend wechselt und
+		   deshalb Luft um sich herum verdient, statt zwischen Beschreibung und
+		   Formular eingeklemmt zu sein. */
+		margin: 0 auto 22px auto;
 		font-size: 0.9em;
 		color: #4a4a4a;
 	}
@@ -146,10 +151,14 @@
 	#statusbox {
 		border-radius: 8px;
 		border: 1px solid;
-		padding: 8px 16px;
+		/* Etwas grosszuegiger als die uebrigen Kaesten: das ist die einzige Anzeige,
+		   die sich laufend aendert (Sekundentakt) und auf die man beim Oeffnen der
+		   Seite zuerst schaut. Der Platz dafuer kommt aus dem weggefallenen
+		   Abstand ueber der Beschreibung (siehe .cc-intro). */
+		padding: 12px 22px;
 		display: table;
-		margin: 0 auto 12px auto;
-		font-size: 1em;
+		margin: 0 auto 22px auto;
+		font-size: 1.05em;
 	}
 	#statusbox .cc-status-icon {
 		display: inline-block;

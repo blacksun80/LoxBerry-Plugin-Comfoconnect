@@ -358,14 +358,11 @@ class ComfoConnect(object):
         # Unregister on bridge
         self.cmd_rpdo_request(sensor_id, sensor_type, timeout=0)
 
-    def _command(self, command, params=None, use_queue=True, quiet_timeout=False, reply_timeout=None, context=None):
+    def _command(self, command, params=None, use_queue=True, context=None):
         """Sends a command and wait for a response if the request is known to return a result.
 
-        reply_timeout: overrides _get_reply()'s default wait (5s) for just this call.
-        Used by cmd_close_session() during graceful shutdown, where we want to give the
-        bridge a brief chance to confirm but must not block process exit for the full
-        5s if it doesn't (see the SIGTERM handler in cfc.py). Everything else - including
-        sensor registration - just uses the plain 5s default.
+        Every command waits the same standard reply timeout (see _get_reply) - there is
+        deliberately no per-call override anymore.
 
         context: short human-readable label (e.g. "pdid=146") included in _get_reply()'s
         timeout log line, so a timeout message identifies what it was actually waiting for
@@ -413,10 +410,12 @@ class ComfoConnect(object):
             confirm_type = message.class_to_confirm[command]
 
             # Read a message
-            get_reply_kwargs = {'use_queue': use_queue, 'quiet_timeout': quiet_timeout, 'expected_reference': my_reference, 'context': context}
-            if reply_timeout is not None:
-                get_reply_kwargs['timeout'] = reply_timeout
-            reply = self._get_reply(confirm_type, **get_reply_kwargs)
+            reply = self._get_reply(
+                confirm_type,
+                use_queue=use_queue,
+                expected_reference=my_reference,
+                context=context
+            )
 
             return reply
 
@@ -446,14 +445,8 @@ class ComfoConnect(object):
                 _LOGGER.error("Unexpected error in _command._get_reply for confirm type " + confirm_type.__name__ + ": " + sys.exc_info()[0].__name__)
             raise
 
-    def _get_reply(self, confirm_type=None, timeout=5, use_queue=True, quiet_timeout=False, expected_reference=None, context=None):
+    def _get_reply(self, confirm_type=None, timeout=5, use_queue=True, expected_reference=None, context=None):
         """Pops a message of the queue, optionally looking for a specific type.
-
-        quiet_timeout: if True, log a timeout on confirm_type as WARNING instead of
-        ERROR, for callers that consider a plain timeout non-fatal/expected for their
-        use case and don't want it read as a hard error. Not currently used by any
-        caller (register_sensor() is a single attempt now, so its timeout is final and
-        should read as ERROR) - kept as a general _command()/_get_reply() option.
 
         context: short human-readable label (e.g. "pdid=146") for the timeout log line -
         see _command()'s docstring.
@@ -643,10 +636,7 @@ class ComfoConnect(object):
                         if expected_reference is not None:
                             self._abandoned_references.add(expected_reference)
 
-                        if quiet_timeout:
-                            _LOGGER.warning("Timeout waiting for response. " + detail)
-                        else:
-                            _LOGGER.error("Timeout waiting for response. " + detail)
+                        _LOGGER.error("Timeout waiting for response. " + detail)
                         raise ValueError('Timeout waiting for response.')
         finally:
             # Give back anything we picked up along the way that wasn't ours, so
@@ -996,7 +986,7 @@ class ComfoConnect(object):
         )
         return reply  # TODO: parse output
 
-    def cmd_close_session(self, use_queue: bool = True, reply_timeout=None):
+    def cmd_close_session(self, use_queue: bool = True):
         """Tells the bridge we're intentionally ending this session.
 
         Without ever calling this, the bridge has no way to know a disconnect is
@@ -1004,15 +994,19 @@ class ComfoConnect(object):
         it was observed to keep the old session around for several seconds ("resumed:
         true" on the next StartSessionConfirm) before handing over to a reconnecting
         client, flushing a backlog of leftover messages tied to the old session in the
-        process. See cfc.py's SIGTERM handler, which calls this with a short
-        reply_timeout during a "Speichern"-triggered restart so the bridge can drop
-        the session cleanly before the new process connects.
+        process. See cfc.py's SIGTERM handler, which calls this during a
+        "Speichern"-triggered restart so the bridge can drop the session cleanly before
+        the new process connects.
+
+        Uses the standard reply timeout like everything else. That timeout is almost
+        never reached: the bridge responds by closing the socket instead of sending a
+        CloseSessionConfirm, which wakes the waiting call immediately (see
+        _CONNECTION_LOST) rather than letting it run out the clock.
         """
 
         reply = self._command(
             CloseSessionRequest,
-            use_queue=use_queue,
-            reply_timeout=reply_timeout
+            use_queue=use_queue
         )
         return reply  # TODO: parse output
 
@@ -1095,9 +1089,13 @@ class ComfoConnect(object):
         )
         return True
 
-    def cmd_rpdo_request(self, pdid: int, type: int = 1, zone: int = 1, timeout=None, use_queue: bool = True,
-                          quiet_timeout: bool = False, reply_timeout=None):
-        """Register a RPDO request."""
+    def cmd_rpdo_request(self, pdid: int, type: int = 1, zone: int = 1, timeout=None, use_queue: bool = True):
+        """Register a RPDO request.
+
+        NOTE: `timeout` here is the SUBSCRIPTION lifetime sent to the bridge inside the
+        request (timeout=0 cancels an existing subscription) - it has nothing to do with
+        how long we wait for the reply.
+        """
 
         reply = self._command(
             CnRpdoRequest,
@@ -1108,8 +1106,6 @@ class ComfoConnect(object):
                 'timeout': timeout
             },
             use_queue=use_queue,
-            quiet_timeout=quiet_timeout,
-            reply_timeout=reply_timeout,
             context="pdid=%d" % pdid
         )
         return reply
