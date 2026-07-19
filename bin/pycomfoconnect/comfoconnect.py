@@ -17,8 +17,12 @@ KEEPALIVE = 60
 # on its own, see the takeover/resumed comments in _connection_thread_loop) - give
 # it more headroom than the 10s used for regular runtime commands (RMI calls
 # forwarded from the Miniserver via MQTT), which don't have to compete with that
-# startup backlog and should stay snappy.
-SENSOR_REGISTER_TIMEOUT = 20
+# startup backlog and should stay snappy. Generous on purpose: a single sensor
+# failing this now aborts the ENTIRE registration phase (no retry, no skipping -
+# see register_sensor()/cfc.py's registration loop), so a spurious timeout here is
+# far more costly than it used to be. Better to wait than to restart the whole
+# process over a bridge that was just a bit slow to answer one request.
+SENSOR_REGISTER_TIMEOUT = 120
 
 DEFAULT_LOCAL_UUID = bytes.fromhex('00000000000000000000000000001337')
 DEFAULT_LOCAL_DEVICENAME = 'pycomfoconnect'

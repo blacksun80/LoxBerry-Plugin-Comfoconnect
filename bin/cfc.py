@@ -22,11 +22,14 @@ interval = [0 for x in range(300)]
 # Overall budget for the ENTIRE initial sensor-registration phase (all sensors
 # together), not per sensor - see the registration loop in main(). Individual
 # sensors get one attempt each (SENSOR_REGISTER_TIMEOUT in comfoconnect.py caps a
-# single attempt at 20s) - no retries, no cancel/dereg dance: that complexity
+# single attempt at 120s) - no retries, no cancel/dereg dance: that complexity
 # turned out not to be worth it in practice (see git history) and this hard
-# overall deadline is the simpler, more predictable replacement. MQTT (paho) is
-# deliberately not started until this phase finishes - see main().
-SENSOR_REGISTRATION_TIMEOUT = 60
+# overall deadline is the simpler, more predictable replacement. Kept comfortably
+# above SENSOR_REGISTER_TIMEOUT so a single slow-but-successful sensor can't blow
+# past the overall budget before this check even gets to look at the clock again
+# (the deadline is only checked between sensors, not while a single attempt is
+# still in flight).
+SENSOR_REGISTRATION_TIMEOUT = 180
 
 # Set once in main() as the registration phase progresses, read by
 # write_status_loop() (-> status.json -> index.cgi's getStatus()). One of:
@@ -837,6 +840,7 @@ def main():
     sensor_ids = list(sensor_data.keys())
     registration_deadline = time.time() + SENSOR_REGISTRATION_TIMEOUT
     registration_ok = True
+    connection_lost = False
 
     _LOGGER.info("Registriere %d Sensoren (Zeitbudget: %ds)..." % (len(sensor_ids), SENSOR_REGISTRATION_TIMEOUT))
 
@@ -854,7 +858,10 @@ def main():
             # does NOT raise in that case, so this has to check the return value, not
             # just "no exception was raised". register_sensor() already logged WHY
             # ("konnte nicht registriert werden") - here we just decide the phase is
-            # over: no skipping, no continuing with the rest.
+            # over: no skipping, no continuing with the rest. This is a plain
+            # non-response with the connection still up - genuinely different from the
+            # OSError case below, so it still aborts the whole run (nothing will make
+            # this particular sensor answer just by reconnecting).
             reply = comfoconnect.register_sensor(x)
             if reply is None:
                 _LOGGER.critical(
@@ -866,31 +873,59 @@ def main():
             _LOGGER.info("Register Sensor: %d" % x + " Sensorname: " + sensor_data[x]['NAME'])
 
         except OSError as e:
-            # Connection genuinely gone mid-burst - no point continuing the sweep, and no
-            # point remembering the rest for a background reconnect either: registration
-            # failing here is fatal for this run (see below), the process restarts fresh.
-            _LOGGER.critical(
-                "Verbindung beim Registrieren verloren (%d von %d Sensoren noch offen): %s" %
+            # Connection genuinely gone mid-burst - no point continuing THIS sweep, but
+            # unlike the cases above, this is exactly the situation
+            # _connection_thread_loop() already exists to handle: it independently
+            # notices the same connection loss (via the message thread) and keeps
+            # retrying reconnect + re-registration in the background, indefinitely,
+            # without any help from here. Restarting the whole process would just
+            # reinvent that same recovery a layer higher up, for no benefit - so hand
+            # off instead of exiting. The one thing it needs from us: the sensors we
+            # hadn't gotten to yet aren't in comfoconnect.sensors (register_sensor()
+            # only adds a sensor there on SUCCESS), and _connection_thread_loop() only
+            # ever re-registers what's in there - so pre-remember them here, keyed
+            # exactly like register_sensor() itself would, or they'd silently never get
+            # attempted at all once the reconnect succeeds.
+            _LOGGER.warning(
+                "Verbindung beim Registrieren verloren (%d von %d Sensoren noch offen): %s - der "
+                "automatische Reconnect übernimmt jetzt, kein Neustart des Prozesses nötig." %
                 (len(sensor_ids) - i, len(sensor_ids), str(e))
             )
-            registration_ok = False
+            for remaining in sensor_ids[i:]:
+                comfoconnect.sensors.setdefault(remaining, RPDO_TYPE_MAP.get(remaining))
+            connection_lost = True
             break
 
-    registration_state = "done" if registration_ok else "timeout"
-
-    if not registration_ok:
+    if connection_lost:
+        # Not "timeout": the background reconnect is actively working on this, it's
+        # not a dead end waiting for a restart. sensors_ready is left False (it
+        # already is - see register_sensor()/comfoconnect.py's __init__) until
+        # _connection_thread_loop()'s own reconnect+re-registration sweep succeeds and
+        # sets it True itself - the status page keeps showing live "Registriere
+        # Sensoren (X von Y)" throughout via that flag, same as during this sweep.
+        registration_state = "done"
+        _LOGGER.info(
+            "Erstregistrierung durch Verbindungsverlust unterbrochen - Fertigstellung läuft im "
+            "Hintergrund weiter, sobald die Bridge wieder erreichbar ist."
+        )
+    elif not registration_ok:
+        registration_state = "timeout"
         _LOGGER.critical("Sensor-Registrierung nicht rechtzeitig abgeschlossen - beende Prozess, Watchdog/Wrapper startet neu.")
         # os._exit(), not exit(): the (non-daemon) connection/message threads are
         # definitely running by this point - see the os._exit() comment above.
         os._exit(1)
+    else:
+        registration_state = "done"
 
-    # This first sweep runs here, in cfc.py's main thread, not in comfoconnect.py's
-    # _connection_thread_loop() (which only handles LATER reconnects) - so it has to
-    # set sensors_ready itself. From here on, every subsequent disconnect/reconnect
-    # clears and re-sets this flag automatically (see _connection_thread_loop()).
-    comfoconnect.sensors_ready = True
-
-    _LOGGER.info("Sensor-Registrierung abgeschlossen: %d von %d Sensoren registriert." % (len(comfoconnect.sensors_confirmed), len(sensor_ids)))
+    if not connection_lost:
+        # This first sweep runs here, in cfc.py's main thread, not in comfoconnect.py's
+        # _connection_thread_loop() (which only handles LATER reconnects) - so it has
+        # to set sensors_ready itself. From here on, every subsequent disconnect/
+        # reconnect clears and re-sets this flag automatically (see
+        # _connection_thread_loop()). If connection_lost is True, sensors_ready stays
+        # False and THAT loop sets it once its own reconnect sweep succeeds instead.
+        comfoconnect.sensors_ready = True
+        _LOGGER.info("Sensor-Registrierung abgeschlossen: %d von %d Sensoren registriert." % (len(comfoconnect.sensors_confirmed), len(sensor_ids)))
 
     # Diagnostic-only calls - wrapped so a connection hiccup right at this moment
     # (e.g. still mid-reconnect after the loop above gave up early) can't crash the

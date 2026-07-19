@@ -443,6 +443,7 @@ sub getStatus
 				my $data_age  = defined($status->{bridge_last_sensor_data}) ? $now - $status->{bridge_last_sensor_data} : undef;
 				my $mqtt_ok = $status->{mqtt_connected} ? 1 : 0;
 				my $sensors_reg = $status->{sensors_registered} // 0;
+				my $sensors_exp = $status->{sensors_expected} // 0;
 				# Fehlen diese Felder (z.B. Statusdatei eines aelteren Plugin-Stands,
 				# noch nicht ueberschrieben) als "fertig/bereit" behandeln statt
 				# dauerhaft "Registriere Sensoren"/"Timeout" vorzutaeuschen - der neue
@@ -455,7 +456,13 @@ sub getStatus
 					$status_text = "Timeout beim Registrieren der Sensoren";
 					$status_class = "cc-status-error";
 				} elsif (!$sensors_ready) {
-					$status_text = "Registriere Sensoren";
+					# sensors_registered zaehlt currently bestaetigte Sensoren waehrend
+					# die Schleife in cfc.py laeuft (write_status_loop() schreibt jede
+					# Sekunde neu) - live mitgezaehlter Fortschritt statt eines
+					# statischen Textes, der 60-180s lang unveraendert dasteht.
+					$status_text = $sensors_exp > 0
+						? "Registriere Sensoren ($sensors_reg von $sensors_exp)"
+						: "Registriere Sensoren";
 					$status_class = "cc-status-warn";
 				} elsif (!$mqtt_ok) {
 					$status_text = "MQTT getrennt (verbindet automatisch neu)";
