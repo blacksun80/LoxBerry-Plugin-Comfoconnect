@@ -50,6 +50,16 @@ so wie in der Zehnder-App. Über `AWAY_FOR` (Dauer in Sekunden) und `AWAY_END`
 zum vorzeitigen Beenden. Der aktuelle Zustand wird über `AWAY_ACTIVE` und die
 Restzeit über `AWAY_REMAINING` zurückgemeldet.
 
+**Unterstützung für ComfoCool.** Ist ein Kühlmodul angeschlossen, werden dessen
+Zustand und Kondensatortemperatur als Sensoren übertragen (`COMFOCOOL_STATE`,
+`COMFOCOOL_TEMPERATURE_CONDENSOR`), und es lässt sich über `COMFOCOOL` zwischen
+Automatik und Aus umschalten — wahlweise dauerhaft oder für eine bestimmte Zeit.
+
+Das Plugin erkennt selbst, ob ein ComfoCool vorhanden ist: Die Anlage meldet ihre
+angeschlossenen Geräte beim Verbindungsaufbau von sich aus. Es ist dafür keine
+Einstellung nötig, und wer nachrüstet, bekommt die Werte nach dem nächsten
+Neustart automatisch. Anlagen ohne Kühlmodul sehen davon nichts.
+
 **Sauberes Beenden.** Beim Neustart meldet sich das Plugin jetzt ordentlich bei
 der Lüftungsanlage ab. Vorher hielt die Anlage die alte Verbindung noch mehrere
 Sekunden fest, was den Neustart verzögerte.
