@@ -503,6 +503,11 @@ sub getStatus
 			close($fh);
 			my $status = eval { decode_json($json_text) };
 			if ($status) {
+				# Betriebsstatistik. Bewusst hier oben und unabhängig von den
+				# Statuszweigen weiter unten: Die Diagnose soll auch (und gerade) dann
+				# etwas anzeigen, wenn der Status "Gestört" meldet.
+				$diagnostics = getDiagnostics($status, $psubfolder);
+
 				# Time::HiRes::time() statt time(): cfc.py schreibt die Zeitstempel als
 				# Fliesskommazahl (Python time.time()). Mit dem eingebauten, auf ganze
 				# Sekunden abgeschnittenen time() ergaebe die Differenz einen um bis zu
@@ -573,6 +578,8 @@ sub getStatus
 	} else {
 		$status_text = "Plugin läuft nicht (Statusdatei fehlt)";
 		$status_class = "cc-status-error";
+		# Sonst bliebe der Diagnose-Kasten hier komplett leer und sähe defekt aus.
+		$diagnostics = "<div class=\"cc-diag-runtime\">Keine Diagnosedaten &ndash; das Plugin läuft gerade nicht.</div>";
 	}
 
 	return ($status_text, $status_class, $diagnostics);
