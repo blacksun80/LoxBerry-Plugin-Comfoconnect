@@ -143,6 +143,81 @@
 		opacity: 0.45;
 	}
 
+	/* Diagnosetabelle. Bewusst zurueckhaltend gestaltet: Das sind Hinweise fuer
+	   den Fehlerfall, keine Betriebsanzeige - sie sollen nicht mit der
+	   Statuszeile oben um Aufmerksamkeit konkurrieren. */
+	.cc-diag-runtime {
+		font-size: 0.9em;
+		color: #555;
+		margin-bottom: 6px;
+	}
+	.cc-diag-none {
+		font-size: 0.9em;
+		color: #3c8c1f;
+	}
+	table.cc-diag {
+		border-collapse: collapse;
+		font-size: 0.88em;
+	}
+	table.cc-diag th {
+		text-align: left;
+		font-weight: bold;
+		color: #555;
+		padding: 2px 18px 4px 0;
+		border-bottom: 1px solid #ddd;
+	}
+	table.cc-diag td {
+		padding: 3px 18px 3px 0;
+		vertical-align: top;
+	}
+	/* Zahlen rechtsbuendig und dicktengleich, damit sie untereinander vergleichbar
+	   sind statt zu tanzen. */
+	.cc-diag-num {
+		text-align: right;
+		font-family: monospace;
+		font-weight: bold;
+	}
+	/* Die Kopfzeile der Zahlenspalten mitziehen, sonst steht die Ueberschrift links
+	   und die Zahl darunter rechts. */
+	table.cc-diag th.cc-diag-num {
+		font-weight: bold;
+	}
+	/* Die Gesamtspalte ist die Nebeninformation: Der aktuelle Lauf beschreibt, was
+	   gerade los ist, die Gesamtzahl nur den Hintergrund dazu. Deshalb bewusst
+	   zurueckhaltender - nicht fett und blasser als die Hauptspalte. */
+	.cc-diag-total {
+		font-weight: normal !important;
+		color: #888;
+	}
+	.cc-diag-total-note {
+		font-size: 0.82em;
+		color: #888;
+		margin-top: 5px;
+	}
+	.cc-diag-note {
+		color: #777;
+	}
+	.cc-diag-reports {
+		font-size: 0.85em;
+		color: #555;
+		margin-top: 8px;
+	}
+	.cc-diag-reports .mono {
+		font-family: monospace;
+	}
+	.cc-diag-reset {
+		display: inline-block;
+		margin-top: 9px;
+		font-size: 0.8em;
+		color: #888 !important;
+		text-decoration: underline;
+	}
+	.cc-diag-reset-hint {
+		font-size: 0.8em;
+		color: #888;
+		margin-left: 8px;
+	}
+
 	/* Buttonleiste - eigener kleiner Abstand statt des frueheren <p>, dessen
 	   Default-Margins zusaetzliche Hoehe gekostet haben. */
 	.cc-buttons {
@@ -277,6 +352,20 @@
 		<p class="<TMPL_VAR NAME=mqtthintclass>" style="margin:0;"><TMPL_VAR NAME=mqtthint></p>
 	</div>
 
+	<!-- Betriebsstatistik. Zeigt die Aussetzer, die im laufenden Betrieb bewusst
+	     abgefangen werden und deshalb sonst nirgends mehr sichtbar waeren.
+	     Inhalt kommt fertig aus index.cgi (getDiagnostics) und wird vom selben
+	     AJAX-Aufruf mitaktualisiert wie die Statuszeile. -->
+	<div class="cc-group">
+		<div class="cc-group-title">Diagnose</div>
+		<div id="diagbox"><TMPL_VAR NAME=DIAGNOSTICS></div>
+		<!-- Bewusst klein und unauffaellig: Das ist nichts, was man im Normalbetrieb
+		     braucht - eher etwas, das man nach dem Beheben eines Problems einmal
+		     anfasst, um wieder eine saubere Ausgangslage zu haben. -->
+		<a href="#" id="btnresetstats" class="cc-diag-reset">Statistik zurücksetzen</a>
+		<span id="resetstatshint" class="cc-diag-reset-hint"></span>
+	</div>
+
 	<div id="form-error-message" class="form-error-message"></div>
 
 	<div class="cc-buttons">
@@ -337,7 +426,32 @@
 		$.getJSON( './index.cgi?ajax_status=1', function( data ) {
 			$( "#statustext" ).text( data.statustext );
 			$( "#statusbox" ).removeClass( "cc-status-ok cc-status-warn cc-status-error" ).addClass( data.statusclass );
+			<!-- .html() statt .text(): index.cgi liefert hier eine fertige Tabelle. -->
+			<!-- Der Inhalt stammt ausschliesslich aus eigenen Zaehlern und Zeitangaben, -->
+			<!-- nicht aus Benutzereingaben - es kann also nichts Fremdes eingeschleust werden. -->
+			if ( typeof data.diagnostics !== "undefined" ) {
+				$( "#diagbox" ).html( data.diagnostics );
+			}
 		} );
 	}
 	setInterval( refreshStatus, 1000 );
+
+	<!-- Zuruecksetzen der Statistik. Bewusst mit Rueckfrage: Die Gesamtwerte koennen -->
+	<!-- Monate umfassen und sind danach unwiederbringlich weg. Die Stoerungsberichte -->
+	<!-- selbst bleiben liegen - die sind die eigentlichen Beweisstuecke und haengen -->
+	<!-- nicht an den Zaehlern. -->
+	$( "#btnresetstats" ).on( "click", function( e ) {
+		e.preventDefault();
+		if ( !confirm( "Alle Diagnose-Zähler auf null zurücksetzen?\n\nDie gespeicherten Störungsberichte bleiben erhalten." ) ) {
+			return;
+		}
+		$( "#resetstatshint" ).text( "wird zurückgesetzt..." );
+		$.post( './index.cgi', { ajax_reset_stats: 1 }, function( data ) {
+			<!-- Die Anzeige aktualisiert sich ohnehin im Sekundentakt von selbst, -->
+			<!-- sobald cfc.py die Markierung verarbeitet hat. -->
+			$( "#resetstatshint" ).text( data && data.ok ? "" : ( data ? data.meldung : "fehlgeschlagen" ) );
+		}, "json" ).fail( function() {
+			$( "#resetstatshint" ).text( "fehlgeschlagen" );
+		} );
+	} );
 </script>

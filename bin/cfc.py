@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import paho.mqtt.client as mqtt
 import datetime
+import collections
 import os
 import time
 import threading
@@ -59,6 +60,23 @@ sensorwatch_published = None
 # currently up, it doesn't trigger any reconnect logic of its own.
 mqtt_connected = False
 mqtt_last_change = None
+
+# Betriebsstatistik der MQTT-Seite (die Gegenstuecke zur Anlagenseite stehen in
+# comfoconnect.py unter self.stats). Startzeit als Bezugsgroesse: "3 Abbrueche"
+# heisst etwas voellig anderes nach einer Stunde als nach drei Wochen.
+plugin_start = time.time()
+mqtt_abbrueche = 0
+mqtt_letzter_abbruch = None
+
+# Wird in setup_logger() gesetzt, sobald ein Verzeichnis für Störungsberichte
+# übergeben wurde. Hier schon definiert, damit der Status-Thread ihn auch dann
+# lesen kann, wenn es (noch) keinen gibt.
+stoerungsschreiber = None
+
+# Führt dieselben Zähler zusätzlich über Neustarts hinweg fort (siehe Klasse
+# Langzeitstatistik). Wird in main() angelegt, sobald das Datenverzeichnis bekannt
+# ist; bleibt None, wenn keines übergeben wurde.
+langzeit = None
 
 # Filled in by main() from --statusfile. None until then, so write_status() can no-op
 # safely if it is ever called too early.
@@ -138,7 +156,7 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe(mqtt_topic + "BYPASS_OFF_TIME", qos=0)
 
 def on_disconnect(client, userdata, rc):
-    global mqtt_connected, mqtt_last_change
+    global mqtt_connected, mqtt_last_change, mqtt_abbrueche, mqtt_letzter_abbruch
 
     # Closing the session #############################################################################################
     # NOTE: rc here is NOT a CONNACK code - mqtt.connack_string(rc) used to be called
@@ -151,6 +169,8 @@ def on_disconnect(client, userdata, rc):
     if rc==0:
         _LOGGER.info("MQTT-Verbindung sauber getrennt.")
     else:
+        mqtt_abbrueche += 1
+        mqtt_letzter_abbruch = time.time()
         _LOGGER.error("MQTT-Verbindung unerwartet getrennt (Code %s: %s) - verbindet automatisch neu." % (str(rc), mqtt.error_string(rc)))
 
     mqtt_connected = False
@@ -170,7 +190,7 @@ def on_message(client, userdata, msg):
         # this callback: paho runs on_message on its network thread, and an uncaught
         # exception here kills that thread - the plugin then silently stops reacting
         # to MQTT until it is manually restarted. Log and ignore instead.
-        _LOGGER.error("Fehler bei Verarbeitung von MQTT %s = '%s': %s" % (topic, value, str(e)))
+        _LOGGER.error("Fehler bei Verarbeitung von MQTT %s = '%s': %s" % (topic, value, fehlertext(e)))
 
 def _dispatch_message(topic, value):
     global boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfocool_off_time
@@ -635,7 +655,7 @@ def callback_alarm(node_id, errors):
         client.publish(mqtt_topic + "ERROR_TEXT", text, qos=0, retain=True)
         _LOGGER.debug("to MQTT %sERROR_COUNT = %d" % (mqtt_topic, anzahl))
     except Exception as e:
-        _LOGGER.error("Konnte Störungsmeldung nicht per MQTT senden: " + str(e))
+        _LOGGER.error("Konnte Störungsmeldung nicht per MQTT senden: " + fehlertext(e))
 
 def poll_away_loop():
     """Holt den Abwesenheits-Zustand zyklisch ab und veroeffentlicht ihn per MQTT.
@@ -687,13 +707,241 @@ def poll_away_loop():
                 away_remaining_published = rest
 
         except Exception as e:
-            _LOGGER.debug("Konnte Abwesenheits-Zustand nicht abfragen: " + str(e))
+            _LOGGER.debug("Konnte Abwesenheits-Zustand nicht abfragen: " + fehlertext(e))
 
 def send_away(seconds):
     """Schaltet die Abwesenheit fuer die angegebene Dauer ein."""
     cmd = b'\x84\x15' + AWAY_SUBUNIT + b'\x00\x00\x00\x00' + seconds_to_timerfield(seconds) + b'\x00'
     comfoconnect.cmd_rmi_request(cmd)
     return cmd
+
+class Langzeitstatistik:
+    """Führt die Ereigniszähler über Neustarts hinweg fort.
+
+    Ohne das wären die Zahlen nach jedem Neustart wieder bei null - und zwar nicht
+    nur beim Neustart des LoxBerry, sondern auch beim Klick auf "Speichern" und beim
+    automatischen Neustart durch die Überwachung. Gerade Letzteres ist heikel: Der
+    greift genau dann, wenn etwas nicht stimmt, und würde damit ausgerechnet die
+    Zahlen löschen, die den Vorfall belegen.
+
+    Liegt im Datenverzeichnis (Speicherkarte), nicht auf der Ramdisk - die ist nach
+    einem Neustart des Systems leer.
+
+    Geschrieben wird nur, wenn sich tatsächlich etwas geändert hat, und höchstens
+    alle paar Minuten. Im Normalbetrieb passiert also über Stunden gar kein Zugriff
+    auf die Speicherkarte.
+    """
+
+    def __init__(self, verzeichnis, schreibabstand=300):
+        self.datei = os.path.join(verzeichnis, "statistik.json") if verzeichnis else None
+        # Die Weboberfläche kann die Statistik nicht selbst löschen: Sie würde nur die
+        # Datei anfassen, während dieser Prozess den Stand ohnehin im Speicher hält
+        # und beim nächsten Schreiben alles wiederherstellte. Stattdessen legt sie
+        # diese Markierung an, die hier bemerkt und wieder entfernt wird.
+        self.marker = os.path.join(verzeichnis, "statistik.reset") if verzeichnis else None
+        self.schreibabstand = schreibabstand
+        self.daten = {'seit': None, 'neustarts': 0, 'zaehler': {}}
+        self._zuletzt_geschrieben = 0
+        self._geaendert = False
+
+        self._laden()
+
+        # Stand aller früheren Läufe festhalten. Der aktuelle Lauf zählt bei null los
+        # und wird beim Speichern jeweils daraufaddiert.
+        self._frueher = dict(self.daten['zaehler'])
+
+        self.daten['neustarts'] = self.daten.get('neustarts', 0) + 1
+        if not self.daten.get('seit'):
+            self.daten['seit'] = time.time()
+        self._geaendert = True
+        self.speichern(erzwingen=True)
+
+    def _laden(self):
+        if not self.datei or not os.path.exists(self.datei):
+            return
+        try:
+            with open(self.datei, encoding='utf-8') as f:
+                gelesen = json.load(f)
+            if isinstance(gelesen, dict):
+                self.daten.update(gelesen)
+                self.daten.setdefault('zaehler', {})
+        except Exception as e:
+            # Kaputte Datei darf den Start nicht verhindern - dann eben bei null
+            # anfangen. Die Statistik ist ein Diagnosewerkzeug, kein Betriebsmittel.
+            _LOGGER.warning("Langzeitstatistik konnte nicht gelesen werden, beginne neu: " + fehlertext(e))
+
+    def uebernehmen(self, zaehler):
+        """Bildet die Gesamtsumme aus früheren Läufen plus dem aktuellen.
+
+        Bewusst als Summe statt einzeln hochzuzählen: Fällt das Speichern einmal aus
+        oder stürzt der Prozess ab, geht höchstens der letzte Abschnitt verloren -
+        es kann aber niemals etwas doppelt gezählt werden.
+        """
+        for name, wert in zaehler.items():
+            if isinstance(wert, (int, float)) and not name.startswith('letzt'):
+                gesamt = self._frueher.get(name, 0) + wert
+                if self.daten['zaehler'].get(name) != gesamt:
+                    self.daten['zaehler'][name] = gesamt
+                    self._geaendert = True
+
+    def reset_angefordert(self):
+        """True, wenn die Weboberfläche ein Zurücksetzen angefordert hat.
+
+        Entfernt die Markierung dabei gleich wieder, damit nicht bei jedem Durchlauf
+        erneut zurückgesetzt wird.
+        """
+        if not self.marker:
+            return False
+        try:
+            if os.path.exists(self.marker):
+                os.remove(self.marker)
+                return True
+        except Exception:
+            pass
+        return False
+
+    def zuruecksetzen(self):
+        self._frueher = {}
+        self.daten = {'seit': time.time(), 'neustarts': 1, 'zaehler': {}}
+        self._geaendert = True
+        self.speichern(erzwingen=True)
+
+    def speichern(self, erzwingen=False):
+        if not self.datei or not self._geaendert:
+            return
+        if not erzwingen and time.time() - self._zuletzt_geschrieben < self.schreibabstand:
+            return
+        try:
+            os.makedirs(os.path.dirname(self.datei), exist_ok=True)
+            # Erst in eine Nebendatei schreiben und dann umbenennen: Ein Stromausfall
+            # mitten im Schreiben hinterlässt sonst eine halbe Datei, die beim
+            # nächsten Start nicht mehr lesbar ist.
+            tmp = self.datei + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                json.dump(self.daten, f)
+            os.replace(tmp, self.datei)
+            self._zuletzt_geschrieben = time.time()
+            self._geaendert = False
+        except Exception as e:
+            _LOGGER.debug("Langzeitstatistik konnte nicht geschrieben werden: " + fehlertext(e))
+
+
+class StoerungsSchreiber(logging.Handler):
+    """Sichert bei einem Fehler die Logzeilen davor und danach in eine eigene Datei.
+
+    Warum das nötig ist: Bei Loglevel DEBUG wachsen die Logdateien schnell, und
+    LoxBerry räumt sie automatisch ab ("Log Maintenance cleaned up logfile"). Genau
+    der Teil, der eine Störung erklären würde, ist dann weg - beim Ausfall dieser
+    Nacht fehlten dadurch die entscheidenden Stunden.
+
+    Deshalb läuft hier ständig ein Ringpuffer der letzten Minuten mit. Sobald eine
+    Fehlermeldung auftritt, wird der Puffer weggeschrieben und anschließend noch
+    eine Weile weiter mitgeschnitten - man hat also Vorgeschichte UND Nachspiel.
+
+    Abgelegt wird im Datenverzeichnis, nicht im Logverzeichnis: Letzteres liegt auf
+    der Ramdisk (nach einem Neustart weg) und ist genau das, was aufgeräumt wird.
+
+    Drei Begrenzungen, damit das nie aus dem Ruder läuft:
+      - der Ringpuffer ist nach Zeit UND Zeilenzahl gedeckelt (Speicher)
+      - nach einem Bericht gilt eine Sperrzeit (sonst schriebe eine Störung, die
+        im Sekundentakt Fehler wirft, den Datenträger voll)
+      - es werden nur die neuesten Berichte behalten, ältere werden gelöscht
+    """
+
+    def __init__(self, verzeichnis, vorlauf=120, nachlauf=120,
+                 max_zeilen=20000, max_dateien=5, sperrzeit=600):
+        super().__init__()
+        self.verzeichnis = verzeichnis
+        self.vorlauf = vorlauf
+        self.nachlauf = nachlauf
+        self.max_zeilen = max_zeilen
+        self.max_dateien = max_dateien
+        self.sperrzeit = sperrzeit
+
+        self.puffer = collections.deque()
+        self.datei = None
+        self.ende = 0
+        self.naechster_erlaubt = 0
+        self.anzahl_berichte = 0
+        self.letzter_bericht = None
+
+    def emit(self, record):
+        # Diese Methode läuft in JEDEM Thread, der etwas protokolliert. Sie darf
+        # deshalb unter keinen Umständen eine Ausnahme nach oben durchlassen -
+        # sonst reißt eine kaputte Diagnosefunktion das Plugin mit.
+        try:
+            jetzt = time.time()
+            zeile = self.format(record)
+
+            self.puffer.append((jetzt, zeile))
+            while self.puffer and (jetzt - self.puffer[0][0] > self.vorlauf
+                                   or len(self.puffer) > self.max_zeilen):
+                self.puffer.popleft()
+
+            if self.datei:
+                self.datei.write(zeile + "\n")
+                if jetzt > self.ende:
+                    self._schliessen()
+            elif record.levelno >= logging.ERROR and jetzt >= self.naechster_erlaubt:
+                self._starten(jetzt, record)
+
+        except Exception:
+            pass
+
+    def _starten(self, jetzt, record):
+        os.makedirs(self.verzeichnis, exist_ok=True)
+        name = os.path.join(
+            self.verzeichnis,
+            "stoerung_%s.log" % datetime.datetime.fromtimestamp(jetzt).strftime("%Y%m%d_%H%M%S")
+        )
+        self.datei = open(name, "w", encoding="utf-8")
+        self.ende = jetzt + self.nachlauf
+        self.letzter_bericht = jetzt
+        self.anzahl_berichte += 1
+
+        self.datei.write("Störungsbericht - ausgelöst durch:\n  %s\n\n" % record.getMessage())
+        self.datei.write("Die folgenden Zeilen umfassen etwa %d Sekunden davor und %d danach.\n"
+                         % (self.vorlauf, self.nachlauf))
+        self.datei.write("=" * 78 + "\n")
+        for _, alt in self.puffer:
+            self.datei.write(alt + "\n")
+
+    def _schliessen(self):
+        try:
+            self.datei.write("=" * 78 + "\nEnde des Störungsberichts.\n")
+            self.datei.close()
+        finally:
+            self.datei = None
+            self.naechster_erlaubt = time.time() + self.sperrzeit
+            self._aufraeumen()
+
+    def _aufraeumen(self):
+        """Behält nur die neuesten Berichte."""
+        try:
+            dateien = sorted(
+                (os.path.join(self.verzeichnis, f) for f in os.listdir(self.verzeichnis)
+                 if f.startswith("stoerung_") and f.endswith(".log")),
+                key=os.path.getmtime, reverse=True
+            )
+            for alt in dateien[self.max_dateien:]:
+                os.remove(alt)
+        except Exception:
+            pass
+
+
+def fehlertext(e):
+    """Beschreibt eine Ausnahme lesbar - auch wenn sie gar keinen Text hat.
+
+    Die Protokoll-Ausnahmen dieser Bibliothek (PyComfoConnectNotAllowed,
+    ...NotExist, ...BadRequest und die uebrigen) sind reine Markierungsklassen
+    ohne Meldung, str() liefert dort einen LEEREN String. Wer sie nur mit str(e)
+    protokolliert, schreibt "ging nicht: " ins Log und verschweigt die Ursache -
+    genau so geschehen bei der Abwesenheitsabfrage, wo 375 Meldungen ohne jede
+    Begruendung im Log standen, obwohl der Grund (NOT_ALLOWED) eine Zeile darueber
+    stand.
+    """
+    text = str(e)
+    return "%s: %s" % (type(e).__name__, text) if text else type(e).__name__
 
 def to_seconds(value):
     """Wandelt eine MQTT-Nutzlast in ganze Sekunden.
@@ -764,6 +1012,26 @@ def write_status_loop():
     """
     while True:
         try:
+            # Zurücksetzen auf Wunsch aus der Weboberfläche. Bewusst hier und nicht
+            # dort erledigt: Nur dieser Prozess kennt den vollständigen Stand, und
+            # zurückgesetzt gehören BEIDE Spalten - eine Statistik, in der die
+            # Gesamtzahl bei null steht und der laufende Betrieb noch die alten Werte
+            # zeigt, wäre schlimmer als gar keine.
+            if langzeit and langzeit.reset_angefordert():
+                if comfoconnect:
+                    for name in list(comfoconnect.stats):
+                        comfoconnect.stats[name] = None if name.startswith('letzt') else 0
+                globals()['mqtt_abbrueche'] = 0
+                globals()['mqtt_letzter_abbruch'] = None
+                if stoerungsschreiber:
+                    stoerungsschreiber.anzahl_berichte = 0
+                    stoerungsschreiber.letzter_bericht = None
+                langzeit.zuruecksetzen()
+                _LOGGER.info("Diagnose-Statistik wurde über die Weboberfläche zurückgesetzt.")
+        except Exception as e:
+            _LOGGER.debug("Zurücksetzen der Statistik fehlgeschlagen: " + fehlertext(e))
+
+        try:
             if statusfile:
                 status = {
                     'pid': os.getpid(),
@@ -790,7 +1058,35 @@ def write_status_loop():
                     # the bridge has actually confirmed in the *current* session.
                     'sensors_registered': len(comfoconnect.sensors_confirmed) if comfoconnect else 0,
                     'sensors_expected': sensors_expected,
+
+                    # Betriebsstatistik fuer die Diagnoseanzeige. Zaehlt die
+                    # Aussetzer, die im laufenden Betrieb bewusst abgefangen und
+                    # nicht als Stoerung gemeldet werden - sonst waeren sie
+                    # unsichtbar, und eine Anlage, die schleichend haeufiger
+                    # zickt, fiele erst auf, wenn gar nichts mehr geht.
+                    'plugin_start': plugin_start,
+                    'mqtt_abbrueche': mqtt_abbrueche,
+                    'mqtt_letzter_abbruch': mqtt_letzter_abbruch,
+                    'stats': dict(comfoconnect.stats) if comfoconnect else {},
+                    'stoerungsberichte': stoerungsschreiber.anzahl_berichte if stoerungsschreiber else 0,
+                    'letzter_stoerungsbericht': stoerungsschreiber.letzter_bericht if stoerungsschreiber else None,
                 }
+
+                # Dieselben Zaehler zusaetzlich als Langzeitwert. Die Zahlen oben
+                # beziehen sich immer nur auf den laufenden Prozess und stehen nach
+                # jedem Neustart wieder auf null - auch nach einem Klick auf
+                # "Speichern" und nach einem Neustart durch die Ueberwachung. Genau
+                # der letzte Fall greift aber dann, wenn etwas nicht stimmt, und
+                # wuerde ohne das hier ausgerechnet die belastenden Zahlen loeschen.
+                if langzeit:
+                    laufend = dict(status['stats'])
+                    laufend['mqtt_abbrueche'] = mqtt_abbrueche
+                    laufend['stoerungsberichte'] = status['stoerungsberichte']
+                    langzeit.uebernehmen(laufend)
+                    langzeit.speichern()
+                    status['gesamt'] = dict(langzeit.daten['zaehler'])
+                    status['gesamt_seit'] = langzeit.daten.get('seit')
+                    status['gesamt_neustarts'] = langzeit.daten.get('neustarts', 0)
 
                 # Write to a tmp file and rename over the real one - index.cgi (or the
                 # restart check) must never be able to read a half-written file.
@@ -800,14 +1096,14 @@ def write_status_loop():
                 os.replace(tmpfile, statusfile)
 
         except Exception as e:
-            _LOGGER.debug("Konnte Statusdatei nicht schreiben: " + str(e))
+            _LOGGER.debug("Konnte Statusdatei nicht schreiben: " + fehlertext(e))
 
         try:
             publish_sensorwatch_state()
         except Exception as e:
             # Wie beim Schreiben der Statusdatei: eine Diagnosefunktion darf das
             # eigentliche Plugin niemals mit in den Abgrund reissen.
-            _LOGGER.debug("Konnte Sensor-Timeout-Status nicht veröffentlichen: " + str(e))
+            _LOGGER.debug("Konnte Sensor-Timeout-Status nicht veröffentlichen: " + fehlertext(e))
 
         time.sleep(1)
 
@@ -860,6 +1156,8 @@ def main():
 
     loglevel=logging.ERROR
     search = False
+    snapshotdir = ""
+
     boost_mode_time = b'\x84\x03'
     ventmode_stop_supply_fan_time = b'\x10\x0e'
     ventmode_stop_exhaust_fan_time = b'\x10\x0e'
@@ -869,7 +1167,7 @@ def main():
     comfocool_off_time = 0
     configfile = ""
 
-    opts, args = getopt.getopt(sys.argv[1:],"c:f:l:s:",['configfile=', 'logfile=', 'loglevel=', 'search', 'statusfile='])
+    opts, args = getopt.getopt(sys.argv[1:],"c:f:l:s:",['configfile=', 'logfile=', 'loglevel=', 'search', 'statusfile=', 'snapshotdir='])
     for opt, args in opts:
         if opt in ("-c", "--configfile"):
             configfile = args
@@ -881,19 +1179,30 @@ def main():
             search = True
         elif opt == "--statusfile":
             statusfile = args
+        elif opt == "--snapshotdir":
+            snapshotdir = args
     
     if loglevel == 7: # Level Debug
         debug = True
     else:
         debug = False
 
-    _LOGGER = setup_logger("COMFOCONNECT")
+    _LOGGER = setup_logger("COMFOCONNECT", snapshotdir)
     # logfile statt einer zweiten, identischen Kopie der Option: die gab es hier
     # frueher als eigene Variable, die aber nur gesetzt wurde, WENN --logfile
     # uebergeben wurde - ohne die Option waere diese Zeile mit einem NameError
     # abgestuerzt, noch bevor irgendetwas geloggt werden konnte.
     _LOGGER.debug("logfile: " + str(logfile))
     _LOGGER.info("loglevel: " + logging.getLevelName(_LOGGER.level))
+
+    # Erst hier, nicht in setup_logger(): braucht einen funktionierenden Logger, um
+    # eine unlesbare Datei melden zu koennen.
+    if snapshotdir:
+        try:
+            global langzeit
+            langzeit = Langzeitstatistik(snapshotdir)
+        except Exception as e:
+            _LOGGER.warning("Langzeitstatistik nicht verfuegbar: " + fehlertext(e))
     
     # Get configurations from file
     try:
@@ -1045,7 +1354,7 @@ def main():
             # shouldn't claim "normal"/success for something it can't verify.
             _LOGGER.warning("CloseSessionRequest gesendet, aber keine Bestätigung erhalten (Timeout) - Session evtl. noch offen, takeover beim nächsten Start übernimmt das: " + str(e))
         except Exception as e:
-            _LOGGER.warning("Konnte Session bei der Zehnder-Box nicht sauber schließen: " + str(e))
+            _LOGGER.warning("Konnte Session bei der Zehnder-Box nicht sauber schließen: " + fehlertext(e))
 
         try:
             # disconnect() before loop_stop(): sends the clean DISCONNECT packet
@@ -1057,6 +1366,21 @@ def main():
             client.loop_stop()
         except Exception:
             pass
+
+        # Letzter Stand der Zaehler auf die Speicherkarte, bevor os._exit() unten den
+        # Prozess hart beendet. Zwischendurch wird nur alle paar Minuten geschrieben -
+        # ohne das hier ginge bei einem Neustart regelmaessig der letzte Abschnitt
+        # verloren, und ausgerechnet der ist der interessante, wenn die Ueberwachung
+        # wegen einer Stoerung neu startet.
+        if langzeit:
+            try:
+                laufend = dict(comfoconnect.stats) if comfoconnect else {}
+                laufend['mqtt_abbrueche'] = mqtt_abbrueche
+                laufend['stoerungsberichte'] = stoerungsschreiber.anzahl_berichte if stoerungsschreiber else 0
+                langzeit.uebernehmen(laufend)
+                langzeit.speichern(erzwingen=True)
+            except Exception:
+                pass
 
         _LOGGER.info("Sauber heruntergefahren.")
 
@@ -1133,7 +1457,7 @@ def main():
                 # plain exit(1) would then just hang forever waiting for that thread to
                 # finish instead of actually terminating the process.
                 os._exit(1)
-            _LOGGER.warning("Verbindung zur Bridge fehlgeschlagen (Versuch %d/%d), erneuter Versuch: %s" % (attempt, bridge_connect_attempts, str(e)))
+            _LOGGER.warning("Verbindung zur Bridge fehlgeschlagen (Versuch %d/%d), erneuter Versuch: %s" % (attempt, bridge_connect_attempts, fehlertext(e)))
             time.sleep(2)
 
 #   Register sensors ################################################################################################
@@ -1283,7 +1607,7 @@ def main():
         _LOGGER.info("Timeinfo: " + str(timeinfo))
 
     except Exception as e:
-        _LOGGER.error("Diagnose-Abfragen (Version/RegisteredApps/Time) fehlgeschlagen, vermutlich Verbindung gerade unterbrochen: %s" % str(e))
+        _LOGGER.error("Diagnose-Abfragen (Version/RegisteredApps/Time) fehlgeschlagen, vermutlich Verbindung gerade unterbrochen: %s" % fehlertext(e))
     
 
 def map_loglevel(loxlevel):
@@ -1299,19 +1623,62 @@ def map_loglevel(loxlevel):
     }
     return switcher.get(int(loxlevel),"unsupported loglevel")
 
-def setup_logger(name):
+def setup_logger(name, snapshotdir=""):
     global logfile
     
     logging.captureWarnings(1)
     logger = logging.getLogger(name)
     handler = logging.StreamHandler(sys.stdout)
 
+    # Die Loglevel-Einstellung des LoxBerry wird bewusst NICHT mehr am Logger
+    # gesetzt, sondern an den ausgebenden Handlern. Das klingt nach Haarspalterei,
+    # macht aber den entscheidenden Unterschied für die Störungsberichte:
+    #
+    # Ein Logger verwirft Meldungen unterhalb seines Levels sofort - sie entstehen
+    # gar nicht erst und erreichen KEINEN Handler. Stand der LoxBerry also auf
+    # "Fehler", lief der Ringpuffer des StoerungsSchreibers leer mit, und ein
+    # Bericht enthielt am Ende nur die Fehlerzeile selbst. Ausgerechnet die
+    # Vorgeschichte, die den Fehler erklärt, fehlte.
+    #
+    # Jetzt entstehen intern immer alle Meldungen bis DEBUG hinunter; welche davon
+    # tatsächlich in Logdatei und stdout landen, entscheiden die Handler. Nach außen
+    # ändert sich dadurch nichts - die Logdatei bleibt genauso knapp wie eingestellt.
+    # Der Ringpuffer sieht aber alles und kann im Fehlerfall die vollständige
+    # Vorgeschichte sichern, ohne dass dauerhaft auf DEBUG gestellt werden muss.
+    handler.setLevel(loglevel)
     logger.addHandler(handler)
-    logger.setLevel(loglevel)
+    logger.setLevel(logging.DEBUG)
 
     if not logfile:
         logfile="/tmp/"+datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')[:-3]+"_comfoconnect.log"
-    logging.basicConfig(filename=logfile,level=loglevel,format='%(asctime)s.%(msecs)03d <%(levelname)s> %(message)s',datefmt='%H:%M:%S')
+    # Root auf DEBUG (siehe oben) - sonst wären die Meldungen der Bibliothek
+    # (Logger "comfoconnect" und "bridge", die ihr Level von hier erben) schon
+    # wieder gefiltert, und gerade die erklären eine Störung meistens.
+    logging.basicConfig(filename=logfile,level=logging.DEBUG,format='%(asctime)s.%(msecs)03d <%(levelname)s> %(message)s',datefmt='%H:%M:%S')
+
+    # ...und die Begrenzung stattdessen an die Logdatei selbst.
+    for h in logging.getLogger().handlers:
+        if isinstance(h, logging.FileHandler):
+            h.setLevel(loglevel)
+
+    # Störungsberichte (siehe StoerungsSchreiber). Bewusst am ROOT-Logger und nicht
+    # an unserem eigenen: So werden auch die Meldungen der Bibliothek
+    # (pycomfoconnect, eigener Logger "comfoconnect") mitgeschnitten - und gerade
+    # die erklären eine Störung meistens.
+    #
+    # Der Handler bekommt dasselbe Format wie die Logdatei, damit ein Bericht
+    # aussieht wie ein Ausschnitt daraus und sich direkt vergleichen lässt.
+    global stoerungsschreiber
+    stoerungsschreiber = None
+    if snapshotdir:
+        try:
+            stoerungsschreiber = StoerungsSchreiber(snapshotdir)
+            stoerungsschreiber.setFormatter(logging.Formatter(
+                '%(asctime)s.%(msecs)03d <%(levelname)s> %(message)s', datefmt='%H:%M:%S'))
+            stoerungsschreiber.setLevel(logging.DEBUG)
+            logging.getLogger().addHandler(stoerungsschreiber)
+        except Exception as e:
+            logger.error("Konnte Störungsberichte nicht einrichten: " + str(e))
 
     return logger
 

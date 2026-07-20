@@ -215,6 +215,43 @@ class ComfoConnect(object):
         # soll nicht als weiterhin vorhanden gelten.
         self.products_seen = set()
 
+        # True, wenn die Anlage unsere Sitzung verworfen hat (NOT_ALLOWED), die
+        # TCP-Verbindung aber steht. Dann genuegt eine Neuanmeldung, siehe
+        # _session_verloren() und _connection_thread_loop().
+        self._session_invalid = False
+
+        # Zeitstempel der letzten Sitzungsverluste, um eine Haeufung zu erkennen
+        # (Hinweis auf einen konkurrierenden zweiten Client).
+        self._session_verluste = []
+
+        # Betriebsstatistik fuer die Diagnoseanzeige.
+        #
+        # Sinn: Seit die Aussetzer sauber abgefangen werden (verspaetete Antworten
+        # verwerfen, Sitzung erneuern, nicht unterstuetzte Sensoren ueberspringen),
+        # laeuft das Plugin darueber hinweg - und niemand sieht mehr, DASS etwas war.
+        # Das ist im Betrieb richtig so, macht aber blind fuer schleichende Probleme:
+        # eine Anlage, die staendig traege antwortet oder immer wieder die Sitzung
+        # verwirft, faellt sonst erst auf, wenn gar nichts mehr geht.
+        #
+        # Jeweils Anzahl und Zeitpunkt des letzten Vorkommens - eine Zahl allein
+        # sagt nicht, ob das Problem heute frueh oder vor drei Wochen war.
+        self.stats = {
+            'verbindungsabbrueche': 0,      # TCP-Verbindung weg, kompletter Neuaufbau
+            'sitzungserneuerungen': 0,      # NOT_ALLOWED, Neuanmeldung ohne TCP-Abbau
+            'antwort_timeouts': 0,          # Anlage hat nicht rechtzeitig geantwortet
+            'verworfene_antworten': 0,      # verspaetete Antworten, entsorgt
+            'uebersprungene_sensoren': 0,   # von dieser Anlage nicht unterstuetzt
+            'letzter_verbindungsabbruch': None,
+            'letzte_sitzungserneuerung': None,
+            'letzter_timeout': None,
+        }
+
+    def _zaehle(self, zaehler, zeitstempel=None):
+        """Erhoeht einen Statistikzaehler und merkt sich den Zeitpunkt."""
+        self.stats[zaehler] = self.stats.get(zaehler, 0) + 1
+        if zeitstempel:
+            self.stats[zeitstempel] = time.time()
+
         # True only while a connection is up AND the (re-)registration sweep for all
         # known sensors (self.sensors) has actually finished - False from the moment a
         # disconnect is noticed until the next successful sweep completes.
@@ -382,6 +419,7 @@ class ComfoConnect(object):
             # Zeitueberschreitung beim Warten auf die Bestaetigung. Kein Grund zur
             # Panik: Nicht jede Anlage und nicht jeder Firmware-Stand kennt jede pdid,
             # und unbekannte werden schlicht ignoriert statt abgelehnt.
+            self._zaehle('uebersprungene_sensoren')
             _LOGGER.warning("Sensor %d wird von dieser Anlage nicht unterstützt (keine Antwort) - wird übersprungen." % sensor_id)
             return None
 
@@ -391,6 +429,7 @@ class ComfoConnect(object):
             # oben durch und hat den Prozess beendet - fuer eine Anlage, die nur
             # hoeflich mitteilt, dass sie diesen Wert nicht kennt. Ebenfalls
             # ueberspringen.
+            self._zaehle('uebersprungene_sensoren')
             _LOGGER.warning("Sensor %d wird von dieser Anlage abgelehnt (%s) - wird übersprungen."
                             % (sensor_id, type(e).__name__))
             return None
@@ -503,6 +542,62 @@ class ComfoConnect(object):
                 _LOGGER.error("Unexpected error in _command._get_reply for confirm type " + confirm_type.__name__ + ": " + sys.exc_info()[0].__name__)
             raise
 
+    def _session_verloren(self, grund, use_queue):
+        """Behandelt eine Antwort, die bedeutet: die Anlage kennt unsere Sitzung nicht mehr.
+
+        NOT_ALLOWED heisst im Protokoll "nicht authentifiziert". Beobachtet in der
+        Praxis: Die Anlage verwirft eine laufende Sitzung, laesst die TCP-Verbindung
+        aber offen. Danach beantwortet sie jede Anfrage mit NOT_ALLOWED und schickt
+        keine Sensordaten mehr.
+
+        Von aussen war das praktisch unsichtbar:
+          - die Leseschleife dreht weiter und frischt last_alive_ping auf
+          - cmd_keepalive() erwartet gar keine Antwort und "gelingt" deshalb immer
+          - Sensordaten bleiben aus, was nur die (standardmaessig ausgeschaltete)
+            Sensorwert-Ueberwachung bemerkt haette
+        In einem echten Fall: zwei Stunden lang kein einziger Messwert, waehrend das
+        Plugin sich fuer kerngesund hielt. Vorher stand hier gar keine Behandlung -
+        der Zustand blieb bis zum naechsten Neustart bestehen.
+
+        Die Antwort darauf ist gezielt und NICHT "alles wegwerfen": Der Message-Thread
+        wird beendet, damit anschliessend eine neue Sitzung angemeldet werden kann
+        (siehe _connection_thread_loop). Die TCP-Verbindung bleibt dabei bestehen.
+
+        use_queue unterscheidet die Betriebsphase: Waehrend des Verbindungsaufbaus
+        (use_queue=False) ist NOT_ALLOWED voellig normal - es bedeutet dort "App noch
+        nicht registriert" und wird von _connect() gezielt abgefangen, um die
+        Registrierung nachzuholen. Nur im laufenden Betrieb ist es ein Alarmzeichen.
+        """
+        if not use_queue:
+            return
+
+        # Haeufung erkennen: Die Anlage laesst nur EINE Sitzung gleichzeitig zu. Meldet
+        # sich staendig ein zweiter Client an (zweite Plugin-Instanz, Zehnder-App,
+        # zweiter LoxBerry), nehmen sich beide abwechselnd die Sitzung weg. Das laesst
+        # sich von hier aus nicht loesen - aber man kann es benennen, statt den Nutzer
+        # ueber dauernde Neuanmeldungen im Log raetseln zu lassen.
+        jetzt = time.time()
+        self._session_verluste = [t for t in self._session_verluste if jetzt - t < 600]
+        self._session_verluste.append(jetzt)
+
+        if len(self._session_verluste) >= 3:
+            _LOGGER.warning(
+                "Die Lüftungsanlage hat unsere Sitzung innerhalb von 10 Minuten schon %d mal "
+                "verworfen (%s). Das deutet auf einen zweiten Client hin, der sich parallel "
+                "verbindet - die ComfoConnect LAN C erlaubt nur eine Sitzung gleichzeitig. "
+                "Mögliche Ursachen: eine zweite Plugin-Instanz auf einem anderen LoxBerry, "
+                "die Zehnder-App im lokalen Netz, oder ein anderes Steuerungssystem."
+                % (len(self._session_verluste), grund)
+            )
+        else:
+            _LOGGER.warning(
+                "Die Lüftungsanlage hat unsere Sitzung verworfen (%s) - melde mich neu an." % grund
+            )
+
+        self._zaehle('sitzungserneuerungen', 'letzte_sitzungserneuerung')
+        self._session_invalid = True
+        self._stopping = True
+
     def _get_reply(self, confirm_type=None, timeout=5, use_queue=True, expected_reference=None, context=None):
         """Pops a message of the queue, optionally looking for a specific type.
 
@@ -590,8 +685,10 @@ class ComfoConnect(object):
                         elif message.cmd.result == GatewayOperation.NOT_REACHABLE:
                             raise PyComfoConnectNotReachable()
                         elif message.cmd.result == GatewayOperation.OTHER_SESSION:
+                            self._session_verloren('OTHER_SESSION', use_queue)
                             raise PyComfoConnectOtherSession(message.msg.devicename)
                         elif message.cmd.result == GatewayOperation.NOT_ALLOWED:
+                            self._session_verloren('NOT_ALLOWED', use_queue)
                             raise PyComfoConnectNotAllowed()
                         elif message.cmd.result == GatewayOperation.NO_RESOURCES:
                             raise PyComfoConnectNoResources()
@@ -622,6 +719,7 @@ class ComfoConnect(object):
                             # forever, for the rest of this connection's lifetime (harmless,
                             # but a permanently recurring log line for something we already
                             # know is dead).
+                            self._zaehle('verworfene_antworten')
                             _LOGGER.debug(
                                 "Discarding orphaned confirm for a reference we already gave up on: "
                                 + str(message.cmd.reference)
@@ -678,24 +776,35 @@ class ComfoConnect(object):
                     if expected_reference is not None:
                         detail += " reference=" + str(expected_reference)
 
+                    # Wir geben diese Referenz endgueltig auf (der Aufrufer mag es erneut
+                    # versuchen, aber dann mit einer neuen Nummer) - taucht spaeter doch
+                    # noch eine Antwort dazu auf, ist sie herrenlos. Siehe den Zweig
+                    # "Discarding orphaned confirm" weiter oben.
+                    #
+                    # WICHTIG: Das gilt fuer JEDEN Antworttyp. Frueher stand dieser
+                    # Eintrag nur im else-Zweig, die CnRmiResponse-Sonderbehandlung
+                    # darunter sprang vorher heraus. Jede zeitlich verpasste
+                    # RMI-Antwort blieb dadurch dauerhaft in der Warteschlange: Sie
+                    # wurde bei jedem folgenden Aufruf erneut hervorgeholt, als fremd
+                    # erkannt und zurueckgelegt - endlos. In einem echten Log sammelten
+                    # sich so binnen zwei Stunden acht solcher Karteileichen an, jede
+                    # davon bei jeder Abfrage aufs Neue durchgesehen.
+                    if expected_reference is not None:
+                        self._abandoned_references.add(expected_reference)
+
+                    self._zaehle('antwort_timeouts', 'letzter_timeout')
+                    _LOGGER.error("Timeout waiting for response. " + detail)
+
                     # Identity check against the imported class, not a string comparison
                     # against its repr - the old "<class 'zehnder_pb2.CnRmiResponse'>"
                     # string would silently stop matching if the module/class were ever
                     # renamed or the protobuf runtime changed how it formats a class.
                     if confirm_type is CnRmiResponse:
-                        # We got no message for confirm_type CnRmiResponse
-                        _LOGGER.error("Timeout waiting for response. " + detail)
+                        # RMI-Aufrufe melden das Ausbleiben ueber den Rueckgabewert
+                        # statt ueber eine Ausnahme.
                         return False
-                    else:
-                        # We're giving up on this reference for good here (the caller may
-                        # retry, but that happens with a brand-new reference number) - if a
-                        # confirm for it still shows up later, it's permanently orphaned. See
-                        # the "Discarding orphaned confirm" branch above.
-                        if expected_reference is not None:
-                            self._abandoned_references.add(expected_reference)
 
-                        _LOGGER.error("Timeout waiting for response. " + detail)
-                        raise ValueError('Timeout waiting for response.')
+                    raise ValueError('Timeout waiting for response.')
         finally:
             # Give back anything we picked up along the way that wasn't ours, so
             # whoever it actually belongs to (or the next call, or _message_thread_loop's
@@ -720,6 +829,7 @@ class ComfoConnect(object):
                 # initial connect - see the _is_reconnect comment in __init__.
                 self.sensors_ready = False
                 self._is_reconnect = True
+                self._zaehle('verbindungsabbrueche', 'letzter_verbindungsabbruch')
 
                 # Wait a bit to avoid hammering the bridge
                 time.sleep(5)
@@ -776,6 +886,7 @@ class ComfoConnect(object):
                 # __init__) - any previously abandoned reference can never legitimately
                 # reappear on this new connection, so drop the bookkeeping along with it.
                 self._abandoned_references = set()
+                self._session_invalid = False
 
                 # Geraeteliste ebenfalls neu aufbauen - die Anlage meldet ihre Geraete
                 # nach jedem Verbindungsaufbau erneut (siehe products_seen in __init__).
@@ -858,6 +969,33 @@ class ComfoConnect(object):
                 
                 # Wait until the message thread stops working
                 self._message_thread.join()
+
+                # Hat die Anlage nur unsere SITZUNG verworfen (NOT_ALLOWED), ist die
+                # TCP-Verbindung selbst voellig in Ordnung. Die protokollgerechte
+                # Antwort darauf ist, sich neu anzumelden - nicht, die Verbindung
+                # wegzuwerfen und alles von vorne aufzubauen. Gelingt die Anmeldung,
+                # geht es oben in der Schleife direkt mit Message-Thread und
+                # Sensor-Neuregistrierung weiter, ohne TCP-Abbau und ohne die 5s
+                # Wartezeit.
+                #
+                # use_queue=False ist hier zwingend: Der Message-Thread ist gerade
+                # beendet, es fuellt also niemand mehr die Warteschlange - die Antwort
+                # muss direkt vom Socket gelesen werden.
+                if self._session_invalid and self.is_connected() and not self._disconnecting:
+                    self._session_invalid = False
+                    try:
+                        _LOGGER.info("Melde die Sitzung bei der Lüftungsanlage neu an...")
+                        self.cmd_start_session(True, use_queue=False)
+                        self._stopping = False      # sonst beendet sich der neue Thread sofort
+                        self.sensors_ready = False  # Abos sind mit der alten Sitzung verfallen
+                        self._is_reconnect = True   # damit sensors_ready danach wieder gesetzt wird
+                        _LOGGER.info("Sitzung erneuert - registriere die Sensoren neu.")
+                        continue
+                    except Exception as e:
+                        _LOGGER.warning(
+                            "Sitzung konnte nicht erneuert werden (%s) - baue die Verbindung "
+                            "komplett neu auf." % type(e).__name__
+                        )
 
                 # Close socket connection
                 self._bridge.disconnect()
@@ -1063,7 +1201,9 @@ class ComfoConnect(object):
             # Eine Stoerungsmeldung darf niemals den Message-Thread mitreissen -
             # dann liefe gar nichts mehr, nur weil ein Feld anders aussieht als
             # erwartet.
-            _LOGGER.error("Konnte Alarmmeldung nicht auswerten: " + str(e))
+            # Typ mit ausgeben: viele Ausnahmen dieser Bibliothek haben gar keinen
+            # Text, str(e) alleine ergaebe eine Meldung ohne jede Ursache.
+            _LOGGER.error("Konnte Alarmmeldung nicht auswerten (%s): %s" % (type(e).__name__, str(e)))
             return
 
         node_id = getattr(message.msg, 'nodeId', 0)

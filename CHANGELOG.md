@@ -60,6 +60,35 @@ angeschlossenen Geräte beim Verbindungsaufbau von sich aus. Es ist dafür keine
 Einstellung nötig, und wer nachrüstet, bekommt die Werte nach dem nächsten
 Neustart automatisch. Anlagen ohne Kühlmodul sehen davon nichts.
 
+**Diagnose-Anzeige.** Manche Aussetzer fängt das Plugin im laufenden Betrieb
+selbst ab — eine ausbleibende Antwort der Anlage, ein kurzer Verbindungsabbruch,
+ein Aussetzer beim MQTT-Broker. Das ist richtig so, macht aber blind: Eine Anlage,
+die schleichend häufiger zickt, fällt sonst erst auf, wenn gar nichts mehr geht.
+Diese Ereignisse werden jetzt gezählt und in den Plugin-Einstellungen angezeigt,
+jeweils mit Zeitpunkt des letzten Vorkommens.
+
+Die Zahlen bleiben über einen Neustart hinweg erhalten (in
+`data/plugins/comfoconnect/statistik.json`), sodass neben dem laufenden Betrieb
+auch der Verlauf über Wochen sichtbar ist. Das ist wichtig, weil das Plugin bei
+einer Störung unter Umständen selbst neu startet — und damit sonst genau die
+Zahlen löschen würde, die den Vorfall belegen. Über „Statistik zurücksetzen"
+unterhalb der Tabelle lässt sich jederzeit wieder bei null anfangen, etwa nachdem
+die Ursache eines Problems behoben wurde.
+
+**Störungsberichte.** Tritt ein Fehler auf, sichert das Plugin automatisch einen
+Ausschnitt des Logs — zwei Minuten davor und danach — in
+`data/plugins/comfoconnect/`. Hintergrund: Das normale Logverzeichnis liegt im
+Arbeitsspeicher und wird von LoxBerry aufgeräumt, sobald es zu groß wird. Bei
+einem nächtlichen Ausfall war am Morgen deshalb regelmäßig nichts mehr davon übrig.
+Die Berichte überstehen das Aufräumen und einen Neustart.
+
+Wichtig dabei: Ein Störungsbericht enthält **immer die vollständigen Details**,
+unabhängig vom eingestellten Loglevel. Das Loglevel steuert weiterhin nur, was in
+der normalen Logdatei landet — es kann also dauerhaft auf „Fehler" stehen bleiben
+(kleines, übersichtliches Log), und im Ernstfall liegt trotzdem die komplette
+Vorgeschichte auf DEBUG-Ebene vor. Bisher musste man dafür durchgehend auf DEBUG
+schalten und in Kauf nehmen, dass das Log zuwächst.
+
 **Sauberes Beenden.** Beim Neustart meldet sich das Plugin jetzt ordentlich bei
 der Lüftungsanlage ab. Vorher hielt die Anlage die alte Verbindung noch mehrere
 Sekunden fest, was den Neustart verzögerte.

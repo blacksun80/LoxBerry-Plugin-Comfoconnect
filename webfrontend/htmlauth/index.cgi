@@ -99,7 +99,7 @@ $psubfolder =~ s/(.*)\/(.*)\/(.*)$/$2/g;
 # und würde das Log zumüllen. Alles Weitere (general.cfg, MQTT-Credentials,
 # Template-Laden) liegt ohnehin dahinter.
 if ( $cgi->param('ajax_status') || $cgi->url_param('ajax_status') ) {
-	my ($status_text, $status_class) = getStatus($psubfolder);
+	my ($status_text, $status_class, $diagnostics) = getStatus($psubfolder);
 	print $cgi->header( -type => 'application/json', -charset => 'utf-8' );
 	# NOTE: encode_json() (and JSON::PP->new with the default utf8(1)) expects a
 	# proper Perl-internal Unicode string and UTF-8-*encodes* it. This script has
@@ -113,7 +113,41 @@ if ( $cgi->param('ajax_status') || $cgi->url_param('ajax_status') ) {
 	# output - it only handles the JSON structure (quotes, braces, escaping) and
 	# passes string content through untouched, consistent with how the rest of
 	# this script (and the HTML::Template output) already handles UTF-8.
-	print JSON::PP->new->utf8(0)->encode({ statustext => $status_text, statusclass => $status_class });
+	print JSON::PP->new->utf8(0)->encode({ statustext => $status_text, statusclass => $status_class, diagnostics => $diagnostics });
+	exit;
+}
+
+##########################################################################
+# Diagnose-Statistik zurücksetzen
+##########################################################################
+# Hier wird nur eine Markierung abgelegt - das eigentliche Zurücksetzen erledigt
+# cfc.py (siehe Langzeitstatistik.reset_angefordert()). Grund: Der laufende Prozess
+# hält den Stand ohnehin im Speicher und würde eine hier gelöschte Datei beim
+# nächsten Schreiben einfach wiederherstellen. Außerdem gehören die Zähler des
+# laufenden Betriebs mit zurückgesetzt, und an die kommt nur er heran.
+#
+# Nur per POST: Ein Aufruf, der Daten verwirft, darf nicht durch einen simplen
+# Link-Aufruf oder den Vorablader des Browsers ausgelöst werden können.
+if ( $cgi->param('ajax_reset_stats') ) {
+	my $ok = 0;
+	my $meldung = "Nur per POST erlaubt.";
+
+	if ((($ENV{'REQUEST_METHOD'} || '') eq 'POST')) {
+		my $verzeichnis = "$lbhomedir/data/plugins/$psubfolder";
+		if (open(my $fh, '>', "$verzeichnis/statistik.reset")) {
+			close($fh);
+			$ok = 1;
+			# Der Status-Thread von cfc.py sieht die Markierung im Sekundentakt. Läuft
+			# das Plugin gerade nicht, bleibt sie liegen und greift beim nächsten Start -
+			# beides in Ordnung, deshalb hier kein Fehler.
+			$meldung = "Statistik wird zurückgesetzt.";
+		} else {
+			$meldung = "Konnte nicht schreiben: $!";
+		}
+	}
+
+	print $cgi->header( -type => 'application/json', -charset => 'utf-8' );
+	print JSON::PP->new->utf8(0)->encode({ ok => $ok, meldung => $meldung });
 	exit;
 }
 
@@ -377,10 +411,11 @@ sub form
     # AJAX-Endpoint oben (fürs Live-Polling) und dieser initiale Seitenaufbau
     # dieselbe Auswertung teilen statt sie zweimal zu pflegen.
     ##
-    my ($status_text, $status_class) = getStatus($psubfolder);
+    my ($status_text, $status_class, $diagnostics) = getStatus($psubfolder);
 
     $maintemplate->param( STATUSTEXT => $status_text );
     $maintemplate->param( STATUSCLASS => $status_class );
+    $maintemplate->param( DIAGNOSTICS => $diagnostics );
     
     ##
     #handle Template and render index page
@@ -459,6 +494,7 @@ sub getStatus
 	# Klassen in main.html, da "hint" bei LoxBerry nur ein kleiner grauer Hinweistext
 	# ist (keine Farbe) und es keine passende gruene System-Klasse gibt.
 	my $status_class = "cc-status-warn";
+	my $diagnostics = "";
 
 	if (-e $statusfile) {
 		local $/ = undef;
@@ -539,7 +575,7 @@ sub getStatus
 		$status_class = "cc-status-error";
 	}
 
-	return ($status_text, $status_class);
+	return ($status_text, $status_class, $diagnostics);
 }
 
 #####################################################
@@ -554,6 +590,146 @@ sub getStatus
 # Negative Werte sind moeglich, wenn die Uhr zwischen dem Schreiben der
 # Statusdatei und dem Lesen hier minimal zurueckspringt (NTP) - dann auf 0
 # klemmen statt ein unsinniges "vor -1s" anzuzeigen.
+#####################################################
+
+sub getDiagnostics
+{
+	my ($status, $psubfolder) = @_;
+	return "" if (!$status);
+
+	my $now = Time::HiRes::time();
+	my $stats = $status->{stats} || {};
+
+	# Langzeitwerte aus data/plugins/<plugin>/statistik.json (von cfc.py mitgeführt).
+	# Fehlen sie, läuft eine ältere Version oder es gibt noch keine Datei - dann
+	# entfällt die Spalte einfach, statt überall "0" anzuzeigen.
+	my $gesamt = $status->{gesamt};
+	my $hat_gesamt = ($gesamt && ref($gesamt) eq 'HASH') ? 1 : 0;
+
+	# Zeile nur zeigen, wenn der Zähler überhaupt schon angesprungen ist - eine
+	# Tabelle voller Nullen sagt weniger als eine kurze Liste dessen, was war.
+	my @zeilen;
+	my $zeile = sub {
+		my ($name, $schluessel, $anzahl, $zeitstempel, $hinweis) = @_;
+		my $summe = $hat_gesamt ? ($gesamt->{$schluessel} || 0) : 0;
+		$anzahl ||= 0;
+		return if (!$anzahl && !$summe);
+		my $wann = defined($zeitstempel) ? formatSince($now - $zeitstempel) : "&ndash;";
+		my $spalte_gesamt = $hat_gesamt
+			? "<td class=\"cc-diag-num cc-diag-total\">$summe</td>" : "";
+		push @zeilen, "<tr><td>$name</td><td class=\"cc-diag-num\">$anzahl</td>"
+			. $spalte_gesamt
+			. "<td>$wann</td><td class=\"cc-diag-note\">$hinweis</td></tr>";
+	};
+
+	$zeile->("Verbindungsabbrüche", "verbindungsabbrueche",
+		$stats->{verbindungsabbrueche}, $stats->{letzter_verbindungsabbruch},
+		"Verbindung zur Anlage neu aufgebaut");
+	$zeile->("Sitzungserneuerungen", "sitzungserneuerungen",
+		$stats->{sitzungserneuerungen}, $stats->{letzte_sitzungserneuerung},
+		"Anlage hatte die Sitzung verworfen");
+	$zeile->("Zeitüberschreitungen", "antwort_timeouts",
+		$stats->{antwort_timeouts}, $stats->{letzter_timeout},
+		"Anlage antwortete nicht rechtzeitig");
+	$zeile->("Verspätete Antworten", "verworfene_antworten",
+		$stats->{verworfene_antworten}, undef,
+		"trafen nach der Zeitüberschreitung ein");
+	$zeile->("Übersprungene Sensoren", "uebersprungene_sensoren",
+		$stats->{uebersprungene_sensoren}, undef,
+		"von dieser Anlage nicht unterstützt");
+	$zeile->("MQTT-Abbrüche", "mqtt_abbrueche",
+		$status->{mqtt_abbrueche}, $status->{mqtt_letzter_abbruch},
+		"Verbindung zum Broker");
+
+	my $laufzeit = defined($status->{plugin_start})
+		? formatDuration($now - $status->{plugin_start}) : "unbekannt";
+
+	my $html = "<div class=\"cc-diag-runtime\">Laufzeit seit dem letzten Start: <b>$laufzeit</b></div>";
+
+	if (!@zeilen) {
+		$html .= "<div class=\"cc-diag-none\">Seit dem Start keine Auffälligkeiten.</div>";
+	} else {
+		my $kopf_gesamt = $hat_gesamt ? "<th class=\"cc-diag-num\">Gesamt</th>" : "";
+		$html .= "<table class=\"cc-diag\">"
+			. "<tr><th>Ereignis</th><th class=\"cc-diag-num\">Aktueller Lauf</th>$kopf_gesamt<th>Zuletzt</th><th></th></tr>"
+			. join("", @zeilen) . "</table>";
+	}
+
+	# Bezugsgröße für die Gesamtspalte. Ohne die ist sie nicht zu deuten: "12
+	# Abbrüche" heißt etwas völlig anderes über drei Tage als über ein halbes Jahr.
+	# Die Anzahl der Starts gehört mit dazu - häufige Neustarts sind selbst ein
+	# Befund, und ohne sie sähe eine hohe Gesamtzahl nach einem Anlagenproblem aus,
+	# obwohl in Wahrheit nur oft neu gestartet wurde.
+	if ($hat_gesamt && $status->{gesamt_seit}) {
+		my $starts = $status->{gesamt_neustarts} || 0;
+		$html .= "<div class=\"cc-diag-total-note\">Gesamt erfasst über "
+			. formatDuration($now - $status->{gesamt_seit})
+			. ($starts ? " und $starts Start" . ($starts == 1 ? "" : "s") : "")
+			. " &ndash; diese Werte überstehen einen Neustart.</div>";
+	}
+
+	# Hinweis auf gespeicherte Störungsberichte. Wichtig genug für eine eigene
+	# Zeile: Diese Dateien überleben das automatische Aufräumen der Logs und sind
+	# im Zweifel das Einzige, womit sich ein nächtlicher Ausfall noch nachvollziehen
+	# lässt. Ohne diesen Hinweis wüsste niemand, dass es sie überhaupt gibt.
+	my $berichte = $status->{stoerungsberichte} || 0;
+	if ($berichte) {
+		my $wann = defined($status->{letzter_stoerungsbericht})
+			? " (zuletzt " . formatSince($now - $status->{letzter_stoerungsbericht}) . ")" : "";
+		$html .= "<div class=\"cc-diag-reports\">$berichte Störungsbericht"
+			. ($berichte == 1 ? "" : "e") . " gespeichert$wann "
+			. "&ndash; unter <span class=\"mono\">data/plugins/$psubfolder/</span></div>";
+	}
+
+	return $html;
+}
+
+#####################################################
+# "Wie lange ist das her" in grober, lesbarer Form.
+#
+# Getrennt von formatAge(): Das dort ist auf den Sekundenbereich ausgelegt
+# (Altersanzeige der Sensordaten, im Normalbetrieb Millisekunden). Für Ereignisse,
+# die auch Tage zurückliegen können, käme dort "vor 2880m 00s" heraus - formal
+# richtig, aber niemand rechnet das im Kopf in zwei Tage um.
+#####################################################
+
+sub formatSince
+{
+	my $s = shift;
+	return "unbekannt" if (!defined($s));
+	$s = 0 if ($s < 0);
+
+	return sprintf("vor %ds", int($s))      if ($s < 60);
+	return sprintf("vor %dm", int($s / 60)) if ($s < 3600);
+	return sprintf("vor %dh", int($s / 3600)) if ($s < 86400);
+
+	my $tage = int($s / 86400);
+	return $tage == 1 ? "vor 1 Tag" : "vor $tage Tagen";
+}
+
+#####################################################
+# Laufzeit in lesbarer Form ("3h 12m" / "2 Tage 4h").
+#####################################################
+
+sub formatDuration
+{
+	my $s = shift;
+	return "unbekannt" if (!defined($s) || $s < 0);
+
+	my $tage = int($s / 86400);
+	my $std  = int(($s % 86400) / 3600);
+	my $min  = int(($s % 3600) / 60);
+
+	return sprintf("%d Tage %dh", $tage, $std) if ($tage > 1);
+	return sprintf("1 Tag %dh", $std)          if ($tage == 1);
+	return sprintf("%dh %dm", $std, $min)      if ($std > 0);
+	return "1 Minute"                          if ($min == 1);
+	return sprintf("%d Minuten", $min)         if ($min > 0);
+	return "wenige Sekunden";
+}
+
+#####################################################
+# Kleines Alter in lesbarer Form - siehe Kommentarblock oben.
 #####################################################
 
 sub formatAge

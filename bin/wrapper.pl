@@ -101,6 +101,14 @@ $clouddns	= $cfg->param("BASE.CLOUDDNS");
 my $statusfile = "/var/run/shm/$psubfolder/status.json";
 system("mkdir -p /var/run/shm/$psubfolder > /dev/null 2>&1");
 
+# Verzeichnis für Störungsberichte. BEWUSST im Datenverzeichnis und nicht beim Log:
+# Das Logverzeichnis liegt auf der Ramdisk (nach einem Neustart weg) und wird von
+# LoxBerry automatisch aufgeräumt, sobald es zu groß wird - genau das hat bei einem
+# nächtlichen Ausfall die entscheidenden Stunden gekostet. Geschrieben wird nur im
+# Fehlerfall, die Schreiblast auf der Speicherkarte ist also vernachlässigbar.
+my $snapshotdir = "$installfolder/data/plugins/$psubfolder";
+system("mkdir -p $snapshotdir > /dev/null 2>&1");
+
 foreach $arg (@ARGV) {
     if (($arg eq "restart") || ($arg eq "start") || ($arg eq "search")) {
 
@@ -121,7 +129,7 @@ foreach $arg (@ARGV) {
 
         if ($arg eq "restart") {
             LOGINF "Starte ComfoConnect...";
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile > /dev/null 2>>$logfile &");
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile --snapshotdir $snapshotdir > /dev/null 2>>$logfile &");
             exit(0);
         }
 
@@ -129,13 +137,13 @@ foreach $arg (@ARGV) {
             LOGINF "Starte ComfoConnect...";
             LOGINF "Warte bis der Loxberry bereit ist";
             sleep(20);
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile > /dev/null 2>>$logfile &");
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile --snapshotdir $snapshotdir > /dev/null 2>>$logfile &");
             exit(0);
         }
 
         if ($arg eq "search") {
             LOGINF "Suche Lüftungsanlage...";
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile --search > /dev/null 2>>$logfile");
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile --snapshotdir $snapshotdir --search > /dev/null 2>>$logfile");
             exit(0);
         }
     }
@@ -196,7 +204,7 @@ foreach $arg (@ARGV) {
                 # dann verstreicht die Wartezeit einfach ungenutzt und wir starten trotzdem neu.
                 wait_for_cfc_exit($installfolder, $psubfolder);
             }
-            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile > /dev/null 2>>$logfile &");
+            system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile --snapshotdir $snapshotdir > /dev/null 2>>$logfile &");
         }
         exit(0);
     }
