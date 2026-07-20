@@ -89,6 +89,31 @@ sensoren_aus = set()
 # ist eine Anzeige, keine Datenhaltung - dafuer gibt es MQTT und Loxone.
 letzte_werte = {}
 
+# Zuletzt empfangener Befehl je Thema, fuer die Befehlstabelle in der
+# Weboberflaeche: (Wert, Zeitpunkt, Fehlertext oder None).
+#
+# Beantwortet die Frage, die sich sonst nur muehsam aus dem Log beantworten laesst:
+# "Ich schicke aus Loxone etwas und nichts passiert" - ist die Nachricht ueberhaupt
+# angekommen, und wurde sie verarbeitet oder lief sie auf einen Fehler?
+letzte_befehle = {}
+
+# Themen, die tatsaechlich abonniert wurden - die Wahrheit darueber, welche Befehle
+# es gibt. Wird in die Statusdatei geschrieben, damit die Weboberflaeche ihre
+# Anzeigeliste dagegen pruefen kann.
+#
+# Hintergrund: Die Anzeigeliste in index.cgi ist zwangslaeufig eine zweite Liste
+# derselben Themen - was ein Befehl BEWIRKT, steht in _dispatch_message() und laesst
+# sich nicht sinnvoll als Daten ablegen. Statt so zu tun, als gaebe es die Doppelung
+# nicht, macht sie sich hier bemerkbar, sobald sie auseinanderlaeuft.
+abonnierte_themen = []
+
+
+def _abonniere(client, name):
+    """Abonniert ein Befehlsthema und merkt es sich fuer die Weboberflaeche."""
+    client.subscribe(mqtt_topic + name, qos=0)
+    if name not in abonnierte_themen:
+        abonnierte_themen.append(name)
+
 # Filled in by main() from --statusfile. None until then, so write_status() can no-op
 # safely if it is ever called too early.
 statusfile = None
@@ -119,52 +144,52 @@ def on_connect(client, userdata, flags, rc):
 
     client.publish(mqtt_topic + "Status", payload="Online", qos=0, retain=True)
 
-    client.subscribe(mqtt_topic + "FAN_MODE", qos=0)
-    client.subscribe(mqtt_topic + "FAN_MODE_AWAY", qos=0)
-    client.subscribe(mqtt_topic + "AWAY_FOR", qos=0)
-    client.subscribe(mqtt_topic + "AWAY_END", qos=0)
-    client.subscribe(mqtt_topic + "ERROR_RESET", qos=0)
-    client.subscribe(mqtt_topic + "COMFOCOOL", qos=0)
-    client.subscribe(mqtt_topic + "COMFOCOOL_AUTO", qos=0)
-    client.subscribe(mqtt_topic + "COMFOCOOL_OFF", qos=0)
-    client.subscribe(mqtt_topic + "COMFOCOOL_OFF_TIME", qos=0)
-    client.subscribe(mqtt_topic + "FAN_MODE_LOW", qos=0)
-    client.subscribe(mqtt_topic + "FAN_MODE_MEDIUM", qos=0)
-    client.subscribe(mqtt_topic + "FAN_MODE_HIGH", qos=0)
-    client.subscribe(mqtt_topic + "MODE", qos=0)
-    client.subscribe(mqtt_topic + "MODE_AUTO", qos=0)
-    client.subscribe(mqtt_topic + "MODE_MANUAL", qos=0)
-    client.subscribe(mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN", qos=0)
-    client.subscribe(mqtt_topic + "START_EXHAUST_FAN", qos=0)
-    client.subscribe(mqtt_topic + "START_SUPPLY_FAN", qos=0)
-    client.subscribe(mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN", qos=0)
-    client.subscribe(mqtt_topic + "BOOST_MODE_END", qos=0)
-    client.subscribe(mqtt_topic + "TEMPPROF", qos=0)
-    client.subscribe(mqtt_topic + "TEMPPROF_NORMAL", qos=0)
-    client.subscribe(mqtt_topic + "TEMPPROF_COOL", qos=0)
-    client.subscribe(mqtt_topic + "TEMPPROF_WARM", qos=0)
-    client.subscribe(mqtt_topic + "BYPASS", qos=0)
-    client.subscribe(mqtt_topic + "BYPASS_ON", qos=0)
-    client.subscribe(mqtt_topic + "BYPASS_OFF", qos=0)
-    client.subscribe(mqtt_topic + "BYPASS_AUTO", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_TEMP", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_TEMP_OFF", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_TEMP_AUTO", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_TEMP_ON", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMC", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMC_OFF", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMC_AUTO", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMC_ON", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMP", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMP_OFF", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMP_AUTO", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMP_ON", qos=0)
-    client.subscribe(mqtt_topic + "BOOST_MODE", qos=0)
-    client.subscribe(mqtt_topic + "BOOST_MODE_TIME", qos=0)
-    client.subscribe(mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN_TIME", qos=0)
-    client.subscribe(mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN_TIME", qos=0)
-    client.subscribe(mqtt_topic + "BYPASS_ON_TIME", qos=0)
-    client.subscribe(mqtt_topic + "BYPASS_OFF_TIME", qos=0)
+    _abonniere(client, "FAN_MODE")
+    _abonniere(client, "FAN_MODE_AWAY")
+    _abonniere(client, "AWAY_FOR")
+    _abonniere(client, "AWAY_END")
+    _abonniere(client, "ERROR_RESET")
+    _abonniere(client, "COMFOCOOL")
+    _abonniere(client, "COMFOCOOL_AUTO")
+    _abonniere(client, "COMFOCOOL_OFF")
+    _abonniere(client, "COMFOCOOL_OFF_TIME")
+    _abonniere(client, "FAN_MODE_LOW")
+    _abonniere(client, "FAN_MODE_MEDIUM")
+    _abonniere(client, "FAN_MODE_HIGH")
+    _abonniere(client, "MODE")
+    _abonniere(client, "MODE_AUTO")
+    _abonniere(client, "MODE_MANUAL")
+    _abonniere(client, "VENTMODE_STOP_SUPPLY_FAN")
+    _abonniere(client, "START_EXHAUST_FAN")
+    _abonniere(client, "START_SUPPLY_FAN")
+    _abonniere(client, "VENTMODE_STOP_EXHAUST_FAN")
+    _abonniere(client, "BOOST_MODE_END")
+    _abonniere(client, "TEMPPROF")
+    _abonniere(client, "TEMPPROF_NORMAL")
+    _abonniere(client, "TEMPPROF_COOL")
+    _abonniere(client, "TEMPPROF_WARM")
+    _abonniere(client, "BYPASS")
+    _abonniere(client, "BYPASS_ON")
+    _abonniere(client, "BYPASS_OFF")
+    _abonniere(client, "BYPASS_AUTO")
+    _abonniere(client, "SENSOR_TEMP")
+    _abonniere(client, "SENSOR_TEMP_OFF")
+    _abonniere(client, "SENSOR_TEMP_AUTO")
+    _abonniere(client, "SENSOR_TEMP_ON")
+    _abonniere(client, "SENSOR_HUMC")
+    _abonniere(client, "SENSOR_HUMC_OFF")
+    _abonniere(client, "SENSOR_HUMC_AUTO")
+    _abonniere(client, "SENSOR_HUMC_ON")
+    _abonniere(client, "SENSOR_HUMP")
+    _abonniere(client, "SENSOR_HUMP_OFF")
+    _abonniere(client, "SENSOR_HUMP_AUTO")
+    _abonniere(client, "SENSOR_HUMP_ON")
+    _abonniere(client, "BOOST_MODE")
+    _abonniere(client, "BOOST_MODE_TIME")
+    _abonniere(client, "VENTMODE_STOP_SUPPLY_FAN_TIME")
+    _abonniere(client, "VENTMODE_STOP_EXHAUST_FAN_TIME")
+    _abonniere(client, "BYPASS_ON_TIME")
+    _abonniere(client, "BYPASS_OFF_TIME")
 
 def on_disconnect(client, userdata, rc):
     global mqtt_connected, mqtt_last_change, mqtt_abbrueche, mqtt_letzter_abbruch
@@ -193,9 +218,18 @@ def on_message(client, userdata, msg):
     topic = msg.topic
     value = str(msg.payload.decode("utf-8"))
 
+    # Kurzname ohne das eingestellte Praefix - die Tabelle in der Weboberflaeche
+    # zeigt die Themen genauso an, und das Praefix ist dort ohnehin ueberall gleich.
+    kurz = topic[len(mqtt_topic):] if topic.startswith(mqtt_topic) else topic
+
     try:
         _dispatch_message(topic, value)
+        letzte_befehle[kurz] = (value, time.time(), None)
     except Exception as e:
+        # Auch den Fehlschlag festhalten. Sonst zeigte die Tabelle den Wert an, als
+        # waere er verarbeitet worden - gerade beim Suchen nach "warum passiert
+        # nichts" waere das die falsche Faehrte.
+        letzte_befehle[kurz] = (value, time.time(), fehlertext(e))
         # A malformed/empty MQTT payload (e.g. an empty retained message, or a value
         # that isn't a valid number where int(value) is expected) must never crash
         # this callback: paho runs on_message on its network thread, and an uncaught
@@ -1132,6 +1166,8 @@ def write_status_loop():
                     # dass JSON aus 21.0 eine 21 macht.
                     'werte': {str(p): [str(w), t] for p, (w, t) in list(letzte_werte.items())},
                     'sensoren_aus': sorted(sensoren_aus),
+                    'befehle': {k: [str(w), t, f] for k, (w, t, f) in list(letzte_befehle.items())},
+                    'befehlsthemen': list(abonnierte_themen),
                 }
 
                 # Dieselben Zaehler zusaetzlich als Langzeitwert. Die Zahlen oben

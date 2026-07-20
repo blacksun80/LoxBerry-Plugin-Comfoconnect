@@ -125,7 +125,22 @@ if ( $cgi->param('ajax_status') || $cgi->url_param('ajax_status') ) {
 		}
 	}
 
-	print JSON::PP->new->utf8(0)->encode({ statustext => $status_text, statusclass => $status_class, diagnostics => $diagnostics, werte => $werte });
+	# Ebenso fuer die Befehlstabelle: nur Wert, Alter und ggf. Fehler je Thema.
+	my $befehle = {};
+	if ($status_daten && ref($status_daten->{befehle}) eq 'HASH') {
+		my $now = Time::HiRes::time();
+		for my $t (keys %{ $status_daten->{befehle} }) {
+			my $b = $status_daten->{befehle}->{$t};
+			next if (ref($b) ne 'ARRAY');
+			$befehle->{$t} = {
+				wert   => $b->[0],
+				wann   => (defined($b->[1]) ? formatSince($now - $b->[1]) : ""),
+				fehler => (defined($b->[2]) ? $b->[2] : ""),
+			};
+		}
+	}
+
+	print JSON::PP->new->utf8(0)->encode({ statustext => $status_text, statusclass => $status_class, diagnostics => $diagnostics, werte => $werte, befehle => $befehle });
 	exit;
 }
 
@@ -462,6 +477,10 @@ sub form
     $maintemplate->param( SENSORTABLE => $sensortable );
     $maintemplate->param( SENSORSAKTIV => $sensors_aktiv );
     $maintemplate->param( SENSORSGESAMT => $sensors_gesamt );
+
+    my ($commandtable, $commands_anzahl) = getCommandTable($status_daten);
+    $maintemplate->param( COMMANDTABLE => $commandtable );
+    $maintemplate->param( COMMANDSANZAHL => $commands_anzahl );
     
     ##
     #handle Template and render index page
@@ -777,6 +796,11 @@ sub readSensorCatalog
 		$e{PUSH} = $1 if ($rumpf =~ /'PUSH'\s*:\s*(\d+)/);
 		$e{CONV} = $1 if ($rumpf =~ /'CONV'\s*:\s*['"](.*?)['"]/);
 		$e{PRODUCT} = $1 if ($rumpf =~ /'ONLY_WITH_PRODUCT'\s*:\s*(\d+)/);
+		# Klartextbeschreibung samt Einheit. Steht bewusst in mqtt_data.py und nicht
+		# hier: Dort ist der Sensor ohnehin definiert, so bleibt alles zu einem
+		# Messwert an einer Stelle - anders als bei den Befehlen, deren Wirkung sich
+		# nicht als Daten ablegen lässt.
+		$e{INFO} = $1 if ($rumpf =~ /'INFO'\s*:\s*'((?:[^'\\]|\\.)*)'/);
 		$katalog{$pdid} = \%e if ($e{NAME});
 	}
 
@@ -822,25 +846,186 @@ sub getSensorTable
 		# Diese Sensoren werden immer angemeldet (die Anlage nimmt das auch ohne
 		# Modul an und antwortet mit 0). Der Vermerk sagt lediglich, warum der Wert
 		# womöglich nichtssagend ist - und lädt dazu ein, ihn abzuwählen.
-		my $hinweis = (($e->{PRODUCT} || 0) == 6) ? "nur mit ComfoCool sinnvoll" : "";
+		my $info = defined($e->{INFO}) ? $e->{INFO} : "";
+		$info =~ s/\\'/'/g;
+		$info =~ s/</&lt;/g;
+		# Der ComfoCool-Vermerk hängt hinten an der Beschreibung statt in einer
+		# eigenen Spalte - er betrifft nur zwei von 52 Zeilen und wäre als eigene,
+		# fast immer leere Spalte reine Platzverschwendung.
+		$info .= " <span class=\"cc-sensor-opt\">(nur mit ComfoCool)</span>"
+			if (($e->{PRODUCT} || 0) == 6);
 
 		push @zeilen,
 			"<tr class=\"cc-sensor-row" . ($an ? "" : " cc-sensor-aus") . "\" data-pdid=\"$pdid\">"
 			. "<td><input type=\"checkbox\" name=\"sensor_on_$pdid\" " . ($an ? "checked " : "") . "/></td>"
 			. "<td class=\"cc-sensor-pdid\">$pdid</td>"
 			. "<td class=\"cc-sensor-name-fix\">$e->{NAME}</td>"
+			. "<td class=\"cc-sensor-note\">$info</td>"
 			. "<td class=\"cc-sensor-push-fix\">" . ($e->{PUSH} ? "$e->{PUSH}s" : "&ndash;") . "</td>"
 			. "<td class=\"cc-sensor-val\" id=\"sv$pdid\">$wert</td>"
-			. "<td class=\"cc-sensor-note\">$hinweis</td>"
 			. "</tr>";
 	}
 
 	my $html = "<table class=\"cc-sensors\">"
-		. "<tr><th></th><th>pdid</th><th>Name (MQTT-Thema)</th><th>Intervall</th>"
-		. "<th>Wert</th><th></th></tr>"
+		. "<tr><th></th><th>pdid</th><th>Name (MQTT-Thema)</th><th>Bedeutung</th>"
+		. "<th>Intervall</th><th>Wert</th></tr>"
 		. join("", @zeilen) . "</table>";
 
 	return ($html, $aktiv, $gesamt);
+}
+
+#####################################################
+# Befehlstabelle: alle Themen, die das Plugin entgegennimmt, mit dem zuletzt
+# darauf empfangenen Wert.
+#
+# Der Katalog steht bewusst HIER und nicht in einer eigenen Datei neben
+# mqtt_data.py. Eine solche Datei wuerde eine Erweiterbarkeit vortaeuschen, die es
+# nicht gibt: Was ein Befehl tatsaechlich an die Anlage schickt, steht in
+# _dispatch_message() in cfc.py (46 Zweige, rund 340 Zeilen). Ein Eintrag allein
+# wuerde abonniert, angezeigt - und taete nichts.
+#
+# Angezeigt wird zusaetzlich der zuletzt empfangene Wert. Das beantwortet die
+# haeufigste Frage beim Einrichten ("kommt mein Befehl aus Loxone hier ueberhaupt
+# an?") und macht Tippfehler im Themennamen sichtbar, weil daneben die gueltige
+# Schreibweise steht.
+#####################################################
+
+sub getCommandTable
+{
+	my ($status) = @_;
+
+	my $befehle = ($status && ref($status->{befehle}) eq 'HASH') ? $status->{befehle} : {};
+	my $now = Time::HiRes::time();
+
+# 46 Befehle in 10 Gruppen. MUSS zu _dispatch_message() in cfc.py und
+# zu MQTT-TOPICS.md passen - es gibt bewusst KEINE eigene Katalogdatei,
+# die Erweiterbarkeit vortaeuschen wuerde: Ein neuer Befehl braucht immer
+# einen Zweig in _dispatch_message(), eine Zeile hier genuegt nicht.
+my @COMMANDS = (
+		{ gruppe => "Lüfterstufe", befehle => [
+			{ topic => "FAN_MODE", werte => "0 1 2 3", bedeutung => "Stufe setzen: 0 = Abwesend, 1 = niedrig, 2 = mittel, 3 = hoch" },
+			{ topic => "FAN_MODE_AWAY", werte => "1", bedeutung => "Stufe auf Abwesend" },
+			{ topic => "FAN_MODE_LOW", werte => "1", bedeutung => "Stufe 1" },
+			{ topic => "FAN_MODE_MEDIUM", werte => "1", bedeutung => "Stufe 2" },
+			{ topic => "FAN_MODE_HIGH", werte => "1", bedeutung => "Stufe 3" },
+		] },
+		{ gruppe => "Abwesenheit (Urlaub)", befehle => [
+			{ topic => "AWAY_FOR", werte => "Sekunden", bedeutung => "Abwesend für diese Dauer ab jetzt" },
+			{ topic => "AWAY_END", werte => "1", bedeutung => "Abwesenheit vorzeitig beenden" },
+		] },
+		{ gruppe => "Betriebsart", befehle => [
+			{ topic => "MODE", werte => "0 1", bedeutung => "0 = manuell, 1 = automatisch" },
+			{ topic => "MODE_AUTO", werte => "1", bedeutung => "Automatik" },
+			{ topic => "MODE_MANUAL", werte => "1", bedeutung => "Handbetrieb" },
+		] },
+		{ gruppe => "Lüftungsmodus (Zu-/Abluft)", befehle => [
+			{ topic => "VENTMODE_STOP_SUPPLY_FAN", werte => "1", bedeutung => "Zuluftventilator aus" },
+			{ topic => "VENTMODE_STOP_SUPPLY_FAN_TIME", werte => "Sekunden", bedeutung => "Dauer dafür, vorher senden" },
+			{ topic => "VENTMODE_STOP_EXHAUST_FAN", werte => "1", bedeutung => "Abluftventilator aus" },
+			{ topic => "VENTMODE_STOP_EXHAUST_FAN_TIME", werte => "Sekunden", bedeutung => "Dauer dafür, vorher senden" },
+			{ topic => "START_SUPPLY_FAN", werte => "1", bedeutung => "Zuluftventilator wieder ein" },
+			{ topic => "START_EXHAUST_FAN", werte => "1", bedeutung => "Abluftventilator wieder ein" },
+		] },
+		{ gruppe => "Boost", befehle => [
+			{ topic => "BOOST_MODE_TIME", werte => "Sekunden", bedeutung => "Dauer, vorher senden" },
+			{ topic => "BOOST_MODE", werte => "1", bedeutung => "Boost starten" },
+			{ topic => "BOOST_MODE_END", werte => "1", bedeutung => "Boost beenden" },
+		] },
+		{ gruppe => "Bypass", befehle => [
+			{ topic => "BYPASS", werte => "0 1 2", bedeutung => "0 = Automatik, 1 = offen, 2 = geschlossen" },
+			{ topic => "BYPASS_AUTO", werte => "1", bedeutung => "Automatik" },
+			{ topic => "BYPASS_ON", werte => "1", bedeutung => "Bypass öffnen" },
+			{ topic => "BYPASS_ON_TIME", werte => "Sekunden", bedeutung => "Dauer für offen, vorher senden" },
+			{ topic => "BYPASS_OFF", werte => "1", bedeutung => "Bypass schließen" },
+			{ topic => "BYPASS_OFF_TIME", werte => "Sekunden", bedeutung => "Dauer für geschlossen, vorher senden" },
+		] },
+		{ gruppe => "Temperaturprofil", befehle => [
+			{ topic => "TEMPPROF", werte => "0 1 2", bedeutung => "0 = normal, 1 = kühl, 2 = warm" },
+			{ topic => "TEMPPROF_NORMAL", werte => "1", bedeutung => "Profil normal" },
+			{ topic => "TEMPPROF_COOL", werte => "1", bedeutung => "Profil kühl" },
+			{ topic => "TEMPPROF_WARM", werte => "1", bedeutung => "Profil warm" },
+		] },
+		{ gruppe => "Sensorgeführte Lüftung", befehle => [
+			{ topic => "SENSOR_TEMP", werte => "0 1 2", bedeutung => "Temperatur passiv: 0 = Automatik, 1 = ein, 2 = aus" },
+			{ topic => "SENSOR_TEMP_AUTO", werte => "1", bedeutung => "Temperatur passiv auf Automatik" },
+			{ topic => "SENSOR_TEMP_ON", werte => "1", bedeutung => "Temperatur passiv ein" },
+			{ topic => "SENSOR_TEMP_OFF", werte => "1", bedeutung => "Temperatur passiv aus" },
+			{ topic => "SENSOR_HUMC", werte => "0 1 2", bedeutung => "Feuchtekomfort: 0 = Automatik, 1 = ein, 2 = aus" },
+			{ topic => "SENSOR_HUMC_AUTO", werte => "1", bedeutung => "Feuchtekomfort auf Automatik" },
+			{ topic => "SENSOR_HUMC_ON", werte => "1", bedeutung => "Feuchtekomfort ein" },
+			{ topic => "SENSOR_HUMC_OFF", werte => "1", bedeutung => "Feuchtekomfort aus" },
+			{ topic => "SENSOR_HUMP", werte => "0 1 2", bedeutung => "Feuchteschutz: 0 = Automatik, 1 = ein, 2 = aus" },
+			{ topic => "SENSOR_HUMP_AUTO", werte => "1", bedeutung => "Feuchteschutz auf Automatik" },
+			{ topic => "SENSOR_HUMP_ON", werte => "1", bedeutung => "Feuchteschutz ein" },
+			{ topic => "SENSOR_HUMP_OFF", werte => "1", bedeutung => "Feuchteschutz aus" },
+		] },
+		{ gruppe => "ComfoCool (optionales Kühlmodul)", befehle => [
+			{ topic => "COMFOCOOL", werte => "0 1", bedeutung => "0 = Automatik, 1 = dauerhaft aus" },
+			{ topic => "COMFOCOOL_AUTO", werte => "1", bedeutung => "Automatik" },
+			{ topic => "COMFOCOOL_OFF", werte => "1", bedeutung => "Ausschalten" },
+			{ topic => "COMFOCOOL_OFF_TIME", werte => "Sekunden", bedeutung => "Dauer fürs Ausschalten, vorher senden" },
+		] },
+		{ gruppe => "Störungen", befehle => [
+			{ topic => "ERROR_RESET", werte => "1", bedeutung => "Anstehende Störungen quittieren" },
+		] },
+);
+
+	my $html = "";
+	my $anzahl = 0;
+
+	for my $g (@COMMANDS) {
+		$html .= "<div class=\"cc-cmd-group\">$g->{gruppe}</div>";
+		$html .= "<table class=\"cc-cmds\">";
+		for my $b (@{ $g->{befehle} }) {
+			$anzahl++;
+			my $t = $b->{topic};
+
+			# Zuletzt empfangen: Wert, Alter und ggf. der Fehler bei der Verarbeitung.
+			my ($wert, $wann, $fehler) = ("&ndash;", "", "");
+			if (ref($befehle->{$t}) eq 'ARRAY') {
+				my ($w, $z, $f) = @{ $befehle->{$t} };
+				$wert = defined($w) ? $w : "";
+				$wert =~ s/</&lt;/g;
+				$wann = defined($z) ? formatSince($now - $z) : "";
+				$fehler = $f if (defined($f) && $f ne "");
+			}
+
+			my $klasse = $fehler ? " cc-cmd-fehler" : "";
+			$html .= "<tr class=\"cc-cmd-row$klasse\">"
+				. "<td class=\"cc-cmd-topic\">$t</td>"
+				. "<td class=\"cc-cmd-werte\">$b->{werte}</td>"
+				. "<td class=\"cc-cmd-bed\">$b->{bedeutung}</td>"
+				. "<td class=\"cc-cmd-last\" id=\"cv$t\">$wert</td>"
+				. "<td class=\"cc-cmd-when\" id=\"cw$t\">"
+				. ($fehler ? "<span class=\"cc-cmd-err\">$fehler</span>" : $wann) . "</td>"
+				. "</tr>";
+		}
+		$html .= "</table>";
+	}
+
+	# Abgleich mit dem, was cfc.py tatsächlich abonniert hat. Die Liste oben ist
+	# unvermeidlich eine zweite Fassung derselben Themen - was ein Befehl bewirkt,
+	# steht in _dispatch_message() und lässt sich nicht als Daten ablegen. Statt die
+	# Doppelung zu verschweigen, meldet sie sich hier selbst, sobald sie nicht mehr
+	# stimmt. Nur sichtbar, wenn wirklich etwas auseinanderläuft.
+	if ($status && ref($status->{befehlsthemen}) eq 'ARRAY' && @{ $status->{befehlsthemen} }) {
+		my %echt = map { $_ => 1 } @{ $status->{befehlsthemen} };
+		my %hier = map { $_ => 1 } map { $_->{topic} } map { @{ $_->{befehle} } } @COMMANDS;
+
+		my @fehlt  = sort grep { !$hier{$_} } keys %echt;   # abonniert, aber nicht gelistet
+		my @zuviel = sort grep { !$echt{$_} } keys %hier;   # gelistet, aber nicht abonniert
+
+		if (@fehlt || @zuviel) {
+			$html .= "<div class=\"cc-cmd-drift\">Diese Übersicht weicht vom laufenden "
+				. "Plugin ab &ndash; sie ist in <span class=\"mono\">index.cgi</span> "
+				. "gepflegt und wurde offenbar nicht mitgezogen:";
+			$html .= "<br>Nicht aufgeführt: <span class=\"mono\">" . join(", ", @fehlt) . "</span>" if (@fehlt);
+			$html .= "<br>Aufgeführt, aber nicht abonniert: <span class=\"mono\">" . join(", ", @zuviel) . "</span>" if (@zuviel);
+			$html .= "</div>";
+		}
+	}
+
+	return ($html, $anzahl);
 }
 
 #####################################################

@@ -252,8 +252,9 @@
 		text-align: right;
 		width: 50px;
 	}
-	.cc-sensor-name-fix { font-family: monospace; }
-	.cc-sensor-push-fix { color: #888; width: 70px; }
+	.cc-sensor-name-fix { font-family: monospace; width: 230px; }
+	.cc-sensor-push-fix { color: #888; width: 62px; }
+	.cc-sensor-opt { color: #b58900; }
 	/* Der Messwert steht dicktengleich und rechtsbuendig, damit die Spalte beim
 	   sekuendlichen Aktualisieren nicht staendig die Breite wechselt. */
 	.cc-sensor-val {
@@ -263,6 +264,51 @@
 		color: #2a6496;
 	}
 	.cc-sensor-note { color: #999; font-size: 0.92em; }
+
+	/* ---- Befehlsuebersicht ----------------------------------------------- */
+	.cc-cmd-group {
+		font-weight: bold;
+		font-size: 0.85em;
+		color: #555;
+		margin: 10px 0 2px 0;
+	}
+	.cc-cmd-group:first-child { margin-top: 0; }
+	table.cc-cmds {
+		border-collapse: collapse;
+		font-size: 0.86em;
+		width: 100%;
+		max-width: 900px;
+	}
+	table.cc-cmds td {
+		padding: 1px 10px 1px 0;
+		border-bottom: 1px solid #f2f2f2;
+		vertical-align: top;
+	}
+	.cc-cmd-topic { font-family: monospace; width: 250px; }
+	.cc-cmd-werte { font-family: monospace; color: #777; width: 90px; }
+	.cc-cmd-bed { color: #666; }
+	/* Zuletzt empfangener Wert - dieselbe Optik wie die Sensorwerte, damit
+	   erkennbar ist, dass es sich um eine Live-Anzeige handelt. */
+	.cc-cmd-last {
+		font-family: monospace;
+		text-align: right;
+		width: 70px;
+		color: #2a6496;
+	}
+	.cc-cmd-when { color: #999; width: 100px; font-size: 0.92em; }
+	.cc-cmd-err { color: #c0392b; }
+	.cc-cmd-fehler .cc-cmd-topic { color: #c0392b; }
+	/* Erscheint nur, wenn die Anzeigeliste vom laufenden Plugin abweicht. */
+	.cc-cmd-drift {
+		margin-top: 10px;
+		padding: 6px 10px;
+		border: 1px solid #e6c200;
+		background-color: #fdf8e3;
+		border-radius: 6px;
+		font-size: 0.82em;
+		color: #6b5900;
+	}
+	.cc-cmd-drift .mono { font-family: monospace; }
 	.cc-diag-reset {
 		display: inline-block;
 		margin-top: 9px;
@@ -439,6 +485,26 @@
 		</div>
 	</div>
 
+	<!-- Befehlsuebersicht. Reine Anzeige - hier gibt es nichts einzustellen.
+	     Zweck: sehen, was ueberhaupt moeglich ist, und pruefen, ob ein aus Loxone
+	     gesendeter Befehl hier angekommen ist. -->
+	<div class="cc-group">
+		<div class="cc-group-title cc-collapse-head" id="cmdhead">
+			<span class="cc-collapse-arrow" id="cmdarrow">&#9656;</span>
+			Befehle
+			<span class="cc-collapse-count">(<TMPL_VAR NAME=COMMANDSANZAHL> Themen)</span>
+		</div>
+		<div id="cmdbody" style="display: none;">
+			<div class="cc-sensor-intro">
+				Diese Themen nimmt das Plugin entgegen. Vorangestellt wird jeweils das
+				oben eingestellte MQTT-Thema. Rechts steht, was zuletzt darauf empfangen
+				wurde &ndash; damit lässt sich prüfen, ob ein Befehl aus Loxone
+				tatsächlich ankommt.
+			</div>
+			<TMPL_VAR NAME=COMMANDTABLE>
+		</div>
+	</div>
+
 	<div class="cc-group">
 		<div class="cc-group-title">Diagnose</div>
 		<div id="diagbox"><TMPL_VAR NAME=DIAGNOSTICS></div>
@@ -523,6 +589,20 @@
 					$( "#sv" + pdid ).text( wert );
 				} );
 			}
+			<!-- Ebenso die Befehlstabelle: nur die beiden rechten Spalten. -->
+			if ( data.befehle ) {
+				$.each( data.befehle, function( topic, b ) {
+					$( "#cv" + topic ).text( b.wert );
+					var w = $( "#cw" + topic );
+					if ( b.fehler ) {
+						w.html( '<span class="cc-cmd-err"></span>' ).find( "span" ).text( b.fehler );
+						w.closest( "tr" ).addClass( "cc-cmd-fehler" );
+					} else {
+						w.text( b.wann );
+						w.closest( "tr" ).removeClass( "cc-cmd-fehler" );
+					}
+				} );
+			}
 		} );
 	}
 	setInterval( refreshStatus, 1000 );
@@ -537,6 +617,11 @@
 	$( "#sensorhead" ).on( "click", function() {
 		$( "#sensorbody" ).slideToggle( 120 );
 		$( "#sensorarrow" ).toggleClass( "auf" );
+	} );
+
+	$( "#cmdhead" ).on( "click", function() {
+		$( "#cmdbody" ).slideToggle( 120 );
+		$( "#cmdarrow" ).toggleClass( "auf" );
 	} );
 
 	<!-- Zaehler im Kopf mitfuehren, damit er auch im zugeklappten Zustand stimmt, -->
