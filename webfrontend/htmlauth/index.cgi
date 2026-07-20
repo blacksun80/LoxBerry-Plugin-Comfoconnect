@@ -99,7 +99,7 @@ $psubfolder =~ s/(.*)\/(.*)\/(.*)$/$2/g;
 # und würde das Log zumüllen. Alles Weitere (general.cfg, MQTT-Credentials,
 # Template-Laden) liegt ohnehin dahinter.
 if ( $cgi->param('ajax_status') || $cgi->url_param('ajax_status') ) {
-	my ($status_text, $status_class, $diagnostics) = getStatus($psubfolder);
+	my ($status_text, $status_class, $diagnostics, $status_daten) = getStatus($psubfolder);
 	print $cgi->header( -type => 'application/json', -charset => 'utf-8' );
 	# NOTE: encode_json() (and JSON::PP->new with the default utf8(1)) expects a
 	# proper Perl-internal Unicode string and UTF-8-*encodes* it. This script has
@@ -113,7 +113,19 @@ if ( $cgi->param('ajax_status') || $cgi->url_param('ajax_status') ) {
 	# output - it only handles the JSON structure (quotes, braces, escaping) and
 	# passes string content through untouched, consistent with how the rest of
 	# this script (and the HTML::Template output) already handles UTF-8.
-	print JSON::PP->new->utf8(0)->encode({ statustext => $status_text, statusclass => $status_class, diagnostics => $diagnostics });
+	# Sensorwerte separat: Die Tabelle wird BEWUSST nicht bei jedem Abruf neu
+	# gebaut und ersetzt - das würde Haken und Eingaben zerstören, die gerade
+	# bearbeitet, aber noch nicht gespeichert wurden. Stattdessen kommen nur die
+	# Werte, und das JS schreibt sie in die jeweilige Zelle.
+	my $werte = {};
+	if ($status_daten && ref($status_daten->{werte}) eq 'HASH') {
+		for my $pdid (keys %{ $status_daten->{werte} }) {
+			my $w = $status_daten->{werte}->{$pdid};
+			$werte->{$pdid} = $w->[0] if (ref($w) eq 'ARRAY');
+		}
+	}
+
+	print JSON::PP->new->utf8(0)->encode({ statustext => $status_text, statusclass => $status_class, diagnostics => $diagnostics, werte => $werte });
 	exit;
 }
 
@@ -347,6 +359,54 @@ sub form
         delete $pcfg->{'MAIN'}->{'WATCHDOG_ENABLED'};
         delete $pcfg->{'MAIN'}->{'WATCHDOG_THRESHOLD_MIN'};
 
+        # ------------------------------------------------------------------
+        # Sensorauswahl
+        # ------------------------------------------------------------------
+        # Gespeichert wird bewusst nur die ABWEICHUNG vom mitgelieferten Katalog
+        # (bin/mqtt_data.py): welche Sensoren abgewählt sind und welche eigenen
+        # hinzugefügt wurden. Eine Vollkopie der Liste in der Konfiguration würde
+        # neue Sensoren aus einem künftigen Plugin-Update dauerhaft verdecken.
+        #
+        # Die Formularfelder heißen sensor_on_<pdid>. Ein nicht angehakter Kasten
+        # sendet gar nichts - deshalb wird über den Katalog iteriert und nicht über
+        # die eingegangenen Parameter, sonst wäre "alles abgewählt" nicht von
+        # "Formular kam nie an" zu unterscheiden.
+        my $katalog = readSensorCatalog($installfolder, $psubfolder);
+
+        # Eigene Zeilen zuerst: Sie sind ebenfalls an-/abwählbar und müssen dafür
+        # unten wie Katalogeinträge behandelt werden.
+        my @eigene;
+        my %eigene_pdids;
+        for my $i (sort { $a <=> $b } map { /^sensor_new_pdid_(\d+)$/ ? $1 : () } $cgi->param) {
+            my $pdid = $cgi->param("sensor_new_pdid_$i");
+            my $name = $cgi->param("sensor_new_name_$i");
+            my $typ  = $cgi->param("sensor_new_type_$i");
+            my $push = $cgi->param("sensor_new_push_$i");
+
+            $name = "" if (!defined($name));
+            $name =~ s/^\s+|\s+$//g;
+            # Nur Zeichen, die als MQTT-Thema unbedenklich sind. Ein "/" oder "#"
+            # im Namen würde die Themenstruktur zerlegen bzw. mit den Platzhaltern
+            # der Abonnements kollidieren.
+            $name =~ s/[^A-Za-z0-9_\-]//g;
+
+            next if (!defined($pdid) || $pdid !~ /^\d+$/ || $name eq "");
+            next if (exists $katalog->{$pdid} || $eigene_pdids{$pdid});
+
+            my %e = ( pdid => $pdid + 0, name => $name );
+            $e{type} = $typ + 0 if (defined($typ) && $typ =~ /^\d+$/);
+            $e{push} = $push + 0 if (defined($push) && $push =~ /^\d+$/ && $push > 0);
+            push @eigene, \%e;
+            $eigene_pdids{$pdid} = 1;
+        }
+
+        my @aus;
+        for my $pdid (sort { $a <=> $b } (keys %$katalog, keys %eigene_pdids)) {
+            push @aus, $pdid + 0 if (!$cgi->param("sensor_on_$pdid"));
+        }
+
+        $pcfg->{'SENSORS'} = { 'aus' => \@aus, 'eigene' => \@eigene };
+
         $jsonobj->write();
 
 		Cronjob("Uninstall");
@@ -411,11 +471,20 @@ sub form
     # AJAX-Endpoint oben (fürs Live-Polling) und dieser initiale Seitenaufbau
     # dieselbe Auswertung teilen statt sie zweimal zu pflegen.
     ##
-    my ($status_text, $status_class, $diagnostics) = getStatus($psubfolder);
+    my ($status_text, $status_class, $diagnostics, $status_daten) = getStatus($psubfolder);
 
     $maintemplate->param( STATUSTEXT => $status_text );
     $maintemplate->param( STATUSCLASS => $status_class );
     $maintemplate->param( DIAGNOSTICS => $diagnostics );
+
+    # Sensortabelle. Wird nur beim Seitenaufbau erzeugt - der 1s-Abruf aktualisiert
+    # danach ausschließlich die Wertespalte, damit unbestätigte Änderungen an den
+    # Haken und Eingabefeldern nicht überschrieben werden.
+    my ($sensortable, $sensors_aktiv, $sensors_gesamt) =
+        getSensorTable($installfolder, $psubfolder, $pcfg, $status_daten);
+    $maintemplate->param( SENSORTABLE => $sensortable );
+    $maintemplate->param( SENSORSAKTIV => $sensors_aktiv );
+    $maintemplate->param( SENSORSGESAMT => $sensors_gesamt );
     
     ##
     #handle Template and render index page
@@ -495,13 +564,17 @@ sub getStatus
 	# ist (keine Farbe) und es keine passende gruene System-Klasse gibt.
 	my $status_class = "cc-status-warn";
 	my $diagnostics = "";
+	# Die rohen Statusdaten werden mit zurückgegeben - die Sensortabelle und der
+	# AJAX-Endpoint brauchen daraus die Live-Werte, und die Datei ein zweites Mal
+	# zu öffnen wäre bei einem Abruf pro Sekunde reine Verschwendung.
+	my $status;
 
 	if (-e $statusfile) {
 		local $/ = undef;
 		if (open(my $fh, '<', $statusfile)) {
 			my $json_text = <$fh>;
 			close($fh);
-			my $status = eval { decode_json($json_text) };
+			$status = eval { decode_json($json_text) };
 			if ($status) {
 				# Betriebsstatistik. Bewusst hier oben und unabhängig von den
 				# Statuszweigen weiter unten: Die Diagnose soll auch (und gerade) dann
@@ -582,7 +655,7 @@ sub getStatus
 		$diagnostics = "<div class=\"cc-diag-runtime\">Keine Diagnosedaten &ndash; das Plugin läuft gerade nicht.</div>";
 	}
 
-	return ($status_text, $status_class, $diagnostics);
+	return ($status_text, $status_class, $diagnostics, $status);
 }
 
 #####################################################
@@ -689,6 +762,186 @@ sub getDiagnostics
 	}
 
 	return $html;
+}
+
+#####################################################
+# Den mitgelieferten Sensorkatalog aus bin/mqtt_data.py lesen.
+#
+# Ja, das ist eine Python-Datei, die hier mit einem regulären Ausdruck gelesen
+# wird - und normalerweise wäre das eine schlechte Idee. Hier ist es vertretbar:
+# Die Datei gehört zum Plugin, hat ein streng gleichförmiges Format, und die
+# Alternative wäre gewesen, den Katalog zusätzlich in einer zweiten Datei zu
+# führen. Zwei Quellen, die auseinanderlaufen können, wären der größere Schaden.
+#
+# Bewusst NICHT aus der Statusdatei: Die Sensortabelle muss sich auch dann
+# bedienen lassen, wenn das Plugin gerade nicht läuft - gerade dann will man
+# vielleicht etwas abwählen.
+#####################################################
+
+sub readSensorCatalog
+{
+	my ($installfolder, $psubfolder) = @_;
+	my %katalog;
+
+	my $datei = "$installfolder/bin/plugins/$psubfolder/mqtt_data.py";
+	open(my $fh, '<', $datei) or return \%katalog;
+	local $/ = undef;
+	my $inhalt = <$fh>;
+	close($fh);
+
+	# Kommentarzeilen entfernen, damit auskommentierte Beispiele nicht als
+	# echte Einträge gelesen werden.
+	$inhalt =~ s/^\s*#.*$//mg;
+
+	while ($inhalt =~ /(\d+)\s*:\s*\{(.*?)\}/gs) {
+		my ($pdid, $rumpf) = ($1, $2);
+		my %e;
+		$e{NAME} = $1 if ($rumpf =~ /'NAME'\s*:\s*'([^']*)'/);
+		$e{PUSH} = $1 if ($rumpf =~ /'PUSH'\s*:\s*(\d+)/);
+		$e{CONV} = $1 if ($rumpf =~ /'CONV'\s*:\s*['"](.*?)['"]/);
+		$e{PRODUCT} = $1 if ($rumpf =~ /'ONLY_WITH_PRODUCT'\s*:\s*(\d+)/);
+		$katalog{$pdid} = \%e if ($e{NAME});
+	}
+
+	return \%katalog;
+}
+
+#####################################################
+# Nachschlagewerk aus bin/pdo_katalog.txt (aus PROTOCOL-PDO.md erzeugt).
+#
+# Nur Komfort: Trägt jemand eine eigene pdid ein, die im Zehnder-Protokoll
+# dokumentiert ist, kann die Oberfläche Typ und Bedeutung vorschlagen, statt
+# raten zu lassen. Fehlt die Datei, entfällt der Vorschlag - mehr nicht.
+#####################################################
+
+sub readPdoDocs
+{
+	my ($installfolder, $psubfolder) = @_;
+	my %doku;
+
+	open(my $fh, '<', "$installfolder/bin/plugins/$psubfolder/pdo_katalog.txt") or return \%doku;
+	while (my $z = <$fh>) {
+		next if ($z =~ /^\s*#/);
+		chomp $z;
+		my ($pdid, $typ, $beschr) = split(/\|/, $z, 3);
+		next if (!defined($typ) || $pdid !~ /^\d+$/);
+		$doku{$pdid} = { typ => $typ, beschr => (defined($beschr) ? $beschr : "") };
+	}
+	close($fh);
+
+	return \%doku;
+}
+
+#####################################################
+# Die Sensortabelle aufbauen.
+#
+# Liefert (html, anzahl_aktiv, anzahl_gesamt) - die beiden Zahlen stehen im
+# zugeklappten Zustand in der Kopfzeile, damit man ohne Aufklappen sieht, wie
+# viele Sensoren überhaupt aktiv sind.
+#####################################################
+
+sub getSensorTable
+{
+	my ($installfolder, $psubfolder, $pcfg, $status) = @_;
+
+	my $katalog = readSensorCatalog($installfolder, $psubfolder);
+	my $doku    = readPdoDocs($installfolder, $psubfolder);
+
+	my %aus = map { $_ => 1 } @{ $pcfg->{'SENSORS'}->{'aus'} || [] };
+	my @eigene = @{ $pcfg->{'SENSORS'}->{'eigene'} || [] };
+
+	# Live-Werte aus der Statusdatei. Fehlen sie (Plugin gestoppt, oder ein Sensor
+	# hat noch nie gesendet), bleibt die Spalte leer statt eine Null vorzutäuschen.
+	my $werte = ($status && ref($status->{werte}) eq 'HASH') ? $status->{werte} : {};
+
+	my @zeilen;
+	my $aktiv = 0;
+	my $gesamt = 0;
+
+	my $zeile = sub {
+		my ($pdid, $name, $push, $hinweis, $eigen, $typ, $idx) = @_;
+		$gesamt++;
+		my $an = $aus{$pdid} ? 0 : 1;
+		$aktiv++ if ($an);
+
+		my ($wert, $alter) = ("", "");
+		if (ref($werte->{$pdid}) eq 'ARRAY') {
+			$wert = $werte->{$pdid}->[0];
+			$wert = "" if (!defined($wert));
+			$wert =~ s/</&lt;/g;
+		}
+
+		my $klasse = $an ? "" : " cc-sensor-aus";
+		my $html = "<tr class=\"cc-sensor-row$klasse\" data-pdid=\"$pdid\">";
+		$html .= "<td><input type=\"checkbox\" name=\"sensor_on_$pdid\" "
+			. ($an ? "checked " : "") . "/></td>";
+		$html .= "<td class=\"cc-sensor-pdid\">$pdid</td>";
+
+		if ($eigen) {
+			# Eigene Zeilen bleiben bearbeitbar - sonst müsste man sie zum Korrigieren
+			# eines Tippfehlers löschen und neu anlegen.
+			$html .= "<td><input type=\"text\" class=\"cc-sensor-name\" "
+				. "name=\"sensor_new_name_$idx\" value=\"$name\" /></td>";
+			$html .= "<td><input type=\"number\" class=\"cc-sensor-push\" min=\"0\" "
+				. "name=\"sensor_new_push_$idx\" value=\"" . ($push || "") . "\" /></td>";
+			$html .= "<td class=\"cc-sensor-val\" id=\"sv$pdid\">$wert</td>";
+			$html .= "<td class=\"cc-sensor-note\">$hinweis"
+				. "<input type=\"hidden\" name=\"sensor_new_pdid_$idx\" value=\"$pdid\" />"
+				. "<input type=\"hidden\" name=\"sensor_new_type_$idx\" value=\"$typ\" />"
+				. " <a href=\"#\" class=\"cc-sensor-del\" title=\"Zeile entfernen\">&#10005;</a></td>";
+		} else {
+			$html .= "<td class=\"cc-sensor-name-fix\">$name</td>";
+			$html .= "<td class=\"cc-sensor-push-fix\">" . ($push ? "${push}s" : "&ndash;") . "</td>";
+			$html .= "<td class=\"cc-sensor-val\" id=\"sv$pdid\">$wert</td>";
+			$html .= "<td class=\"cc-sensor-note\">$hinweis</td>";
+		}
+		$html .= "</tr>";
+		push @zeilen, $html;
+	};
+
+	for my $pdid (sort { $a <=> $b } keys %$katalog) {
+		my $e = $katalog->{$pdid};
+		my $hinweis = "";
+		$hinweis = "nur mit ComfoCool" if (($e->{PRODUCT} || 0) == 6);
+		$zeile->($pdid, $e->{NAME}, $e->{PUSH}, $hinweis, 0);
+	}
+
+	my $idx = 0;
+	for my $e (@eigene) {
+		# Kollidierende Einträge überspringen. Über die Oberfläche können sie gar
+		# nicht entstehen (das Speichern weist sie ab, cfc.py ebenso), wohl aber
+		# durch eine von Hand bearbeitete Konfiguration - dann stünde die pdid hier
+		# zweimal, mit zwei Haken, die sich gegenseitig überschreiben.
+		next if (exists $katalog->{ $e->{pdid} });
+		$zeile->($e->{pdid}, $e->{name}, $e->{push}, "eigener Eintrag", 1,
+			(defined($e->{type}) ? $e->{type} : 1), $idx++);
+	}
+
+	my $html = "<table class=\"cc-sensors\">"
+		. "<tr><th></th><th>pdid</th><th>Name (MQTT-Thema)</th><th>Intervall</th>"
+		. "<th>Wert</th><th></th></tr>"
+		. join("", @zeilen) . "</table>";
+
+	# Vorlage für neue Zeilen: liegt versteckt im Formular und wird von JS geklont.
+	# Der Zähler startet hinter den bereits vorhandenen eigenen Zeilen, damit die
+	# Feldnamen eindeutig bleiben.
+	$html .= "<div class=\"cc-sensor-add\">"
+		. "<a href=\"#\" id=\"btnsensoradd\">+ Sensor hinzufügen</a>"
+		. "<span class=\"cc-sensor-addhint\">pdid eingeben &ndash; Typ und Bedeutung "
+		. "werden vorgeschlagen, sofern im Zehnder-Protokoll dokumentiert.</span>"
+		. "<input type=\"hidden\" id=\"sensornextidx\" value=\"$idx\" />"
+		. "</div>";
+
+	# Die Doku als JSON für das Formular. Nur die pdids, die noch nicht in Gebrauch
+	# sind - für alles andere gäbe es ohnehin schon eine Zeile.
+	my %frei;
+	for my $pdid (keys %$doku) {
+		next if (exists $katalog->{$pdid});
+		$frei{$pdid} = $doku->{$pdid};
+	}
+	$html .= "<script>var ccPdoDocs = " . JSON::PP->new->utf8(0)->canonical->encode(\%frei) . ";</script>";
+
+	return ($html, $aktiv, $gesamt);
 }
 
 #####################################################

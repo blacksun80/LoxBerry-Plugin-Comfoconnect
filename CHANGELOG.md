@@ -60,6 +60,21 @@ angeschlossenen Geräte beim Verbindungsaufbau von sich aus. Es ist dafür keine
 Einstellung nötig, und wer nachrüstet, bekommt die Werte nach dem nächsten
 Neustart automatisch. Anlagen ohne Kühlmodul sehen davon nichts.
 
+**Sensorliste in der Weboberfläche.** Alle Sensoren stehen jetzt als aufklappbare
+Tabelle in den Einstellungen — mit Haken zum An- und Abwählen und dem aktuellen
+Messwert je Sensor, sekündlich aktualisiert. Zugeklappt zeigt die Kopfzeile, wie
+viele aktiv sind. Abgewählte Sensoren werden bei der Lüftungsanlage gar nicht erst
+angemeldet und erscheinen dann auch nicht mehr per MQTT.
+
+Über „Sensor hinzufügen" lassen sich weitere Messwerte ergänzen. Das Zehnder-
+Protokoll kennt rund 25 Werte mehr, als das Plugin bisher abgreift; gibt man deren
+Kennnummer ein, schlägt die Oberfläche Datentyp und Bedeutung selbst vor.
+
+Die Auswahl liegt in der Plugin-Konfiguration, nicht in der Sensordatei. Sie
+übersteht damit ein Plugin-Update — und neue Sensoren aus künftigen Versionen
+kommen trotzdem automatisch dazu, statt von einer eingefrorenen Kopie der Liste
+verdeckt zu werden.
+
 **Diagnose-Anzeige.** Manche Aussetzer fängt das Plugin im laufenden Betrieb
 selbst ab — eine ausbleibende Antwort der Anlage, ein kurzer Verbindungsabbruch,
 ein Aussetzer beim MQTT-Broker. Das ist richtig so, macht aber blind: Eine Anlage,

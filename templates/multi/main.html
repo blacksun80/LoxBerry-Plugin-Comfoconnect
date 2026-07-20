@@ -205,6 +205,86 @@
 	.cc-diag-reports .mono {
 		font-family: monospace;
 	}
+	/* ---- Sensorliste ---------------------------------------------------- */
+	.cc-collapse-head {
+		cursor: pointer;
+		user-select: none;
+	}
+	.cc-collapse-arrow {
+		display: inline-block;
+		width: 12px;
+		transition: transform 0.12s;
+	}
+	.cc-collapse-arrow.auf { transform: rotate(90deg); }
+	.cc-collapse-count {
+		font-weight: normal;
+		color: #888;
+		font-size: 0.9em;
+	}
+	.cc-sensor-intro {
+		font-size: 0.85em;
+		color: #666;
+		margin: 2px 0 8px 0;
+		max-width: 780px;
+	}
+	table.cc-sensors {
+		border-collapse: collapse;
+		font-size: 0.86em;
+		width: 100%;
+		max-width: 900px;
+	}
+	table.cc-sensors th {
+		text-align: left;
+		color: #555;
+		padding: 2px 10px 4px 0;
+		border-bottom: 1px solid #ddd;
+	}
+	table.cc-sensors td {
+		padding: 1px 10px 1px 0;
+		border-bottom: 1px solid #f2f2f2;
+		vertical-align: middle;
+	}
+	/* Abgewaehlte Zeilen blass, aber lesbar - sie sollen als "aus" erkennbar
+	   sein, ohne dass man den Namen nicht mehr entziffern kann. */
+	.cc-sensor-aus td { color: #b0b0b0; }
+	.cc-sensor-pdid {
+		font-family: monospace;
+		text-align: right;
+		width: 50px;
+	}
+	.cc-sensor-name-fix { font-family: monospace; }
+	.cc-sensor-push-fix { color: #888; width: 70px; }
+	/* Der Messwert steht dicktengleich und rechtsbuendig, damit die Spalte beim
+	   sekuendlichen Aktualisieren nicht staendig die Breite wechselt. */
+	.cc-sensor-val {
+		font-family: monospace;
+		text-align: right;
+		width: 90px;
+		color: #2a6496;
+	}
+	.cc-sensor-note { color: #999; font-size: 0.92em; }
+	.cc-sensors input[type="text"], .cc-sensors input[type="number"] {
+		font-size: 1em;
+		padding: 1px 4px;
+		margin: 0;
+		height: auto;
+		min-height: 0;
+	}
+	.cc-sensor-name { width: 96%; font-family: monospace; }
+	.cc-sensor-push { width: 60px; }
+	.cc-sensor-del {
+		color: #c0392b !important;
+		text-decoration: none;
+		font-weight: bold;
+		margin-left: 4px;
+	}
+	.cc-sensor-add { margin-top: 8px; }
+	.cc-sensor-add a { font-size: 0.85em; }
+	.cc-sensor-addhint {
+		font-size: 0.78em;
+		color: #999;
+		margin-left: 10px;
+	}
 	.cc-diag-reset {
 		display: inline-block;
 		margin-top: 9px;
@@ -356,6 +436,28 @@
 	     abgefangen werden und deshalb sonst nirgends mehr sichtbar waeren.
 	     Inhalt kommt fertig aus index.cgi (getDiagnostics) und wird vom selben
 	     AJAX-Aufruf mitaktualisiert wie die Statuszeile. -->
+	<!-- Sensorliste. Standardmaessig zugeklappt - 52 Zeilen wuerden die Seite
+	     sonst voellig dominieren, obwohl die meisten Benutzer daran nie etwas
+	     aendern. Im Kopf steht deshalb die Bilanz, damit man ohne Aufklappen
+	     sieht, wieviel aktiv ist. -->
+	<div class="cc-group">
+		<div class="cc-group-title cc-collapse-head" id="sensorhead">
+			<span class="cc-collapse-arrow" id="sensorarrow">&#9656;</span>
+			Sensoren
+			<span class="cc-collapse-count">(<span id="sensorcount"><TMPL_VAR NAME=SENSORSAKTIV></span>
+			von <TMPL_VAR NAME=SENSORSGESAMT> aktiv)</span>
+		</div>
+		<div id="sensorbody" style="display: none;">
+			<div class="cc-sensor-intro">
+				Abgewählte Sensoren werden bei der Lüftungsanlage gar nicht erst
+				angemeldet und erscheinen dann auch nicht mehr per MQTT. Der Name ist
+				zugleich das MQTT-Thema. Änderungen greifen nach dem Speichern, weil
+				die Anmeldung nur beim Verbindungsaufbau erfolgt.
+			</div>
+			<TMPL_VAR NAME=SENSORTABLE>
+		</div>
+	</div>
+
 	<div class="cc-group">
 		<div class="cc-group-title">Diagnose</div>
 		<div id="diagbox"><TMPL_VAR NAME=DIAGNOSTICS></div>
@@ -432,6 +534,14 @@
 			if ( typeof data.diagnostics !== "undefined" ) {
 				$( "#diagbox" ).html( data.diagnostics );
 			}
+			<!-- Nur die Wertespalte auffrischen. Die Tabelle selbst wird bewusst -->
+			<!-- NICHT ersetzt: Sonst waeren Haken und Eingaben, die der Benutzer -->
+			<!-- gerade gesetzt, aber noch nicht gespeichert hat, jede Sekunde weg. -->
+			if ( data.werte ) {
+				$.each( data.werte, function( pdid, wert ) {
+					$( "#sv" + pdid ).text( wert );
+				} );
+			}
 		} );
 	}
 	setInterval( refreshStatus, 1000 );
@@ -440,6 +550,86 @@
 	<!-- Monate umfassen und sind danach unwiederbringlich weg. Die Stoerungsberichte -->
 	<!-- selbst bleiben liegen - die sind die eigentlichen Beweisstuecke und haengen -->
 	<!-- nicht an den Zaehlern. -->
+	<!-- ===== Sensorliste ============================================== -->
+
+	<!-- Auf-/Zuklappen. Startet zugeklappt (siehe style im Markup). -->
+	$( "#sensorhead" ).on( "click", function() {
+		$( "#sensorbody" ).slideToggle( 120 );
+		$( "#sensorarrow" ).toggleClass( "auf" );
+	} );
+
+	<!-- Zaehler im Kopf mitfuehren, damit er auch im zugeklappten Zustand stimmt, -->
+	<!-- ohne dass man erst speichern muss. -->
+	function ccZaehleSensoren() {
+		var n = $( "#sensorbody" ).find( "input[name^='sensor_on_']:checked" ).length;
+		$( "#sensorcount" ).text( n );
+	}
+
+	$( "#sensorbody" ).on( "change", "input[name^='sensor_on_']", function() {
+		<!-- Abgewaehlte Zeile sofort ausgrauen - so sieht man beim Durchgehen -->
+		<!-- einer langen Liste, was man bereits angefasst hat. -->
+		$( this ).closest( "tr" ).toggleClass( "cc-sensor-aus", !this.checked );
+		ccZaehleSensoren();
+	} );
+
+	<!-- Eigene Zeile entfernen. Nur eigene haben dieses Symbol - Katalogeintraege -->
+	<!-- lassen sich ausschliesslich abwaehlen, sonst waeren sie nach dem naechsten -->
+	<!-- Plugin-Update unerklaerlicherweise wieder da. -->
+	$( "#sensorbody" ).on( "click", ".cc-sensor-del", function( e ) {
+		e.preventDefault();
+		$( this ).closest( "tr" ).remove();
+		ccZaehleSensoren();
+	} );
+
+	<!-- Neue Zeile anlegen. Die laufende Nummer im Feldnamen muss eindeutig -->
+	<!-- bleiben, deshalb wird sie nur hochgezaehlt und nie neu vergeben - auch -->
+	<!-- nicht, wenn zwischendurch eine Zeile geloescht wurde. -->
+	$( "#btnsensoradd" ).on( "click", function( e ) {
+		e.preventDefault();
+		var idx = parseInt( $( "#sensornextidx" ).val(), 10 ) || 0;
+		$( "#sensornextidx" ).val( idx + 1 );
+
+		var zeile = $(
+			'<tr class="cc-sensor-row cc-sensor-neu">' +
+			'<td><input type="checkbox" name="sensor_on_" checked /></td>' +
+			'<td class="cc-sensor-pdid"><input type="number" class="cc-sensor-push" min="0" ' +
+				'name="sensor_new_pdid_' + idx + '" /></td>' +
+			'<td><input type="text" class="cc-sensor-name" name="sensor_new_name_' + idx + '" ' +
+				'placeholder="MEIN_WERT" /></td>' +
+			'<td><input type="number" class="cc-sensor-push" min="0" ' +
+				'name="sensor_new_push_' + idx + '" /></td>' +
+			'<td class="cc-sensor-val"></td>' +
+			'<td class="cc-sensor-note"><span class="cc-neu-info"></span>' +
+				'<input type="hidden" name="sensor_new_type_' + idx + '" value="1" />' +
+				' <a href="#" class="cc-sensor-del" title="Zeile entfernen">&#10005;</a></td>' +
+			'</tr>' );
+
+		$( "#sensorbody table.cc-sensors" ).append( zeile );
+		zeile.find( "input[type=number]" ).first().focus();
+		ccZaehleSensoren();
+	} );
+
+	<!-- pdid eingetippt: Typ und Bedeutung aus der Protokolldokumentation -->
+	<!-- vorschlagen. Der Typ bestimmt, wie die Anlage den Wert kodiert - raet man -->
+	<!-- den falsch, kommen unbrauchbare Zahlen an. Deshalb hier nachschlagen -->
+	<!-- statt den Benutzer raten zu lassen. -->
+	$( "#sensorbody" ).on( "input", "input[name^='sensor_new_pdid_']", function() {
+		var zeile = $( this ).closest( "tr" );
+		var idx   = this.name.replace( "sensor_new_pdid_", "" );
+		var doku  = ccPdoDocs[ $( this ).val() ];
+
+		<!-- Der Haken traegt die pdid im Namen - erst jetzt ist sie bekannt. -->
+		zeile.find( "input[name^='sensor_on_']" ).attr( "name", "sensor_on_" + $( this ).val() );
+
+		if ( doku ) {
+			zeile.find( "input[name='sensor_new_type_" + idx + "']" ).val( doku.typ );
+			zeile.find( ".cc-neu-info" ).text( doku.beschr ).css( "color", "#3c8c1f" );
+		} else {
+			zeile.find( "input[name='sensor_new_type_" + idx + "']" ).val( 1 );
+			zeile.find( ".cc-neu-info" ).text( "nicht dokumentiert" ).css( "color", "#999" );
+		}
+	} );
+
 	$( "#btnresetstats" ).on( "click", function( e ) {
 		e.preventDefault();
 		if ( !confirm( "Alle Diagnose-Zähler auf null zurücksetzen?\n\nDie gespeicherten Störungsberichte bleiben erhalten." ) ) {

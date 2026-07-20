@@ -1,0 +1,80 @@
+# pdid|typ|Beschreibung - erzeugt aus PROTOCOL-PDO.md.
+# Nur Nachschlagewerk fuer die Weboberflaeche (Typvorschlag beim
+# Hinzufuegen eigener Sensoren). Wird zur Laufzeit nicht gebraucht.
+16|1|Away indicator
+33|1|Unknown
+37|1|Unknown
+49|1|Operating mode
+53|1|Unknown
+56|1|Operating mode
+65|1|Fans: Fan speed setting , 01, 02 or 03)
+66|1|Bypass activation mode
+67|1|Temperature Profile
+70|1|Unknown
+71|1|Unknown
+81|3|General: Countdown until next fan speed change
+82|3|Unknown
+85|3|Unknown
+86|3|Unknown
+87|3|Unknown
+117|1|Fans: Exhaust fan duty
+118|1|Fans: Supply fan duty
+119|2|Fans: Exhaust fan flow
+120|2|Fans: Supply fan flow
+121|2|Fans: Exhaust fan speed
+122|2|Fans: Supply fan speed
+128|2|Power Consumption: Current Ventilation
+129|2|Power Consumption: Total year-to-date
+130|2|Power Consumption: Total from start
+144|2|Preheater Power Consumption: Total year-to-date
+145|2|Preheater Power Consumption: Total from start
+146|2|Preheater Power Consumption: Current Ventilation
+176|1|Unknown
+192|2|Days left before filters must be replaced
+208|1|Unknown , Unit of temperature
+209|6|Current RMOT
+210|0|Unknown
+211|0|Unknown
+212|1|Temperature profile target
+213|2|Avoided Heating: Avoided actual:
+214|2|Avoided Heating: Avoided year-to-date:
+215|2|Avoided Heating: Avoided total:
+216|2|Avoided Cooling: Avoided actual:
+217|2|Avoided Cooling: Avoided year-to-date:
+218|2|Avoided Cooling: Avoided total:
+219|2|Unknown
+221|6|Temperature & Humidity: Supply Air PostHeaterTempAfter
+224|1|Unknown
+225|1|Unknown
+226|2|Unknown
+227|1|Bypass state
+228|1|Unknown FrostProtectionUnbalance
+274|6|Temperature & Humidity: Extract Air
+275|6|Temperature & Humidity: Exhaust Air
+276|6|Temperature & Humidity: Outdoor Air
+277|6|Temperature & Humidity: Preheated Outdoor Air
+278|6|PostHeaterTempBefore
+290|1|Temperature & Humidity: Extract Air
+291|1|Temperature & Humidity: Exhaust Air
+292|1|Temperature & Humidity: Outdoor Air
+293|1|Temperature & Humidity: Preheated Outdoor Air
+294|1|Temperature & Humidity: Supply Air
+321|2|Unknown
+325|2|Unknown
+337|3|Unknown
+338|3|Unknown
+341|3|Unknown
+369|1|Unknown
+370|1|Unknown
+371|1|Unknown
+372|1|Unknown
+384|6|Unknown
+386|0|Unknown
+400|6|Unknown
+401|1|Unknown
+402|0|Unknown PostHeaterPresent?
+416|6|Unknown Outdoor air temperature
+417|6|Unknown GHE Ground temperature
+418|1|Unknown GHE State
+419|0|Unknown GHE Present
+785|0|ComfoCoolCompressor State
