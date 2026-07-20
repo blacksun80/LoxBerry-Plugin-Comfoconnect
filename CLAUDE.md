@@ -61,6 +61,12 @@ DEBUG-Meldungen gar nicht erst und der Snapshot-Ringpuffer bleibt leer. Siehe
 **jQuery Mobile setzt `fieldset` per Tag-Selektor zurück.** Deshalb `div` +
 `!important` für die gerahmten Blöcke.
 
+**Jedes `<input>` braucht `data-role="none"`.** Sonst baut jQuery Mobile daraus ein
+eigenes Bedienelement mit eigenem Kastenmodell. In einer Tabelle sprengt das die
+Zeilenhöhe, und Kontrollkästchen schieben sich über die Überschrift darüber. Galt
+schon für die beiden Kästchen im Überwachungsblock — beim Bau der Sensorliste
+trotzdem vergessen und dadurch erneut zugeschlagen.
+
 **Kein `except: pass` ohne Meldung** bei irgendetwas Diagnostischem. Der
 Snapshot-Schreiber hat sein eigenes Versagen einmal komplett verschluckt.
 

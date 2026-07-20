@@ -283,6 +283,19 @@
 	   wuerde sie anders umbrechen als die Datentabellen darunter. Breit genug
 	   fuer die Ueberschrift "Aktiv", der Haken sitzt darunter linksbuendig. */
 	.cc-sensor-hak { width: 42px; }
+	/* Groesse und Abstaende ausdruecklich setzen, zusaetzlich zum data-role="none"
+	   im Markup. Ein Kaestchen ohne feste Masse richtet sich nach der Schriftgroesse
+	   des Themes und kann dadurch hoeher werden als die Tabellenzeile - dann schiebt
+	   es sich ueber die Gruppenueberschrift darueber. */
+	table.cc-sensors input[type="checkbox"],
+	.cc-sensor-gruppe input[type="checkbox"] {
+		width: 15px;
+		height: 15px;
+		margin: 0;
+		padding: 0;
+		min-height: 0;
+		vertical-align: middle;
+	}
 	/* Gepunktete Unterlinie als Hinweis, dass an "ID" ein Tooltip haengt. */
 	table.cc-sensors th[title] {
 		border-bottom: 1px dotted #aaa;
@@ -293,8 +306,10 @@
 		display: flex;
 		align-items: center;
 		gap: 6px;
+		/* Etwas Luft nach oben, damit die Ueberschrift nicht an der letzten Zeile
+		   der vorigen Gruppe klebt. */
+		margin-top: 14px !important;
 	}
-	.cc-sensor-gruppe input { margin: 0; }
 	table.cc-sensors th {
 		font-weight: bold;
 		font-family: inherit;
