@@ -6,6 +6,7 @@ import os
 import time
 import threading
 import traceback
+import functools
 import signal
 from pycomfoconnect import *
 import getopt
@@ -69,10 +70,10 @@ plugin_start = time.time()
 mqtt_abbrueche = 0
 mqtt_letzter_abbruch = None
 
-# Wird in setup_logger() gesetzt, sobald ein Verzeichnis für Störungsberichte
+# Wird in setup_logger() gesetzt, sobald ein Verzeichnis für Log-Snapshots
 # übergeben wurde. Hier schon definiert, damit der Status-Thread ihn auch dann
 # lesen kann, wenn es (noch) keinen gibt.
-stoerungsschreiber = None
+snapshotschreiber = None
 
 # Führt dieselben Zähler zusätzlich über Neustarts hinweg fort (siehe Klasse
 # Langzeitstatistik). Wird in main() angelegt, sobald das Datenverzeichnis bekannt
@@ -118,10 +119,33 @@ def _abonniere(client, name):
 # safely if it is ever called too early.
 statusfile = None
 
+def thread_sicher(fn):
+    """Verhindert, dass ein Fehler in einem Rueckruf den fremden Thread mitreisst.
+
+    Die MQTT-Rueckrufe unten werden von paho im eigenen Netzwerk-Thread aufgerufen.
+    Eine durchgereichte Ausnahme beendet dort die Schleife - die MQTT-Seite ist
+    danach tot, waehrend das Plugin weiterlaeuft und nach aussen gesund aussieht:
+    Sensorwerte gehen nicht mehr raus, Befehle kommen nicht mehr an, und im Log
+    steht nichts, was darauf hindeutet.
+    """
+    @functools.wraps(fn)
+    def sicher(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            # ERROR, nicht WARNING: Das ist immer ein Programmierfehler, und der
+            # Log-Snapshot soll die Vorgeschichte dazu festhalten.
+            _LOGGER.error("Fehler im MQTT-Rückruf %s (%s: %s):\n%s"
+                          % (fn.__name__, type(e).__name__, e, traceback.format_exc().rstrip()))
+    return sicher
+
+
+@thread_sicher
 def on_publish(client, userdata, mid):
     _LOGGER.debug("Published Data - mid: "+str(mid))
     pass
 
+@thread_sicher
 def on_connect(client, userdata, flags, rc):
     global mqtt_connected, mqtt_last_change, sensorwatch_published, away_active_published, away_remaining_published
 
@@ -191,6 +215,7 @@ def on_connect(client, userdata, flags, rc):
     _abonniere(client, "BYPASS_ON_TIME")
     _abonniere(client, "BYPASS_OFF_TIME")
 
+@thread_sicher
 def on_disconnect(client, userdata, rc):
     global mqtt_connected, mqtt_last_change, mqtt_abbrueche, mqtt_letzter_abbruch
 
@@ -576,6 +601,7 @@ def _dispatch_message(topic, value):
         else:
             _LOGGER.error("BYPASS: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Werte 0, 1, 2")
 
+@thread_sicher
 def on_subscribe(client, userdata, mid, granted_qos):
     _LOGGER.info("Subscribed: "+str(mid)+" "+str(granted_qos))
 
@@ -908,7 +934,7 @@ class Langzeitstatistik:
             _LOGGER.debug("Langzeitstatistik konnte nicht geschrieben werden: " + fehlertext(e))
 
 
-class StoerungsSchreiber(logging.Handler):
+class SnapshotSchreiber(logging.Handler):
     """Sichert bei einem Fehler die Logzeilen davor und danach in eine eigene Datei.
 
     Warum das nötig ist: Bei Loglevel DEBUG wachsen die Logdateien schnell, und
@@ -942,8 +968,8 @@ class StoerungsSchreiber(logging.Handler):
         self.puffer = collections.deque()
         self.datei = None
         self.ende = 0
-        self.anzahl_berichte = 0
-        self.letzter_bericht = None
+        self.anzahl_snapshots = 0
+        self.letzter_snapshot = None
 
         # Letzter Schreibfehler, damit er in der Weboberflaeche sichtbar wird statt
         # nur im Log zu stehen (siehe emit()).
@@ -986,7 +1012,7 @@ class StoerungsSchreiber(logging.Handler):
                 self._fehler_gemeldet = True
                 try:
                     sys.stderr.write(
-                        "Stoerungsbericht konnte nicht geschrieben werden (%s). "
+                        "Log-Snapshot konnte nicht geschrieben werden (%s). "
                         "Ziel: %s\n" % (self.fehler, self.verzeichnis))
                     sys.stderr.flush()
                 except Exception:
@@ -996,14 +1022,18 @@ class StoerungsSchreiber(logging.Handler):
         os.makedirs(self.verzeichnis, exist_ok=True)
         name = os.path.join(
             self.verzeichnis,
-            "stoerung_%s.log" % datetime.datetime.fromtimestamp(jetzt).strftime("%Y%m%d_%H%M%S")
+            "snapshot_%s.log" % datetime.datetime.fromtimestamp(jetzt).strftime("%Y%m%d_%H%M%S")
         )
-        self.datei = open(name, "w", encoding="utf-8")
+        # buffering=1 = zeilenweise schreiben. Wichtig fuer genau den Fall, fuer den
+        # es diese Berichte gibt: Stuerzt der Prozess ab, wird nichts mehr
+        # geschlossen und ein normaler Puffer waere verloren - der Bericht ueber den
+        # Absturz waere leer. So steht jede Zeile sofort auf der Platte.
+        self.datei = open(name, "w", encoding="utf-8", buffering=1)
         self.ende = jetzt + self.nachlauf
-        self.letzter_bericht = jetzt
-        self.anzahl_berichte += 1
+        self.letzter_snapshot = jetzt
+        self.anzahl_snapshots += 1
 
-        self.datei.write("Störungsbericht - ausgelöst durch:\n  %s\n\n" % grund)
+        self.datei.write("Log-Snapshot - ausgelöst durch:\n  %s\n\n" % grund)
         self.datei.write("Die folgenden Zeilen umfassen etwa %d Sekunden davor und %d danach.\n"
                          % (self.vorlauf, self.nachlauf))
         self.datei.write("=" * 78 + "\n")
@@ -1012,7 +1042,7 @@ class StoerungsSchreiber(logging.Handler):
 
     def _schliessen(self):
         try:
-            self.datei.write("=" * 78 + "\nEnde des Störungsberichts.\n")
+            self.datei.write("=" * 78 + "\nEnde des Log-Snapshots.\n")
             self.datei.close()
         finally:
             self.datei = None
@@ -1023,7 +1053,7 @@ class StoerungsSchreiber(logging.Handler):
         try:
             dateien = sorted(
                 (os.path.join(self.verzeichnis, f) for f in os.listdir(self.verzeichnis)
-                 if f.startswith("stoerung_") and f.endswith(".log")),
+                 if f.startswith("snapshot_") and f.endswith(".log")),
                 key=os.path.getmtime, reverse=True
             )
             for alt in dateien[self.max_dateien:]:
@@ -1055,6 +1085,7 @@ def to_seconds(value):
     """
     return int(float(value))
 
+@thread_sicher
 def on_log(client, userdata, level, buf):
     _LOGGER.debug("Paho: " + buf)
 
@@ -1133,9 +1164,9 @@ def write_status_loop():
                         comfoconnect.stats[name] = None if name.startswith('letzt') else 0
                 globals()['mqtt_abbrueche'] = 0
                 globals()['mqtt_letzter_abbruch'] = None
-                if stoerungsschreiber:
-                    stoerungsschreiber.anzahl_berichte = 0
-                    stoerungsschreiber.letzter_bericht = None
+                if snapshotschreiber:
+                    snapshotschreiber.anzahl_snapshots = 0
+                    snapshotschreiber.letzter_snapshot = None
                 langzeit.zuruecksetzen()
                 _LOGGER.info("Diagnose-Statistik wurde über die Weboberfläche zurückgesetzt.")
         except Exception as e:
@@ -1178,8 +1209,8 @@ def write_status_loop():
                     'mqtt_abbrueche': mqtt_abbrueche,
                     'mqtt_letzter_abbruch': mqtt_letzter_abbruch,
                     'stats': dict(comfoconnect.stats) if comfoconnect else {},
-                    'stoerungsberichte': stoerungsschreiber.anzahl_berichte if stoerungsschreiber else 0,
-                    'letzter_stoerungsbericht': stoerungsschreiber.letzter_bericht if stoerungsschreiber else None,
+                    'snapshots': snapshotschreiber.anzahl_snapshots if snapshotschreiber else 0,
+                    'letzter_snapshot': snapshotschreiber.letzter_snapshot if snapshotschreiber else None,
 
                     # Sensortabelle der Weboberflaeche. Als Zeichenkette, nicht als
                     # Zahl: In der Tabelle wird der Wert nur angezeigt, und so bleibt
@@ -1200,7 +1231,7 @@ def write_status_loop():
                 if langzeit:
                     laufend = dict(status['stats'])
                     laufend['mqtt_abbrueche'] = mqtt_abbrueche
-                    laufend['stoerungsberichte'] = status['stoerungsberichte']
+                    laufend['snapshots'] = status['snapshots']
                     langzeit.uebernehmen(laufend)
                     langzeit.speichern()
                     status['gesamt'] = dict(langzeit.daten['zaehler'])
@@ -1317,7 +1348,7 @@ def main():
     # Abstuerze in Hintergrund-Threads in unser Logging holen.
     #
     # Python meldet einen abgestuerzten Thread von sich aus nur direkt auf stderr -
-    # am Logger vorbei. Folge: kein ERROR, kein Stoerungsbericht, kein Zaehler, und
+    # am Logger vorbei. Folge: kein ERROR, kein Log-Snapshot, kein Zaehler, und
     # die Statusanzeige merkt nichts. Genau so ist am 20.07. der Verbindungsthread
     # gestorben, waehrend nach aussen alles normal aussah; der Traceback stand nur
     # deshalb im Log, weil wrapper.pl stderr dort hineinleitet.
@@ -1335,6 +1366,24 @@ def main():
         )
 
     threading.excepthook = thread_absturz
+
+    # Dasselbe fuer den Haupt-Thread. Ohne das landet ein ungefangener Absturz nur
+    # ueber stderr im Log (weil wrapper.pl es dorthin umleitet) - aber eben nicht als
+    # Logmeldung. Folge: kein ERROR, kein Log-Snapshot, keine Vorgeschichte, und
+    # der Traceback steht irgendwo zwischen den DEBUG-Zeilen statt am Ende einer
+    # nachvollziehbaren Kette.
+    #
+    # KeyboardInterrupt ausgenommen: Das ist ein Abbruch von Hand, kein Fehler.
+    def haupt_absturz(typ, wert, spur):
+        if issubclass(typ, KeyboardInterrupt):
+            sys.__excepthook__(typ, wert, spur)
+            return
+        _LOGGER.error(
+            "Das Plugin ist abgestuerzt und beendet sich:\n%s"
+            % "".join(traceback.format_exception(typ, wert, spur)).rstrip()
+        )
+
+    sys.excepthook = haupt_absturz
 
     # Erst hier, nicht in setup_logger(): braucht einen funktionierenden Logger, um
     # eine unlesbare Datei melden zu koennen.
@@ -1535,7 +1584,7 @@ def main():
             try:
                 laufend = dict(comfoconnect.stats) if comfoconnect else {}
                 laufend['mqtt_abbrueche'] = mqtt_abbrueche
-                laufend['stoerungsberichte'] = stoerungsschreiber.anzahl_berichte if stoerungsschreiber else 0
+                laufend['snapshots'] = snapshotschreiber.anzahl_snapshots if snapshotschreiber else 0
                 langzeit.uebernehmen(laufend)
                 langzeit.speichern(erzwingen=True)
             except Exception:
@@ -1773,11 +1822,11 @@ def setup_logger(name, snapshotdir=""):
 
     # Die Loglevel-Einstellung des LoxBerry wird bewusst NICHT mehr am Logger
     # gesetzt, sondern an den ausgebenden Handlern. Das klingt nach Haarspalterei,
-    # macht aber den entscheidenden Unterschied für die Störungsberichte:
+    # macht aber den entscheidenden Unterschied für die Log-Snapshots:
     #
     # Ein Logger verwirft Meldungen unterhalb seines Levels sofort - sie entstehen
     # gar nicht erst und erreichen KEINEN Handler. Stand der LoxBerry also auf
-    # "Fehler", lief der Ringpuffer des StoerungsSchreibers leer mit, und ein
+    # "Fehler", lief der Ringpuffer des SnapshotSchreibers leer mit, und ein
     # Bericht enthielt am Ende nur die Fehlerzeile selbst. Ausgerechnet die
     # Vorgeschichte, die den Fehler erklärt, fehlte.
     #
@@ -1802,22 +1851,22 @@ def setup_logger(name, snapshotdir=""):
         if isinstance(h, logging.FileHandler):
             h.setLevel(loglevel)
 
-    # Störungsberichte (siehe StoerungsSchreiber). Bewusst am ROOT-Logger und nicht
+    # Log-Snapshots (siehe SnapshotSchreiber). Bewusst am ROOT-Logger und nicht
     # an unserem eigenen: So werden auch die Meldungen der Bibliothek
     # (pycomfoconnect, eigener Logger "comfoconnect") mitgeschnitten - und gerade
     # die erklären eine Störung meistens.
     #
     # Der Handler bekommt dasselbe Format wie die Logdatei, damit ein Bericht
     # aussieht wie ein Ausschnitt daraus und sich direkt vergleichen lässt.
-    global stoerungsschreiber
-    stoerungsschreiber = None
+    global snapshotschreiber
+    snapshotschreiber = None
     if snapshotdir:
         try:
-            stoerungsschreiber = StoerungsSchreiber(snapshotdir)
-            stoerungsschreiber.setFormatter(logging.Formatter(
+            snapshotschreiber = SnapshotSchreiber(snapshotdir)
+            snapshotschreiber.setFormatter(logging.Formatter(
                 '%(asctime)s.%(msecs)03d <%(levelname)s> %(message)s', datefmt='%H:%M:%S'))
-            stoerungsschreiber.setLevel(logging.DEBUG)
-            logging.getLogger().addHandler(stoerungsschreiber)
+            snapshotschreiber.setLevel(logging.DEBUG)
+            logging.getLogger().addHandler(snapshotschreiber)
 
             # Schreibbarkeit sofort pruefen, nicht erst im Fehlerfall. Sonst faellt
             # ein fehlendes Schreibrecht genau dann auf, wenn man den Bericht
@@ -1827,17 +1876,17 @@ def setup_logger(name, snapshotdir=""):
                 f.write("ok")
             os.remove(probe)
 
-            logger.info("Störungsberichte aktiv (ab Stufe FEHLER, %ds davor und %ds danach): %s"
-                        % (stoerungsschreiber.vorlauf, stoerungsschreiber.nachlauf, snapshotdir))
+            logger.info("Log-Snapshots aktiv (ab Stufe FEHLER, %ds davor und %ds danach): %s"
+                        % (snapshotschreiber.vorlauf, snapshotschreiber.nachlauf, snapshotdir))
         except Exception as e:
-            stoerungsschreiber = None
-            logger.error("Störungsberichte NICHT aktiv - Verzeichnis %s ist nicht beschreibbar (%s: %s)"
+            snapshotschreiber = None
+            logger.error("Log-Snapshots NICHT aktiv - Verzeichnis %s ist nicht beschreibbar (%s: %s)"
                          % (snapshotdir, type(e).__name__, e))
     else:
         # Ohne --snapshotdir gibt es keine Berichte. Das ist kein Fehler (beim
         # Suchlauf etwa gewollt), muss aber sichtbar sein - sonst wartet man
         # vergeblich auf Dateien, die nie entstehen koennen.
-        logger.info("Störungsberichte nicht aktiv (kein Ablageverzeichnis übergeben).")
+        logger.info("Log-Snapshots nicht aktiv (kein Ablageverzeichnis übergeben).")
 
     return logger
 

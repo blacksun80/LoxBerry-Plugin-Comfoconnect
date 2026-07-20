@@ -562,7 +562,7 @@ class ComfoConnect(object):
 
         # Ebenfalls als Fehler, aus demselben Grund wie beim Verbindungsabriss weiter
         # unten: Es ist eine Stoerung, auch wenn die Neuanmeldung anschliessend
-        # gelingt - und der Stoerungsbericht soll den Vorgang festhalten.
+        # gelingt - und der Log-Snapshot soll den Vorgang festhalten.
         if len(self._session_verluste) >= 3:
             _LOGGER.error(
                 "Die Lüftungsanlage hat unsere Sitzung innerhalb von 10 Minuten schon %d mal "
@@ -817,7 +817,7 @@ class ComfoConnect(object):
                 # Wiederholversuch. Diese Schleife dreht sich waehrend eines Ausfalls
                 # etwa alle 5-15 Sekunden; ohne diese Bremse zaehlte ein zweistuendiger
                 # Ausfall rund 500 "Abbrueche" (gemessen: 2099 Stueck in 8,5 Stunden)
-                # und erzeugte im selben Takt Stoerungsberichte. Die Zahl war damit
+                # und erzeugte im selben Takt Log-Snapshots. Die Zahl war damit
                 # wertlos - sie mass die Dauer des Ausfalls, nicht deren Anzahl.
                 #
                 # Zurueckgesetzt wird das erst, wenn die Verbindung wieder steht
@@ -828,7 +828,7 @@ class ComfoConnect(object):
 
                     # BEWUSST als Fehler, obwohl es sich von selbst behebt: Ein Abriss
                     # der Verbindung ist eine Stoerung, auch wenn der Wiederaufbau
-                    # gelingt. Das haelt die Regel einfach - was einen Stoerungsbericht
+                    # gelingt. Das haelt die Regel einfach - was einen Log-Snapshot
                     # verdient, ist ein Fehler, und der Berichtsschreiber braucht keinen
                     # zweiten Einstieg neben der Logstufe. Nebeneffekt: Wer das Loglevel
                     # auf "Fehler" stellt, sieht diese Abbrueche jetzt trotzdem.
@@ -1171,7 +1171,21 @@ class ComfoConnect(object):
         # self.sensors[message.msg.pdid] = val
 
         if self.callback_sensor:
-            self.callback_sensor(message.msg.pdid, val)
+            # Abgesichert, weil dieser Aufruf im NACHRICHTEN-THREAD laeuft: Wirft der
+            # Rueckruf, stirbt der Thread - und damit kommen keine Sensordaten mehr an
+            # und es geht kein Keepalive mehr raus, obwohl der Prozess weiterlaeuft
+            # und nach aussen gesund aussieht. Genau diese Art von Ausfall haben wir
+            # mehrfach gesucht.
+            #
+            # Ein einzelner Messwert, der Aerger macht, darf hoechstens sich selbst
+            # kosten. Der Fehler wird protokolliert (und loest damit auch einen
+            # Log-Snapshot aus), die Schleife laeuft weiter.
+            try:
+                self.callback_sensor(message.msg.pdid, val)
+            except Exception as e:
+                _LOGGER.error("Verarbeitung des Sensorwerts pdid %s fehlgeschlagen (%s: %s) - "
+                              "übersprungen, die Verbindung bleibt bestehen."
+                              % (message.msg.pdid, type(e).__name__, e))
 
     def _handle_alarm_notification(self, message):
         """Wertet eine CnAlarmNotification aus und meldet die Fehler im Klartext.

@@ -132,9 +132,15 @@ if ( $cgi->param('ajax_status') || $cgi->url_param('ajax_status') ) {
 		for my $t (keys %{ $status_daten->{befehle} }) {
 			my $b = $status_daten->{befehle}->{$t};
 			next if (ref($b) ne 'ARRAY');
+			# Gleiche Darstellung wie beim Seitenaufbau (siehe getCommandTable),
+			# sonst sähe die Zelle nach der ersten Aktualisierung anders aus als
+			# beim Laden.
 			$befehle->{$t} = {
 				wert   => $b->[0],
-				wann   => (defined($b->[1]) ? formatSince($now - $b->[1]) : ""),
+				wann   => (defined($b->[1])
+					? "<span class=\"mono\">" . formatZeitpunkt($b->[1]) . "</span>"
+					  . " <span class=\"cc-diag-vor\">(" . formatSince($now - $b->[1]) . ")</span>"
+					: ""),
 				fehler => (defined($b->[2]) ? $b->[2] : ""),
 			};
 		}
@@ -750,16 +756,16 @@ sub getDiagnostics
 			. " &ndash; diese Werte überstehen einen Neustart.</div>";
 	}
 
-	# Hinweis auf gespeicherte Störungsberichte. Wichtig genug für eine eigene
+	# Hinweis auf gespeicherte Log-Snapshots. Wichtig genug für eine eigene
 	# Zeile: Diese Dateien überleben das automatische Aufräumen der Logs und sind
 	# im Zweifel das Einzige, womit sich ein nächtlicher Ausfall noch nachvollziehen
 	# lässt. Ohne diesen Hinweis wüsste niemand, dass es sie überhaupt gibt.
-	my $berichte = $status->{stoerungsberichte} || 0;
+	my $berichte = $status->{snapshots} || 0;
 	if ($berichte) {
-		my $wann = defined($status->{letzter_stoerungsbericht})
-			? " (zuletzt " . formatZeitpunkt($status->{letzter_stoerungsbericht})
-			  . ", " . formatSince($now - $status->{letzter_stoerungsbericht}) . ")" : "";
-		$html .= "<div class=\"cc-diag-reports\">$berichte Störungsbericht"
+		my $wann = defined($status->{letzter_snapshot})
+			? " (zuletzt " . formatZeitpunkt($status->{letzter_snapshot})
+			  . ", " . formatSince($now - $status->{letzter_snapshot}) . ")" : "";
+		$html .= "<div class=\"cc-diag-reports\">$berichte Log-Snapshot"
 			. ($berichte == 1 ? "" : "e") . " gespeichert$wann "
 			. "&ndash; unter <span class=\"mono\">data/plugins/$psubfolder/</span></div>";
 	}
@@ -987,11 +993,11 @@ my @COMMANDS = (
 	# untereinander stehen, tragen die Kopfzellen dieselben Klassen wie die
 	# Datenzellen - die Breiten kommen aus dem CSS und gelten für beide.
 	my $html = "<table class=\"cc-cmds\"><tr>"
-		. "<th class=\"cc-cmd-topic\">Thema</th>"
+		. "<th class=\"cc-cmd-topic\">Topic</th>"
 		. "<th class=\"cc-cmd-werte\">Werte</th>"
 		. "<th class=\"cc-cmd-bed\">Bedeutung</th>"
-		. "<th class=\"cc-cmd-last\">Wert</th>"
-		. "<th class=\"cc-cmd-when\">Zuletzt</th></tr></table>";
+		. "<th class=\"cc-cmd-last\">Letzter Wert</th>"
+		. "<th class=\"cc-cmd-when\">Empfangen</th></tr></table>";
 	my $anzahl = 0;
 
 	for my $g (@COMMANDS) {
@@ -1007,7 +1013,12 @@ my @COMMANDS = (
 				my ($w, $z, $f) = @{ $befehle->{$t} };
 				$wert = defined($w) ? $w : "";
 				$wert =~ s/</&lt;/g;
-				$wann = defined($z) ? formatSince($now - $z) : "";
+				# Uhrzeit plus Spanne, wie in der Diagnose-Tabelle: Zum Nachsehen im
+				# Log braucht man die Uhrzeit, die Spanne dient der Einordnung.
+				$wann = defined($z)
+					? "<span class=\"mono\">" . formatZeitpunkt($z) . "</span>"
+					  . " <span class=\"cc-diag-vor\">(" . formatSince($now - $z) . ")</span>"
+					: "";
 				$fehler = $f if (defined($f) && $f ne "");
 			}
 

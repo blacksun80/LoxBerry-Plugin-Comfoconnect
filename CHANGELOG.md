@@ -97,24 +97,24 @@ Zahlen löschen würde, die den Vorfall belegen. Über „Statistik zurücksetze
 unterhalb der Tabelle lässt sich jederzeit wieder bei null anfangen, etwa nachdem
 die Ursache eines Problems behoben wurde.
 
-**Störungsberichte.** Tritt eine Störung auf, sichert das Plugin automatisch einen
+**Log-Snapshots.** Tritt eine Störung auf, sichert das Plugin automatisch einen
 Ausschnitt des Logs — zwei Minuten davor und danach — in
 `data/plugins/comfoconnect/`. Ausgelöst wird nicht nur durch Fehlermeldungen,
 sondern auch durch **Verbindungsabbrüche und verworfene Sitzungen**. Die fängt das
 Plugin sauber ab und meldet sie deshalb nur als Warnung — ohne diesen zusätzlichen
-Auslöser hätte es also ausgerechnet für den häufigsten Störfall nie einen Bericht
+Auslöser hätte es also ausgerechnet für den häufigsten Störfall nie einen Snapshot
 gegeben. Hintergrund: Das normale Logverzeichnis liegt im
 Arbeitsspeicher und wird von LoxBerry aufgeräumt, sobald es zu groß wird. Bei
 einem nächtlichen Ausfall war am Morgen deshalb regelmäßig nichts mehr davon übrig.
-Die Berichte überstehen das Aufräumen und einen Neustart.
+Die Snapshots überstehen das Aufräumen und einen Neustart.
 
 Ebenfalls neu erfasst: **Abstürze in Hintergrundprozessen**. Python meldet die von
 sich aus nur auf einem Nebenkanal, am Logbuch vorbei — ein gestorbener Verbindungs-
 oder Nachrichtenprozess blieb dadurch praktisch unsichtbar, während das Plugin nach
 außen normal aussah und trotzdem nichts mehr tat. Solche Abstürze landen jetzt als
-Fehler im Log und lösen einen Störungsbericht aus.
+Fehler im Log und lösen einen Log-Snapshot aus.
 
-Wichtig dabei: Ein Störungsbericht enthält **immer die vollständigen Details**,
+Wichtig dabei: Ein Log-Snapshot enthält **immer die vollständigen Details**,
 unabhängig vom eingestellten Loglevel. Das Loglevel steuert weiterhin nur, was in
 der normalen Logdatei landet — es kann also dauerhaft auf „Fehler" stehen bleiben
 (kleines, übersichtliches Log), und im Ernstfall liegt trotzdem die komplette

@@ -312,6 +312,12 @@
 		color: #555;
 		padding: 2px 10px 4px 0;
 		border-bottom: 1px solid #ddd;
+		/* Die Kopfzellen tragen dieselben Spaltenklassen wie die Datenzellen, damit
+		   die Breiten uebereinstimmen - dabei erben sie aber auch deren
+		   Schreibmaschinenschrift. Die gehoert zu den Werten, nicht zur
+		   Ueberschrift: Sonst steht "Topic" in einer anderen Schrift da als
+		   "Bedeutung" daneben, und die Kopfzeile passt nicht mehr zur Sensorliste. */
+		font-family: inherit;
 	}
 	table.cc-cmds th.cc-cmd-last { text-align: right; }
 	.cc-cmd-topic { font-family: monospace; width: 250px; }
@@ -325,7 +331,10 @@
 		width: 70px;
 		color: #2a6496;
 	}
-	.cc-cmd-when { color: #999; width: 100px; font-size: 0.92em; }
+	/* Breiter geworden, seit hier Uhrzeit UND Spanne stehen ("12:03:41 (vor 3m)").
+	   Ohne die Breite bricht die Zelle um und die Zeilenhoehen tanzen. */
+	.cc-cmd-when { color: #999; width: 150px; font-size: 0.92em; }
+	table.cc-cmds .mono { font-family: monospace; }
 	.cc-cmd-err { color: #c0392b; }
 	.cc-cmd-fehler .cc-cmd-topic { color: #c0392b; }
 	/* Erscheint nur, wenn die Anzeigeliste vom laufenden Plugin abweicht. */
@@ -628,7 +637,10 @@
 						w.html( '<span class="cc-cmd-err"></span>' ).find( "span" ).text( b.fehler );
 						w.closest( "tr" ).addClass( "cc-cmd-fehler" );
 					} else {
-						w.text( b.wann );
+						<!-- .html(), weil die Zelle Uhrzeit und Spanne in eigenen -->
+						<!-- Auszeichnungen enthaelt. Der Inhalt stammt ausschliesslich -->
+						<!-- aus eigenen Zeitangaben, nicht aus Benutzereingaben. -->
+						w.html( b.wann );
 						w.closest( "tr" ).removeClass( "cc-cmd-fehler" );
 					}
 				} );
@@ -638,7 +650,7 @@
 	setInterval( refreshStatus, 1000 );
 
 	<!-- Zuruecksetzen der Statistik. Bewusst mit Rueckfrage: Die Gesamtwerte koennen -->
-	<!-- Monate umfassen und sind danach unwiederbringlich weg. Die Stoerungsberichte -->
+	<!-- Monate umfassen und sind danach unwiederbringlich weg. Die Log-Snapshots -->
 	<!-- selbst bleiben liegen - die sind die eigentlichen Beweisstuecke und haengen -->
 	<!-- nicht an den Zaehlern. -->
 	<!-- ===== Sensorliste ============================================== -->
@@ -670,7 +682,7 @@
 
 	$( "#btnresetstats" ).on( "click", function( e ) {
 		e.preventDefault();
-		if ( !confirm( "Alle Diagnose-Zähler auf null zurücksetzen?\n\nDie gespeicherten Störungsberichte bleiben erhalten." ) ) {
+		if ( !confirm( "Alle Diagnose-Zähler auf null zurücksetzen?\n\nDie gespeicherten Log-Snapshots bleiben erhalten." ) ) {
 			return;
 		}
 		$( "#resetstatshint" ).text( "wird zurückgesetzt..." );
