@@ -246,12 +246,6 @@ class ComfoConnect(object):
             'letzter_timeout': None,
         }
 
-    def _zaehle(self, zaehler, zeitstempel=None):
-        """Erhoeht einen Statistikzaehler und merkt sich den Zeitpunkt."""
-        self.stats[zaehler] = self.stats.get(zaehler, 0) + 1
-        if zeitstempel:
-            self.stats[zeitstempel] = time.time()
-
         # True only while a connection is up AND the (re-)registration sweep for all
         # known sensors (self.sensors) has actually finished - False from the moment a
         # disconnect is noticed until the next successful sweep completes.
@@ -290,6 +284,12 @@ class ComfoConnect(object):
                                         # the message thread is looping, not hung/dead
         self.last_keepalive_ok = None  # updated when a keepalive to the bridge succeeds
         self.last_sensor_data = None   # updated on any CnRpdoNotificationType, any sensor
+
+    def _zaehle(self, zaehler, zeitstempel=None):
+        """Erhoeht einen Statistikzaehler und merkt sich den Zeitpunkt."""
+        self.stats[zaehler] = self.stats.get(zaehler, 0) + 1
+        if zeitstempel:
+            self.stats[zeitstempel] = time.time()
 
     # ==================================================================================================================
     # Core functions

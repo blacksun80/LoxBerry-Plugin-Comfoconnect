@@ -5,6 +5,7 @@ import collections
 import os
 import time
 import threading
+import traceback
 import signal
 from pycomfoconnect import *
 import getopt
@@ -1194,6 +1195,28 @@ def main():
     # abgestuerzt, noch bevor irgendetwas geloggt werden konnte.
     _LOGGER.debug("logfile: " + str(logfile))
     _LOGGER.info("loglevel: " + logging.getLevelName(_LOGGER.level))
+
+    # Abstuerze in Hintergrund-Threads in unser Logging holen.
+    #
+    # Python meldet einen abgestuerzten Thread von sich aus nur direkt auf stderr -
+    # am Logger vorbei. Folge: kein ERROR, kein Stoerungsbericht, kein Zaehler, und
+    # die Statusanzeige merkt nichts. Genau so ist am 20.07. der Verbindungsthread
+    # gestorben, waehrend nach aussen alles normal aussah; der Traceback stand nur
+    # deshalb im Log, weil wrapper.pl stderr dort hineinleitet.
+    #
+    # Ein sterbender Thread ist immer ein Fehler - der Prozess laeuft dann als Huelle
+    # weiter, ohne noch irgendetwas zu tun.
+    def thread_absturz(args):
+        if args.exc_type is SystemExit:
+            return
+        _LOGGER.error(
+            "Thread '%s' ist abgestuerzt - das Plugin arbeitet ab jetzt nur noch "
+            "eingeschraenkt:\n%s"
+            % (getattr(args.thread, 'name', '?'),
+               "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)).rstrip())
+        )
+
+    threading.excepthook = thread_absturz
 
     # Erst hier, nicht in setup_logger(): braucht einen funktionierenden Logger, um
     # eine unlesbare Datei melden zu koennen.
