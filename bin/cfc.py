@@ -931,21 +931,24 @@ class StoerungsSchreiber(logging.Handler):
     """
 
     def __init__(self, verzeichnis, vorlauf=120, nachlauf=120,
-                 max_zeilen=20000, max_dateien=5, sperrzeit=600):
+                 max_zeilen=20000, max_dateien=5):
         super().__init__()
         self.verzeichnis = verzeichnis
         self.vorlauf = vorlauf
         self.nachlauf = nachlauf
         self.max_zeilen = max_zeilen
         self.max_dateien = max_dateien
-        self.sperrzeit = sperrzeit
 
         self.puffer = collections.deque()
         self.datei = None
         self.ende = 0
-        self.naechster_erlaubt = 0
         self.anzahl_berichte = 0
         self.letzter_bericht = None
+
+        # Letzter Schreibfehler, damit er in der Weboberflaeche sichtbar wird statt
+        # nur im Log zu stehen (siehe emit()).
+        self.fehler = None
+        self._fehler_gemeldet = False
 
     def emit(self, record):
         # Diese Methode läuft in JEDEM Thread, der etwas protokolliert. Sie darf
@@ -964,13 +967,32 @@ class StoerungsSchreiber(logging.Handler):
                 self.datei.write(zeile + "\n")
                 if jetzt > self.ende:
                     self._schliessen()
-            elif record.levelno >= logging.ERROR and jetzt >= self.naechster_erlaubt:
-                self._starten(jetzt, record)
+            elif record.levelno >= logging.ERROR:
+                self._starten(jetzt, record.getMessage())
 
-        except Exception:
-            pass
+        except Exception as e:
+            # Frueher stand hier ein blankes "pass". Das war falsch gedacht: Diese
+            # Methode laeuft in jedem Thread, der etwas protokolliert, und darf
+            # deshalb nichts nach oben durchlassen - aber sie darf den Fehler auch
+            # nicht spurlos verschlucken. Genau das ist passiert: Es wurde kein
+            # Bericht geschrieben, und es gab keinerlei Hinweis darauf, warum nicht.
+            #
+            # Ausgabe direkt auf stderr statt ueber den Logger: Von hier aus zu
+            # protokollieren hiesse, waehrend der Zustellung einer Meldung eine neue
+            # zu erzeugen. Was auf stderr geht, landet ueber wrapper.pl ohnehin in
+            # derselben Logdatei.
+            self.fehler = "%s: %s" % (type(e).__name__, e)
+            if not self._fehler_gemeldet:
+                self._fehler_gemeldet = True
+                try:
+                    sys.stderr.write(
+                        "Stoerungsbericht konnte nicht geschrieben werden (%s). "
+                        "Ziel: %s\n" % (self.fehler, self.verzeichnis))
+                    sys.stderr.flush()
+                except Exception:
+                    pass
 
-    def _starten(self, jetzt, record):
+    def _starten(self, jetzt, grund):
         os.makedirs(self.verzeichnis, exist_ok=True)
         name = os.path.join(
             self.verzeichnis,
@@ -981,7 +1003,7 @@ class StoerungsSchreiber(logging.Handler):
         self.letzter_bericht = jetzt
         self.anzahl_berichte += 1
 
-        self.datei.write("Störungsbericht - ausgelöst durch:\n  %s\n\n" % record.getMessage())
+        self.datei.write("Störungsbericht - ausgelöst durch:\n  %s\n\n" % grund)
         self.datei.write("Die folgenden Zeilen umfassen etwa %d Sekunden davor und %d danach.\n"
                          % (self.vorlauf, self.nachlauf))
         self.datei.write("=" * 78 + "\n")
@@ -994,7 +1016,6 @@ class StoerungsSchreiber(logging.Handler):
             self.datei.close()
         finally:
             self.datei = None
-            self.naechster_erlaubt = time.time() + self.sperrzeit
             self._aufraeumen()
 
     def _aufraeumen(self):
@@ -1797,8 +1818,26 @@ def setup_logger(name, snapshotdir=""):
                 '%(asctime)s.%(msecs)03d <%(levelname)s> %(message)s', datefmt='%H:%M:%S'))
             stoerungsschreiber.setLevel(logging.DEBUG)
             logging.getLogger().addHandler(stoerungsschreiber)
+
+            # Schreibbarkeit sofort pruefen, nicht erst im Fehlerfall. Sonst faellt
+            # ein fehlendes Schreibrecht genau dann auf, wenn man den Bericht
+            # braucht - und dann ist der Vorfall vorbei.
+            probe = os.path.join(snapshotdir, ".schreibprobe")
+            with open(probe, "w") as f:
+                f.write("ok")
+            os.remove(probe)
+
+            logger.info("Störungsberichte aktiv (ab Stufe FEHLER, %ds davor und %ds danach): %s"
+                        % (stoerungsschreiber.vorlauf, stoerungsschreiber.nachlauf, snapshotdir))
         except Exception as e:
-            logger.error("Konnte Störungsberichte nicht einrichten: " + str(e))
+            stoerungsschreiber = None
+            logger.error("Störungsberichte NICHT aktiv - Verzeichnis %s ist nicht beschreibbar (%s: %s)"
+                         % (snapshotdir, type(e).__name__, e))
+    else:
+        # Ohne --snapshotdir gibt es keine Berichte. Das ist kein Fehler (beim
+        # Suchlauf etwa gewollt), muss aber sichtbar sein - sonst wartet man
+        # vergeblich auf Dateien, die nie entstehen koennen.
+        logger.info("Störungsberichte nicht aktiv (kein Ablageverzeichnis übergeben).")
 
     return logger
 

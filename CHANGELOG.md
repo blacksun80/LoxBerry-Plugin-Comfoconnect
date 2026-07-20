@@ -97,9 +97,13 @@ Zahlen löschen würde, die den Vorfall belegen. Über „Statistik zurücksetze
 unterhalb der Tabelle lässt sich jederzeit wieder bei null anfangen, etwa nachdem
 die Ursache eines Problems behoben wurde.
 
-**Störungsberichte.** Tritt ein Fehler auf, sichert das Plugin automatisch einen
+**Störungsberichte.** Tritt eine Störung auf, sichert das Plugin automatisch einen
 Ausschnitt des Logs — zwei Minuten davor und danach — in
-`data/plugins/comfoconnect/`. Hintergrund: Das normale Logverzeichnis liegt im
+`data/plugins/comfoconnect/`. Ausgelöst wird nicht nur durch Fehlermeldungen,
+sondern auch durch **Verbindungsabbrüche und verworfene Sitzungen**. Die fängt das
+Plugin sauber ab und meldet sie deshalb nur als Warnung — ohne diesen zusätzlichen
+Auslöser hätte es also ausgerechnet für den häufigsten Störfall nie einen Bericht
+gegeben. Hintergrund: Das normale Logverzeichnis liegt im
 Arbeitsspeicher und wird von LoxBerry aufgeräumt, sobald es zu groß wird. Bei
 einem nächtlichen Ausfall war am Morgen deshalb regelmäßig nichts mehr davon übrig.
 Die Berichte überstehen das Aufräumen und einen Neustart.

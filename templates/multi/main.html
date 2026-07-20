@@ -197,6 +197,15 @@
 	.cc-diag-note {
 		color: #777;
 	}
+	/* Die Zeitspanne ist die Nebeninformation - gesucht wird im Log nach der
+	   Uhrzeit, die davor steht. */
+	.cc-diag-vor {
+		color: #999;
+		font-size: 0.9em;
+	}
+	table.cc-diag .mono {
+		font-family: monospace;
+	}
 	.cc-diag-reports {
 		font-size: 0.85em;
 		color: #555;
@@ -238,6 +247,16 @@
 		color: #555;
 		padding: 2px 10px 4px 0;
 		border-bottom: 1px solid #ddd;
+	}
+	/* Die Ueberschriften der beiden Zahlenspalten mitziehen: "pdid" gehoert ueber
+	   die Nummern, nicht ueber die Haken, und "Wert" rechtsbuendig wie die Werte
+	   darunter. Ohne diese Regel erbt th nur das linksbuendige Standardverhalten,
+	   waehrend die td-Regeln weiter unten die Zellen rechts ausrichten. */
+	table.cc-sensors th.cc-sensor-pdid,
+	table.cc-sensors th.cc-sensor-val {
+		text-align: right;
+		font-family: inherit;
+		color: #555;
 	}
 	table.cc-sensors td {
 		padding: 1px 10px 1px 0;
@@ -284,6 +303,17 @@
 		border-bottom: 1px solid #f2f2f2;
 		vertical-align: top;
 	}
+	/* Die Kopfzeile liegt in einer eigenen Tabelle (siehe getCommandTable), traegt
+	   aber dieselben Spaltenklassen - so stehen die Ueberschriften ueber ihren
+	   Spalten, obwohl zwischen den Gruppen Zwischenueberschriften stehen. */
+	table.cc-cmds th {
+		text-align: left;
+		font-weight: bold;
+		color: #555;
+		padding: 2px 10px 4px 0;
+		border-bottom: 1px solid #ddd;
+	}
+	table.cc-cmds th.cc-cmd-last { text-align: right; }
 	.cc-cmd-topic { font-family: monospace; width: 250px; }
 	.cc-cmd-werte { font-family: monospace; color: #777; width: 90px; }
 	.cc-cmd-bed { color: #666; }

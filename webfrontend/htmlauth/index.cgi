@@ -690,7 +690,13 @@ sub getDiagnostics
 		my $summe = $hat_gesamt ? ($gesamt->{$schluessel} || 0) : 0;
 		$anzahl ||= 0;
 		return if (!$anzahl && !$summe);
-		my $wann = defined($zeitstempel) ? formatSince($now - $zeitstempel) : "&ndash;";
+		# Uhrzeit zuerst, Spanne dahinter: Beim Nachsehen im Log braucht man die
+		# Uhrzeit, die Spanne dient nur der Einordnung.
+		my $wann = "&ndash;";
+		if (defined($zeitstempel)) {
+			$wann = "<span class=\"mono\">" . formatZeitpunkt($zeitstempel) . "</span>"
+				. " <span class=\"cc-diag-vor\">(" . formatSince($now - $zeitstempel) . ")</span>";
+		}
 		my $spalte_gesamt = $hat_gesamt
 			? "<td class=\"cc-diag-num cc-diag-total\">$summe</td>" : "";
 		push @zeilen, "<tr><td>$name</td><td class=\"cc-diag-num\">$anzahl</td>"
@@ -751,7 +757,8 @@ sub getDiagnostics
 	my $berichte = $status->{stoerungsberichte} || 0;
 	if ($berichte) {
 		my $wann = defined($status->{letzter_stoerungsbericht})
-			? " (zuletzt " . formatSince($now - $status->{letzter_stoerungsbericht}) . ")" : "";
+			? " (zuletzt " . formatZeitpunkt($status->{letzter_stoerungsbericht})
+			  . ", " . formatSince($now - $status->{letzter_stoerungsbericht}) . ")" : "";
 		$html .= "<div class=\"cc-diag-reports\">$berichte Störungsbericht"
 			. ($berichte == 1 ? "" : "e") . " gespeichert$wann "
 			. "&ndash; unter <span class=\"mono\">data/plugins/$psubfolder/</span></div>";
@@ -867,8 +874,10 @@ sub getSensorTable
 	}
 
 	my $html = "<table class=\"cc-sensors\">"
-		. "<tr><th></th><th>pdid</th><th>Name (MQTT-Thema)</th><th>Bedeutung</th>"
-		. "<th>Intervall</th><th>Wert</th></tr>"
+		# "pdid" gehört über die Zahlenspalte, nicht über die Haken - deshalb
+		# rechtsbündig wie die Zahlen darunter. Dasselbe für "Wert".
+		. "<tr><th></th><th class=\"cc-sensor-pdid\">pdid</th><th>Name (MQTT-Thema)</th><th>Bedeutung</th>"
+		. "<th>Intervall</th><th class=\"cc-sensor-val\">Wert</th></tr>"
 		. join("", @zeilen) . "</table>";
 
 	return ($html, $aktiv, $gesamt);
@@ -970,7 +979,19 @@ my @COMMANDS = (
 		] },
 );
 
-	my $html = "";
+	# Spaltenüberschriften einmal ganz oben, nicht über jeder Gruppe: Bei zehn
+	# Gruppen wären zehn identische Kopfzeilen mehr Störung als Hilfe.
+	#
+	# Die Kopfzeile steht in einer eigenen Tabelle, weil zwischen den Gruppen
+	# jeweils eine Zwischenüberschrift liegt. Damit die Spalten trotzdem
+	# untereinander stehen, tragen die Kopfzellen dieselben Klassen wie die
+	# Datenzellen - die Breiten kommen aus dem CSS und gelten für beide.
+	my $html = "<table class=\"cc-cmds\"><tr>"
+		. "<th class=\"cc-cmd-topic\">Thema</th>"
+		. "<th class=\"cc-cmd-werte\">Werte</th>"
+		. "<th class=\"cc-cmd-bed\">Bedeutung</th>"
+		. "<th class=\"cc-cmd-last\">Wert</th>"
+		. "<th class=\"cc-cmd-when\">Zuletzt</th></tr></table>";
 	my $anzahl = 0;
 
 	for my $g (@COMMANDS) {
@@ -1036,6 +1057,32 @@ my @COMMANDS = (
 # die auch Tage zurückliegen können, käme dort "vor 2880m 00s" heraus - formal
 # richtig, aber niemand rechnet das im Kopf in zwei Tage um.
 #####################################################
+
+#####################################################
+# Genauer Zeitpunkt, so geschrieben wie im Logfile.
+#
+# Das Log stellt jeder Zeile "HH:MM:SS.mmm" voran. Eine Angabe wie "vor 6m" ist
+# zwar griffig, zwingt beim Nachschlagen aber zum Kopfrechnen - und danach sucht
+# man im Log trotzdem nach einer Uhrzeit. Deshalb wird beides gezeigt: die Uhrzeit
+# zum Auffinden, die Spanne zum Einordnen.
+#
+# Liegt der Zeitpunkt nicht am heutigen Tag, kommt das Datum davor - sonst führte
+# "08:14:02" bei einem drei Tage alten Eintrag in die Irre.
+#####################################################
+
+sub formatZeitpunkt
+{
+	my $t = shift;
+	return "" if (!defined($t));
+
+	my @z = localtime(int($t));
+	my @heute = localtime(time());
+
+	my $uhrzeit = sprintf("%02d:%02d:%02d", $z[2], $z[1], $z[0]);
+	return $uhrzeit if ($z[5] == $heute[5] && $z[7] == $heute[7]);
+
+	return sprintf("%02d.%02d. %s", $z[3], $z[4] + 1, $uhrzeit);
+}
 
 sub formatSince
 {

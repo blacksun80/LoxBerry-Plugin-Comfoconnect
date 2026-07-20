@@ -114,6 +114,12 @@ RPDO_TYPE_MAP = {
     # mit "unknown type" abbrechen, noch bevor die Anlage ueberhaupt gefragt wird.
     784: 1,     # Zustand (UINT8)
     802: 6,     # Kondensatortemperatur (INT16, Zehntelgrad)
+    18: 1,
+    54: 1,
+    55: 1,
+    220: 6,
+    278: 6,
+    785: 0,
 }
 
 # Product ID Map
@@ -549,8 +555,11 @@ class ComfoConnect(object):
         self._session_verluste = [t for t in self._session_verluste if jetzt - t < 600]
         self._session_verluste.append(jetzt)
 
+        # Ebenfalls als Fehler, aus demselben Grund wie beim Verbindungsabriss weiter
+        # unten: Es ist eine Stoerung, auch wenn die Neuanmeldung anschliessend
+        # gelingt - und der Stoerungsbericht soll den Vorgang festhalten.
         if len(self._session_verluste) >= 3:
-            _LOGGER.warning(
+            _LOGGER.error(
                 "Die Lüftungsanlage hat unsere Sitzung innerhalb von 10 Minuten schon %d mal "
                 "verworfen (%s). Das deutet auf einen zweiten Client hin, der sich parallel "
                 "verbindet - die ComfoConnect LAN C erlaubt nur eine Sitzung gleichzeitig. "
@@ -559,7 +568,7 @@ class ComfoConnect(object):
                 % (len(self._session_verluste), grund)
             )
         else:
-            _LOGGER.warning(
+            _LOGGER.error(
                 "Die Lüftungsanlage hat unsere Sitzung verworfen (%s) - melde mich neu an." % grund
             )
 
@@ -800,10 +809,24 @@ class ComfoConnect(object):
                 self._is_reconnect = True
                 self._zaehle('verbindungsabbrueche', 'letzter_verbindungsabbruch')
 
+                # BEWUSST als Fehler, obwohl es sich von selbst behebt: Ein Abriss
+                # der Verbindung ist eine Stoerung, auch wenn der Wiederaufbau
+                # gelingt. Das haelt die Regel einfach - was einen Stoerungsbericht
+                # verdient, ist ein Fehler, und der Berichtsschreiber braucht keinen
+                # zweiten Einstieg neben der Logstufe. Nebeneffekt: Wer das Loglevel
+                # auf "Fehler" stellt, sieht diese Abbrueche jetzt trotzdem.
+                #
+                # Hier und nicht in _message_thread_loop, wo der Abriss zuerst
+                # auffaellt: Dort gibt es je nach Ursache drei verschiedene Meldungen,
+                # und ein Abriss wuerde dreifach gezaehlt werden. Diese Stelle ist die
+                # eine, an der feststeht, dass die Verbindung weg ist und neu
+                # aufgebaut wird.
+                _LOGGER.error("Verbindung zur Lüftungsanlage abgerissen - baue sie neu auf.")
+
                 # Wait a bit to avoid hammering the bridge
                 time.sleep(5)
-                
-                _LOGGER.warning('Reconnecting to Bridge...')
+
+                _LOGGER.info('Reconnecting to Bridge...')
 
                 try:
                     # Connect or re-connect
