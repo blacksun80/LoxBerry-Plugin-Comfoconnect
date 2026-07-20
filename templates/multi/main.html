@@ -282,7 +282,15 @@
 	   Tabelle (wegen der Gruppenueberschriften dazwischen), ohne feste Breite
 	   wuerde sie anders umbrechen als die Datentabellen darunter. Breit genug
 	   fuer die Ueberschrift "Aktiv", der Haken sitzt darunter linksbuendig. */
-	.cc-sensor-hak { width: 42px; }
+	/* Eingerueckt gegenueber dem Haken in der Gruppenkopfzeile. Ohne diese
+	   Einrueckung stehen beide auf derselben senkrechten Linie, und die
+	   Verschachtelung ist nicht zu sehen - genau das war der Grund, warum der
+	   Gruppenhaken vorher missverstanden wurde. Die Ueberschrift "Aktiv" traegt
+	   dieselbe Klasse und wird deshalb mit eingerueckt. */
+	.cc-sensor-hak {
+		width: 42px;
+		padding-left: 18px !important;
+	}
 	/* Groesse und Abstaende ausdruecklich setzen, zusaetzlich zum data-role="none"
 	   im Markup. Ein Kaestchen ohne feste Masse richtet sich nach der Schriftgroesse
 	   des Themes und kann dadurch hoeher werden als die Tabellenzeile - dann schiebt
@@ -320,7 +328,10 @@
 		gap: 8px;
 		background-color: #f4f4f4;
 		border-bottom: 1px solid #e3e3e3;
-		padding: 5px 10px;
+		/* Links bewusst schmaler als die Einrueckung der Zeilen darunter
+		   (.cc-sensor-hak): So sitzt der Gruppenhaken sichtbar weiter aussen als
+		   die Haken der einzelnen Sensoren. */
+		padding: 5px 10px 5px 8px;
 		font-weight: bold;
 		font-size: 0.87em;
 		color: #444;
@@ -390,7 +401,14 @@
 		font-family: inherit;
 	}
 	table.cc-cmds th.cc-cmd-last { text-align: right; }
-	.cc-cmd-topic { font-family: monospace; width: 250px; }
+	/* Wie bei den Sensoren eingerueckt, damit die Zeilen sichtbar unterhalb der
+	   Gruppenueberschrift haengen statt auf gleicher Hoehe zu stehen. Gilt fuer
+	   Kopf- und Datenzellen gleichermassen. */
+	.cc-cmd-topic {
+		font-family: monospace;
+		width: 250px;
+		padding-left: 18px !important;
+	}
 	.cc-cmd-werte { font-family: monospace; color: #777; width: 90px; }
 	.cc-cmd-bed { color: #666; }
 	/* Zuletzt empfangener Wert - dieselbe Optik wie die Sensorwerte, damit
@@ -398,14 +416,20 @@
 	.cc-cmd-last {
 		font-family: monospace;
 		text-align: right;
-		width: 70px;
+		/* Breit genug fuer die eigene Ueberschrift "Letzter Wert" - mit 70px brach
+		   sie auf zwei Zeilen um und draengte sich an die Spalte daneben. */
+		width: 95px;
 		color: #2a6496;
+		white-space: nowrap;
 	}
 	/* Breiter geworden, seit hier Uhrzeit UND Spanne stehen ("12:03:41 (vor 3m)").
 	   Ohne die Breite bricht die Zelle um und die Zeilenhoehen tanzen. */
-	.cc-cmd-when { color: #999; width: 150px; font-size: 0.92em; }
+	.cc-cmd-when { color: #999; width: 155px; font-size: 0.92em; white-space: nowrap; }
 	table.cc-cmds .mono { font-family: monospace; }
 	.cc-cmd-err { color: #c0392b; }
+	/* Kennzeichnet die Zeitvorgaben, die gerade gelten - unabhaengig davon, ob
+	   jemals ein Wert dafuer empfangen wurde. */
+	.cc-cmd-vorgabe { color: #3c8c1f; }
 	.cc-cmd-fehler .cc-cmd-topic { color: #c0392b; }
 	/* Erscheint nur, wenn die Anzeigeliste vom laufenden Plugin abweicht. */
 	.cc-cmd-drift {

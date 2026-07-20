@@ -1057,6 +1057,16 @@ my @COMMANDS = (
 
 			# Zuletzt empfangen: Wert, Alter und ggf. der Fehler bei der Verarbeitung.
 			my ($wert, $wann, $fehler) = ("&ndash;", "", "");
+
+			# Bei den Zeitvorgaben statt "–" den tatsächlich wirksamen Wert zeigen.
+			# Loxone sendet nur bei Änderung; nach einem Neustart gilt also wieder
+			# die Vorgabe des Plugins, während in Loxone noch die alte Zahl steht.
+			# Ohne diese Anzeige wäre nicht erkennbar, mit welcher Dauer ein Boost
+			# oder Bypass wirklich läuft.
+			if (ref($status->{zeiten}) eq 'HASH' && defined($status->{zeiten}->{$t})) {
+				$wert = $status->{zeiten}->{$t};
+				$wann = "<span class=\"cc-cmd-vorgabe\">wirksam</span>";
+			}
 			if (ref($befehle->{$t}) eq 'ARRAY') {
 				my ($w, $z, $f) = @{ $befehle->{$t} };
 				$wert = defined($w) ? $w : "";
