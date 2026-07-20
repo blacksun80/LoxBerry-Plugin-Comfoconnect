@@ -66,14 +66,21 @@ Messwert je Sensor, sekündlich aktualisiert. Zugeklappt zeigt die Kopfzeile, wi
 viele aktiv sind. Abgewählte Sensoren werden bei der Lüftungsanlage gar nicht erst
 angemeldet und erscheinen dann auch nicht mehr per MQTT.
 
-Über „Sensor hinzufügen" lassen sich weitere Messwerte ergänzen. Das Zehnder-
-Protokoll kennt rund 25 Werte mehr, als das Plugin bisher abgreift; gibt man deren
-Kennnummer ein, schlägt die Oberfläche Datentyp und Bedeutung selbst vor.
+Welche Sensoren es gibt, gibt weiterhin die Datei `mqtt_data.py` vor; über die
+Oberfläche wird nur ausgewählt. Ein zusätzlicher Messwert braucht also nach wie vor
+eine Ergänzung dort — dort stehen auch Datentyp und Umrechnung, ohne die ein
+Rohwert nicht sinnvoll zu deuten ist.
 
-Die Auswahl liegt in der Plugin-Konfiguration, nicht in der Sensordatei. Sie
-übersteht damit ein Plugin-Update — und neue Sensoren aus künftigen Versionen
-kommen trotzdem automatisch dazu, statt von einer eingefrorenen Kopie der Liste
-verdeckt zu werden.
+Die Auswahl liegt in der Plugin-Konfiguration und übersteht damit ein Update. Neue
+Sensoren aus künftigen Versionen kommen trotzdem automatisch dazu, statt von einer
+eingefrorenen Kopie der Liste verdeckt zu werden.
+
+**ComfoCool-Erkennung entfällt.** Bisher prüfte das Plugin beim Start, ob ein
+Kühlmodul angeschlossen ist, und ließ dessen Sensoren sonst weg. Das ist nicht mehr
+nötig: Die Anlage nimmt diese Anmeldungen auch ohne Modul an und antwortet mit 0,
+es entsteht also kein Fehler. Wen der nichtssagende Wert stört, der wählt die
+beiden Einträge jetzt einfach in der Sensorliste ab. Der Start wird dadurch
+nebenbei etwas schneller, weil nicht mehr auf die Geräteliste gewartet wird.
 
 **Diagnose-Anzeige.** Manche Aussetzer fängt das Plugin im laufenden Betrieb
 selbst ab — eine ausbleibende Antwort der Anlage, ein kurzer Verbindungsabbruch,

@@ -373,39 +373,16 @@ sub form
         # "Formular kam nie an" zu unterscheiden.
         my $katalog = readSensorCatalog($installfolder, $psubfolder);
 
-        # Eigene Zeilen zuerst: Sie sind ebenfalls an-/abwählbar und müssen dafür
-        # unten wie Katalogeinträge behandelt werden.
-        my @eigene;
-        my %eigene_pdids;
-        for my $i (sort { $a <=> $b } map { /^sensor_new_pdid_(\d+)$/ ? $1 : () } $cgi->param) {
-            my $pdid = $cgi->param("sensor_new_pdid_$i");
-            my $name = $cgi->param("sensor_new_name_$i");
-            my $typ  = $cgi->param("sensor_new_type_$i");
-            my $push = $cgi->param("sensor_new_push_$i");
-
-            $name = "" if (!defined($name));
-            $name =~ s/^\s+|\s+$//g;
-            # Nur Zeichen, die als MQTT-Thema unbedenklich sind. Ein "/" oder "#"
-            # im Namen würde die Themenstruktur zerlegen bzw. mit den Platzhaltern
-            # der Abonnements kollidieren.
-            $name =~ s/[^A-Za-z0-9_\-]//g;
-
-            next if (!defined($pdid) || $pdid !~ /^\d+$/ || $name eq "");
-            next if (exists $katalog->{$pdid} || $eigene_pdids{$pdid});
-
-            my %e = ( pdid => $pdid + 0, name => $name );
-            $e{type} = $typ + 0 if (defined($typ) && $typ =~ /^\d+$/);
-            $e{push} = $push + 0 if (defined($push) && $push =~ /^\d+$/ && $push > 0);
-            push @eigene, \%e;
-            $eigene_pdids{$pdid} = 1;
-        }
-
         my @aus;
-        for my $pdid (sort { $a <=> $b } (keys %$katalog, keys %eigene_pdids)) {
+        for my $pdid (sort { $a <=> $b } keys %$katalog) {
             push @aus, $pdid + 0 if (!$cgi->param("sensor_on_$pdid"));
         }
 
-        $pcfg->{'SENSORS'} = { 'aus' => \@aus, 'eigene' => \@eigene };
+        $pcfg->{'SENSORS'} = { 'aus' => \@aus };
+        # Reste aus der kurzzeitig vorhandenen Möglichkeit, eigene pdids zu
+        # ergänzen. Entfallen, weil der Rohwert nach Byte-Länge statt nach PDO-Typ
+        # dekodiert wird - siehe sensorauswahl_anwenden() in cfc.py.
+        delete $pcfg->{'SENSORS'}->{'eigene'};
 
         $jsonobj->write();
 
@@ -807,32 +784,6 @@ sub readSensorCatalog
 }
 
 #####################################################
-# Nachschlagewerk aus bin/pdo_katalog.txt (aus PROTOCOL-PDO.md erzeugt).
-#
-# Nur Komfort: Trägt jemand eine eigene pdid ein, die im Zehnder-Protokoll
-# dokumentiert ist, kann die Oberfläche Typ und Bedeutung vorschlagen, statt
-# raten zu lassen. Fehlt die Datei, entfällt der Vorschlag - mehr nicht.
-#####################################################
-
-sub readPdoDocs
-{
-	my ($installfolder, $psubfolder) = @_;
-	my %doku;
-
-	open(my $fh, '<', "$installfolder/bin/plugins/$psubfolder/pdo_katalog.txt") or return \%doku;
-	while (my $z = <$fh>) {
-		next if ($z =~ /^\s*#/);
-		chomp $z;
-		my ($pdid, $typ, $beschr) = split(/\|/, $z, 3);
-		next if (!defined($typ) || $pdid !~ /^\d+$/);
-		$doku{$pdid} = { typ => $typ, beschr => (defined($beschr) ? $beschr : "") };
-	}
-	close($fh);
-
-	return \%doku;
-}
-
-#####################################################
 # Die Sensortabelle aufbauen.
 #
 # Liefert (html, anzahl_aktiv, anzahl_gesamt) - die beiden Zahlen stehen im
@@ -845,10 +796,7 @@ sub getSensorTable
 	my ($installfolder, $psubfolder, $pcfg, $status) = @_;
 
 	my $katalog = readSensorCatalog($installfolder, $psubfolder);
-	my $doku    = readPdoDocs($installfolder, $psubfolder);
-
 	my %aus = map { $_ => 1 } @{ $pcfg->{'SENSORS'}->{'aus'} || [] };
-	my @eigene = @{ $pcfg->{'SENSORS'}->{'eigene'} || [] };
 
 	# Live-Werte aus der Statusdatei. Fehlen sie (Plugin gestoppt, oder ein Sensor
 	# hat noch nie gesendet), bleibt die Spalte leer statt eine Null vorzutäuschen.
@@ -858,88 +806,39 @@ sub getSensorTable
 	my $aktiv = 0;
 	my $gesamt = 0;
 
-	my $zeile = sub {
-		my ($pdid, $name, $push, $hinweis, $eigen, $typ, $idx) = @_;
+	for my $pdid (sort { $a <=> $b } keys %$katalog) {
+		my $e = $katalog->{$pdid};
 		$gesamt++;
 		my $an = $aus{$pdid} ? 0 : 1;
 		$aktiv++ if ($an);
 
-		my ($wert, $alter) = ("", "");
-		if (ref($werte->{$pdid}) eq 'ARRAY') {
+		my $wert = "";
+		if (ref($werte->{$pdid}) eq 'ARRAY' && defined($werte->{$pdid}->[0])) {
 			$wert = $werte->{$pdid}->[0];
-			$wert = "" if (!defined($wert));
 			$wert =~ s/</&lt;/g;
 		}
 
-		my $klasse = $an ? "" : " cc-sensor-aus";
-		my $html = "<tr class=\"cc-sensor-row$klasse\" data-pdid=\"$pdid\">";
-		$html .= "<td><input type=\"checkbox\" name=\"sensor_on_$pdid\" "
-			. ($an ? "checked " : "") . "/></td>";
-		$html .= "<td class=\"cc-sensor-pdid\">$pdid</td>";
+		# Der ComfoCool-Vermerk ist jetzt nur noch ein Hinweis, keine Bedingung:
+		# Diese Sensoren werden immer angemeldet (die Anlage nimmt das auch ohne
+		# Modul an und antwortet mit 0). Der Vermerk sagt lediglich, warum der Wert
+		# womöglich nichtssagend ist - und lädt dazu ein, ihn abzuwählen.
+		my $hinweis = (($e->{PRODUCT} || 0) == 6) ? "nur mit ComfoCool sinnvoll" : "";
 
-		if ($eigen) {
-			# Eigene Zeilen bleiben bearbeitbar - sonst müsste man sie zum Korrigieren
-			# eines Tippfehlers löschen und neu anlegen.
-			$html .= "<td><input type=\"text\" class=\"cc-sensor-name\" "
-				. "name=\"sensor_new_name_$idx\" value=\"$name\" /></td>";
-			$html .= "<td><input type=\"number\" class=\"cc-sensor-push\" min=\"0\" "
-				. "name=\"sensor_new_push_$idx\" value=\"" . ($push || "") . "\" /></td>";
-			$html .= "<td class=\"cc-sensor-val\" id=\"sv$pdid\">$wert</td>";
-			$html .= "<td class=\"cc-sensor-note\">$hinweis"
-				. "<input type=\"hidden\" name=\"sensor_new_pdid_$idx\" value=\"$pdid\" />"
-				. "<input type=\"hidden\" name=\"sensor_new_type_$idx\" value=\"$typ\" />"
-				. " <a href=\"#\" class=\"cc-sensor-del\" title=\"Zeile entfernen\">&#10005;</a></td>";
-		} else {
-			$html .= "<td class=\"cc-sensor-name-fix\">$name</td>";
-			$html .= "<td class=\"cc-sensor-push-fix\">" . ($push ? "${push}s" : "&ndash;") . "</td>";
-			$html .= "<td class=\"cc-sensor-val\" id=\"sv$pdid\">$wert</td>";
-			$html .= "<td class=\"cc-sensor-note\">$hinweis</td>";
-		}
-		$html .= "</tr>";
-		push @zeilen, $html;
-	};
-
-	for my $pdid (sort { $a <=> $b } keys %$katalog) {
-		my $e = $katalog->{$pdid};
-		my $hinweis = "";
-		$hinweis = "nur mit ComfoCool" if (($e->{PRODUCT} || 0) == 6);
-		$zeile->($pdid, $e->{NAME}, $e->{PUSH}, $hinweis, 0);
-	}
-
-	my $idx = 0;
-	for my $e (@eigene) {
-		# Kollidierende Einträge überspringen. Über die Oberfläche können sie gar
-		# nicht entstehen (das Speichern weist sie ab, cfc.py ebenso), wohl aber
-		# durch eine von Hand bearbeitete Konfiguration - dann stünde die pdid hier
-		# zweimal, mit zwei Haken, die sich gegenseitig überschreiben.
-		next if (exists $katalog->{ $e->{pdid} });
-		$zeile->($e->{pdid}, $e->{name}, $e->{push}, "eigener Eintrag", 1,
-			(defined($e->{type}) ? $e->{type} : 1), $idx++);
+		push @zeilen,
+			"<tr class=\"cc-sensor-row" . ($an ? "" : " cc-sensor-aus") . "\" data-pdid=\"$pdid\">"
+			. "<td><input type=\"checkbox\" name=\"sensor_on_$pdid\" " . ($an ? "checked " : "") . "/></td>"
+			. "<td class=\"cc-sensor-pdid\">$pdid</td>"
+			. "<td class=\"cc-sensor-name-fix\">$e->{NAME}</td>"
+			. "<td class=\"cc-sensor-push-fix\">" . ($e->{PUSH} ? "$e->{PUSH}s" : "&ndash;") . "</td>"
+			. "<td class=\"cc-sensor-val\" id=\"sv$pdid\">$wert</td>"
+			. "<td class=\"cc-sensor-note\">$hinweis</td>"
+			. "</tr>";
 	}
 
 	my $html = "<table class=\"cc-sensors\">"
 		. "<tr><th></th><th>pdid</th><th>Name (MQTT-Thema)</th><th>Intervall</th>"
 		. "<th>Wert</th><th></th></tr>"
 		. join("", @zeilen) . "</table>";
-
-	# Vorlage für neue Zeilen: liegt versteckt im Formular und wird von JS geklont.
-	# Der Zähler startet hinter den bereits vorhandenen eigenen Zeilen, damit die
-	# Feldnamen eindeutig bleiben.
-	$html .= "<div class=\"cc-sensor-add\">"
-		. "<a href=\"#\" id=\"btnsensoradd\">+ Sensor hinzufügen</a>"
-		. "<span class=\"cc-sensor-addhint\">pdid eingeben &ndash; Typ und Bedeutung "
-		. "werden vorgeschlagen, sofern im Zehnder-Protokoll dokumentiert.</span>"
-		. "<input type=\"hidden\" id=\"sensornextidx\" value=\"$idx\" />"
-		. "</div>";
-
-	# Die Doku als JSON für das Formular. Nur die pdids, die noch nicht in Gebrauch
-	# sind - für alles andere gäbe es ohnehin schon eine Zeile.
-	my %frei;
-	for my $pdid (keys %$doku) {
-		next if (exists $katalog->{$pdid});
-		$frei{$pdid} = $doku->{$pdid};
-	}
-	$html .= "<script>var ccPdoDocs = " . JSON::PP->new->utf8(0)->canonical->encode(\%frei) . ";</script>";
 
 	return ($html, $aktiv, $gesamt);
 }

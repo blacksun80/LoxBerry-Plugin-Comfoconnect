@@ -205,16 +205,6 @@ class ComfoConnect(object):
         # "X sensors active" count.
         self.sensors_confirmed = set()
 
-        # Produkt-IDs der Geraete, die sich an dieser Anlage gemeldet haben (siehe
-        # PRODUCT_ID_MAP). Die Anlage schickt diese Meldungen von selbst kurz nach
-        # dem Verbindungsaufbau - damit laesst sich z.B. feststellen, ob ein
-        # ComfoCool angeschlossen ist, ohne den Benutzer danach zu fragen.
-        #
-        # Wird bei jedem Verbindungsaufbau geleert: nach einem Reconnect meldet die
-        # Anlage ihre Geraete erneut, und ein zwischenzeitlich abgebautes Modul
-        # soll nicht als weiterhin vorhanden gelten.
-        self.products_seen = set()
-
         # True, wenn die Anlage unsere Sitzung verworfen hat (NOT_ALLOWED), die
         # TCP-Verbindung aber steht. Dann genuegt eine Neuanmeldung, siehe
         # _session_verloren() und _connection_thread_loop().
@@ -357,27 +347,6 @@ class ComfoConnect(object):
         """Returns whether there is a connection with the bridge."""
 
         return self._bridge.is_connected()
-
-    def has_product(self, product_id, timeout=3):
-        """Wartet kurz und meldet, ob sich ein Geraet mit dieser Produkt-ID gemeldet hat.
-
-        Die Anlage schickt ihre Geraeteliste unaufgefordert direkt nach dem
-        Verbindungsaufbau (gemessen: innerhalb von rund 100ms). Weil das aber
-        parallel zur Sensorregistrierung laeuft, wird hier notfalls kurz gewartet,
-        statt sich auf die Reihenfolge zu verlassen.
-
-        Nach Ablauf der Wartezeit wird als "nicht vorhanden" gewertet. Das ist die
-        sichere Richtung: Ein faelschlich nicht erkanntes Modul kostet nur seine
-        Zusatzsensoren, waehrend ein faelschlich angenommenes Werte liefern wuerde,
-        die gar nicht existieren.
-        """
-        ende = time.time() + timeout
-        while True:
-            if product_id in self.products_seen:
-                return True
-            if time.time() >= ende:
-                return False
-            time.sleep(0.1)
 
     def register_sensor(self, sensor_id: int, sensor_type: int = None):
         """Register a sensor on the bridge and keep it in memory that we are registered to this sensor.
@@ -888,10 +857,6 @@ class ComfoConnect(object):
                 self._abandoned_references = set()
                 self._session_invalid = False
 
-                # Geraeteliste ebenfalls neu aufbauen - die Anlage meldet ihre Geraete
-                # nach jedem Verbindungsaufbau erneut (siehe products_seen in __init__).
-                self.products_seen = set()
-
                 # Start background thread
                 self._message_thread = threading.Thread(target=self._message_thread_loop)
                 self._message_thread.start()
@@ -1104,13 +1069,12 @@ class ComfoConnect(object):
 
                 elif message.cmd.type == GatewayOperation.CnNodeNotificationType:
                     if message.msg.productId != 0:
-                        # Angeschlossene Geraete merken, nicht nur protokollieren: nur so
-                        # laesst sich spaeter feststellen, ob z.B. ein ComfoCool
-                        # vorhanden ist und dessen Sensoren ueberhaupt registriert werden
-                        # muessen (siehe has_product()). Die Anlage meldet das von selbst
-                        # kurz nach dem Verbindungsaufbau, es braucht dafuer also weder
-                        # eine Abfrage noch eine Einstellung.
-                        self.products_seen.add(message.msg.productId)
+                        # Nur protokollieren. Frueher wurde die Geraeteliste zusaetzlich
+                        # gemerkt, um die ComfoCool-Sensoren nur bei vorhandenem Modul zu
+                        # registrieren. Das ist entfallen: Die Anlage nimmt diese
+                        # Abonnements auch ohne Modul an und antwortet mit 0, es gibt also
+                        # keinen Fehler zu vermeiden - und wen der Wert stoert, der waehlt
+                        # den Sensor in den Einstellungen ab.
                         _LOGGER.info('CnNodeNotificationType: %s @ Node Id %d [%s]',
                             PRODUCT_ID_MAP.get(message.msg.productId, 'Unbekannt (%d)' % message.msg.productId),
                             message.msg.nodeId,

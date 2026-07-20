@@ -83,7 +83,6 @@ langzeit = None
 # sensorauswahl_anwenden). Hier schon definiert, damit der Status-Thread sie auch
 # dann lesen kann, wenn die Konfiguration noch nicht eingelesen ist.
 sensoren_aus = set()
-sensoren_eigene = set()
 
 # Zuletzt an MQTT gesendeter Wert je pdid, fuer die Sensortabelle in der
 # Weboberflaeche. Bewusst nur der Wert und sein Zeitpunkt, kein Verlauf: Das hier
@@ -728,15 +727,22 @@ def send_away(seconds):
     return cmd
 
 def sensorauswahl_anwenden(pcfg):
-    """Mischt die eigenen Sensoren des Benutzers in den Katalog und meldet die abgewählten.
+    """Liest, welche Sensoren in den Einstellungen abgewählt wurden.
 
-    Gibt (abgewaehlte_pdids, eigene_pdids) zurueck. Der Katalog `sensor_data` wird
-    dabei direkt ergaenzt - die eigenen Eintraege verhalten sich danach in jeder
-    Hinsicht wie mitgelieferte.
+    Gibt die Menge der abgewaehlten pdids zurueck. Der Katalog in mqtt_data.py ist
+    und bleibt die einzige Quelle dafuer, WELCHE Sensoren es gibt - hier steht nur,
+    welche davon der Benutzer nicht moechte.
 
-    Absichtlich sehr nachsichtig: Eine unbrauchbare Zeile in der Konfiguration wird
-    uebersprungen und protokolliert, statt den Start zu verhindern. Ein Tippfehler in
-    der Sensorliste darf nicht die ganze Lueftungssteuerung lahmlegen.
+    Bewusst keine Moeglichkeit, eigene pdids zu ergaenzen: Der Rohwert wird nach
+    Byte-Laenge dekodiert, nicht nach PDO-Typ (siehe _handle_rpdo_notification in
+    comfoconnect.py). Vierbyte-Werte kaemen als Hex-Zeichenkette an, und
+    vorzeichenlose Werte oberhalb von 127 bzw. 32767 kippten ins Negative. Ein
+    neuer Sensor braucht deshalb ohnehin eine Codeaenderung - dann kann er auch
+    gleich richtig in mqtt_data.py stehen.
+
+    Absichtlich nachsichtig: Ein unbrauchbarer Eintrag wird uebersprungen und
+    protokolliert, statt den Start zu verhindern. Ein Tippfehler in der Auswahl darf
+    nicht die ganze Lueftungssteuerung lahmlegen.
     """
     abschnitt = pcfg.get('SENSORS') or {}
 
@@ -747,56 +753,14 @@ def sensorauswahl_anwenden(pcfg):
         except (TypeError, ValueError):
             _LOGGER.warning("Sensorauswahl: '%s' ist keine gueltige pdid - wird ignoriert." % wert)
 
-    eigene = set()
-    for eintrag in abschnitt.get('eigene') or []:
-        try:
-            pdid = int(eintrag['pdid'])
-            name = str(eintrag['name']).strip()
-            if not name:
-                raise ValueError("Name ist leer")
-        except (TypeError, ValueError, KeyError) as e:
-            _LOGGER.warning("Sensorauswahl: eigener Eintrag %s ist unbrauchbar (%s) - wird ignoriert."
-                            % (eintrag, fehlertext(e)))
-            continue
+    unbekannt = aus - set(sensor_data)
+    if unbekannt:
+        # Kein Fehler: Stand die pdid frueher im Katalog und ist inzwischen
+        # entfallen, bleibt sie hier stehen und laeuft einfach ins Leere.
+        _LOGGER.debug("Sensorauswahl: %s stehen nicht (mehr) im Katalog."
+                      % ", ".join(str(p) for p in sorted(unbekannt)))
 
-        if pdid in sensor_data and pdid not in eigene:
-            # Katalogeintraege NICHT ueberschreiben: Deren Umrechnung und Typ sind
-            # erprobt, ein eigener Eintrag mit derselben pdid waere fast immer ein
-            # Versehen und die Folge (falsch skalierte Werte in Loxone) schwer zu finden.
-            _LOGGER.warning("Sensorauswahl: pdid %d ist bereits im Katalog (%s) - eigener "
-                            "Eintrag '%s' wird ignoriert."
-                            % (pdid, sensor_data[pdid]['NAME'], name))
-            continue
-
-        # Der PDO-Typ bestimmt, wie die Anlage den Wert kodiert (Byte-Zahl und
-        # Vorzeichen). Fuer Katalogsensoren steht er in RPDO_TYPE_MAP; eine eigene
-        # pdid steht dort nicht, weshalb er hier mitgegeben werden MUSS - sonst
-        # lehnt register_sensor() den Eintrag ab. 1 (CN_UINT8) als Rueckfallwert,
-        # das ist mit Abstand der haeufigste Typ.
-        neu = {'NAME': name}
-        try:
-            neu['TYPE'] = int(eintrag.get('type') or 1)
-        except (TypeError, ValueError):
-            neu['TYPE'] = 1
-
-        try:
-            push = int(eintrag.get('push') or 0)
-            if push > 0:
-                neu['PUSH'] = push
-        except (TypeError, ValueError):
-            pass
-
-        # Bewusst OHNE 'CONV': Das wertet cfc.py mit eval() aus, waere also
-        # ausfuehrbarer Code aus einem Webformular. Eigene Sensoren liefern den
-        # Rohwert - wer umrechnen will, tut das in Loxone.
-        sensor_data[pdid] = neu
-        eigene.add(pdid)
-
-    if eigene:
-        _LOGGER.info("Eigene Sensoren aus der Konfiguration: %s"
-                     % ", ".join("%d (%s)" % (p, sensor_data[p]['NAME']) for p in sorted(eigene)))
-
-    return aus, eigene
+    return aus
 
 
 class Langzeitstatistik:
@@ -1168,7 +1132,6 @@ def write_status_loop():
                     # dass JSON aus 21.0 eine 21 macht.
                     'werte': {str(p): [str(w), t] for p, (w, t) in list(letzte_werte.items())},
                     'sensoren_aus': sorted(sensoren_aus),
-                    'sensoren_eigene': sorted(sensoren_eigene),
                 }
 
                 # Dieselben Zaehler zusaetzlich als Langzeitwert. Die Zahlen oben
@@ -1358,8 +1321,15 @@ def main():
         # verdecken. So kommen sie automatisch dazu, und die eigene Auswahl bleibt
         # trotzdem erhalten (die Config wird beim Update gesichert und
         # zurueckgespielt, siehe preupgrade.sh/postupgrade.sh).
-        global sensoren_aus, sensoren_eigene
-        sensoren_aus, sensoren_eigene = sensorauswahl_anwenden(pcfg)
+        global sensoren_aus, sensors_expected
+        sensoren_aus = sensorauswahl_anwenden(pcfg)
+
+        # Erwarteten Zaehlerstand SOFORT festlegen, nicht erst kurz vor der
+        # Registrierung. Der Status-Thread laeuft schon, waehrend die Verbindung
+        # aufgebaut wird - stand hier noch der Vorgabewert (der volle Katalog),
+        # zeigte die Weboberflaeche in dieser Zeit "Registriere Sensoren (0 von 52)",
+        # obwohl nur 48 angehakt waren.
+        sensors_expected = len([p for p in sensor_data if p not in sensoren_aus])
 
     except Exception as e:
         _LOGGER.exception(str(e))
@@ -1609,48 +1579,20 @@ def main():
     # MQTT ist zu diesem Zeitpunkt bereits verbunden und das Veroeffentlichen haengt
     # nicht an diesem Durchlauf - Werte bereits registrierter Sensoren gehen sofort
     # raus, waehrend die uebrigen noch angemeldet werden (siehe callback_sensor()).
-    # Sensoren, die an ein bestimmtes Zusatzgeraet gebunden sind (siehe
-    # 'ONLY_WITH_PRODUCT' in mqtt_data.py), werden nur registriert, wenn sich dieses
-    # Geraet an der Anlage gemeldet hat. Die Anlage teilt ihre Geraeteliste von selbst
-    # kurz nach dem Verbindungsaufbau mit - has_product() wartet notfalls kurz darauf.
     #
-    # Noetig, weil die Anlage z.B. die ComfoCool-pdids AUCH OHNE Modul annimmt und mit
-    # 0 beantwortet. Am Verhalten der Anlage allein liesse sich also nicht erkennen,
-    # ob das Geraet ueberhaupt existiert.
-    # Jede Produkt-ID nur EINMAL abfragen und das Ergebnis merken. has_product()
-    # wartet im ungünstigsten Fall bis zum Zeitlimit - pro Sensor gefragt, wären das
-    # bei zwei ComfoCool-Sensoren doppelte Wartezeit beim Start jeder Anlage ohne
-    # Modul, ohne jeden Nutzen.
-    produkt_vorhanden = {}
-    for daten in sensor_data.values():
-        p = daten.get('ONLY_WITH_PRODUCT')
-        if p and p not in produkt_vorhanden:
-            produkt_vorhanden[p] = comfoconnect.has_product(p)
+    # Keine Pruefung mehr, ob Zubehoer wie das ComfoCool ueberhaupt angeschlossen
+    # ist. Die Anlage nimmt das Abonnement auch ohne Modul an und antwortet mit 0 -
+    # es entsteht also kein Fehler, nur ein nichtssagender Wert. Wen das stoert, der
+    # waehlt die beiden Eintraege in den Einstellungen ab; das ist ehrlicher als
+    # eine automatische Erkennung, die beim Start jedes Mal auf eine Antwort wartet
+    # und dabei den erwarteten Zaehlerstand erst spaet kennt (siehe unten).
+    sensor_ids = [pdid for pdid in sensor_data if pdid not in sensoren_aus]
 
-    sensor_ids = []
-    nicht_vorhanden = []
-    abgewaehlt = []
-    for pdid, daten in sensor_data.items():
-        # Abgewaehlte werden gar nicht erst registriert - nicht "registrieren, aber
-        # nicht senden". Das spart der Anlage das Abonnement und ist der ehrlichere
-        # Zustand: Der Sensor taucht dann auch dort nicht auf.
-        if pdid in sensoren_aus:
-            abgewaehlt.append(daten['NAME'])
-            continue
-        noetiges_produkt = daten.get('ONLY_WITH_PRODUCT')
-        if noetiges_produkt and not produkt_vorhanden.get(noetiges_produkt):
-            nicht_vorhanden.append(daten['NAME'])
-            continue
-        sensor_ids.append(pdid)
-
-    if nicht_vorhanden:
-        _LOGGER.info("Nicht angeschlossenes Zubehör - folgende Sensoren entfallen: %s"
-                     % ", ".join(nicht_vorhanden))
+    abgewaehlt = [sensor_data[p]['NAME'] for p in sensor_data if p in sensoren_aus]
     if abgewaehlt:
         _LOGGER.info("In den Einstellungen abgewählt (%d): %s"
                      % (len(abgewaehlt), ", ".join(abgewaehlt)))
 
-    sensors_expected = len(sensor_ids)
     connection_lost = False
     uebersprungen = []
 
@@ -1662,10 +1604,7 @@ def main():
             # (keine Antwort oder ausdrueckliche Ablehnung) - es wirft in dem Fall
             # nicht. Die Begruendung hat es selbst schon protokolliert, hier wird nur
             # mitgezaehlt, damit am Ende eine Gesamtbilanz im Log steht.
-            # sensor_type nur bei eigenen Eintraegen gesetzt (siehe
-            # sensorauswahl_anwenden) - fuer Katalogsensoren bleibt es None, dann
-            # schlaegt register_sensor() selbst in RPDO_TYPE_MAP nach.
-            reply = comfoconnect.register_sensor(x, sensor_data[x].get('TYPE'))
+            reply = comfoconnect.register_sensor(x)
             if reply is None:
                 uebersprungen.append("%d (%s)" % (x, sensor_data[x]['NAME']))
                 continue

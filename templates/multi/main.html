@@ -263,28 +263,6 @@
 		color: #2a6496;
 	}
 	.cc-sensor-note { color: #999; font-size: 0.92em; }
-	.cc-sensors input[type="text"], .cc-sensors input[type="number"] {
-		font-size: 1em;
-		padding: 1px 4px;
-		margin: 0;
-		height: auto;
-		min-height: 0;
-	}
-	.cc-sensor-name { width: 96%; font-family: monospace; }
-	.cc-sensor-push { width: 60px; }
-	.cc-sensor-del {
-		color: #c0392b !important;
-		text-decoration: none;
-		font-weight: bold;
-		margin-left: 4px;
-	}
-	.cc-sensor-add { margin-top: 8px; }
-	.cc-sensor-add a { font-size: 0.85em; }
-	.cc-sensor-addhint {
-		font-size: 0.78em;
-		color: #999;
-		margin-left: 10px;
-	}
 	.cc-diag-reset {
 		display: inline-block;
 		margin-top: 9px;
@@ -453,6 +431,9 @@
 				angemeldet und erscheinen dann auch nicht mehr per MQTT. Der Name ist
 				zugleich das MQTT-Thema. Änderungen greifen nach dem Speichern, weil
 				die Anmeldung nur beim Verbindungsaufbau erfolgt.
+				Die Liste selbst ist fest vorgegeben &ndash; ein zusätzlicher Messwert
+				braucht eine Ergänzung in <span class="mono">mqtt_data.py</span>, weil
+				dort auch Datentyp und Umrechnung hinterlegt sein müssen.
 			</div>
 			<TMPL_VAR NAME=SENSORTABLE>
 		</div>
@@ -570,64 +551,6 @@
 		<!-- einer langen Liste, was man bereits angefasst hat. -->
 		$( this ).closest( "tr" ).toggleClass( "cc-sensor-aus", !this.checked );
 		ccZaehleSensoren();
-	} );
-
-	<!-- Eigene Zeile entfernen. Nur eigene haben dieses Symbol - Katalogeintraege -->
-	<!-- lassen sich ausschliesslich abwaehlen, sonst waeren sie nach dem naechsten -->
-	<!-- Plugin-Update unerklaerlicherweise wieder da. -->
-	$( "#sensorbody" ).on( "click", ".cc-sensor-del", function( e ) {
-		e.preventDefault();
-		$( this ).closest( "tr" ).remove();
-		ccZaehleSensoren();
-	} );
-
-	<!-- Neue Zeile anlegen. Die laufende Nummer im Feldnamen muss eindeutig -->
-	<!-- bleiben, deshalb wird sie nur hochgezaehlt und nie neu vergeben - auch -->
-	<!-- nicht, wenn zwischendurch eine Zeile geloescht wurde. -->
-	$( "#btnsensoradd" ).on( "click", function( e ) {
-		e.preventDefault();
-		var idx = parseInt( $( "#sensornextidx" ).val(), 10 ) || 0;
-		$( "#sensornextidx" ).val( idx + 1 );
-
-		var zeile = $(
-			'<tr class="cc-sensor-row cc-sensor-neu">' +
-			'<td><input type="checkbox" name="sensor_on_" checked /></td>' +
-			'<td class="cc-sensor-pdid"><input type="number" class="cc-sensor-push" min="0" ' +
-				'name="sensor_new_pdid_' + idx + '" /></td>' +
-			'<td><input type="text" class="cc-sensor-name" name="sensor_new_name_' + idx + '" ' +
-				'placeholder="MEIN_WERT" /></td>' +
-			'<td><input type="number" class="cc-sensor-push" min="0" ' +
-				'name="sensor_new_push_' + idx + '" /></td>' +
-			'<td class="cc-sensor-val"></td>' +
-			'<td class="cc-sensor-note"><span class="cc-neu-info"></span>' +
-				'<input type="hidden" name="sensor_new_type_' + idx + '" value="1" />' +
-				' <a href="#" class="cc-sensor-del" title="Zeile entfernen">&#10005;</a></td>' +
-			'</tr>' );
-
-		$( "#sensorbody table.cc-sensors" ).append( zeile );
-		zeile.find( "input[type=number]" ).first().focus();
-		ccZaehleSensoren();
-	} );
-
-	<!-- pdid eingetippt: Typ und Bedeutung aus der Protokolldokumentation -->
-	<!-- vorschlagen. Der Typ bestimmt, wie die Anlage den Wert kodiert - raet man -->
-	<!-- den falsch, kommen unbrauchbare Zahlen an. Deshalb hier nachschlagen -->
-	<!-- statt den Benutzer raten zu lassen. -->
-	$( "#sensorbody" ).on( "input", "input[name^='sensor_new_pdid_']", function() {
-		var zeile = $( this ).closest( "tr" );
-		var idx   = this.name.replace( "sensor_new_pdid_", "" );
-		var doku  = ccPdoDocs[ $( this ).val() ];
-
-		<!-- Der Haken traegt die pdid im Namen - erst jetzt ist sie bekannt. -->
-		zeile.find( "input[name^='sensor_on_']" ).attr( "name", "sensor_on_" + $( this ).val() );
-
-		if ( doku ) {
-			zeile.find( "input[name='sensor_new_type_" + idx + "']" ).val( doku.typ );
-			zeile.find( ".cc-neu-info" ).text( doku.beschr ).css( "color", "#3c8c1f" );
-		} else {
-			zeile.find( "input[name='sensor_new_type_" + idx + "']" ).val( 1 );
-			zeile.find( ".cc-neu-info" ).text( "nicht dokumentiert" ).css( "color", "#999" );
-		}
 	} );
 
 	$( "#btnresetstats" ).on( "click", function( e ) {
