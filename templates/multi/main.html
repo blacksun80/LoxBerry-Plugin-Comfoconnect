@@ -262,7 +262,12 @@
 		padding: 1px 10px 1px 0;
 		border-bottom: 1px solid #f2f2f2;
 		vertical-align: middle;
+		/* Siehe die gleichlautende Regel bei table.cc-cmds: gemeinsame Zeilenhoehe,
+		   damit Schreibmaschinen- und Proportionalschrift auf derselben Grundlinie
+		   sitzen. */
+		line-height: 1.7;
 	}
+	table.cc-sensors td * { line-height: inherit; }
 	/* Abgewaehlte Zeilen blass, aber lesbar - sie sollen als "aus" erkennbar
 	   sein, ohne dass man den Namen nicht mehr entziffern kann. */
 	.cc-sensor-aus td { color: #b0b0b0; }
@@ -302,7 +307,16 @@
 		padding: 1px 10px 1px 0;
 		border-bottom: 1px solid #f2f2f2;
 		vertical-align: top;
+		/* Feste Zeilenhoehe fuer ALLE Zellen, und die Kindelemente erben sie.
+		   Ohne das sitzt jede Zelle auf einer eigenen Grundlinie: Die Spalte
+		   "Empfangen" verschachtelt drei Schriftgroessen (0.86em Tabelle x 0.92em
+		   Zelle x 0.9em fuer die Zeitspanne), daneben stehen Schreibmaschinen- und
+		   Proportionalschrift. Bei "vertical-align: top" richten sich zwar die
+		   Zellenkanten aus, die Textzeilen darin aber nicht - besonders auffaellig
+		   in der Zeile mit der Uhrzeit. */
+		line-height: 1.7;
 	}
+	table.cc-cmds td * { line-height: inherit; }
 	/* Die Kopfzeile liegt in einer eigenen Tabelle (siehe getCommandTable), traegt
 	   aber dieselben Spaltenklassen - so stehen die Ueberschriften ueber ihren
 	   Spalten, obwohl zwischen den Gruppen Zwischenueberschriften stehen. */
@@ -348,17 +362,18 @@
 		color: #6b5900;
 	}
 	.cc-cmd-drift .mono { font-family: monospace; }
-	.cc-diag-reset {
-		display: inline-block;
-		margin-top: 9px;
-		font-size: 0.8em;
-		color: #888 !important;
-		text-decoration: underline;
+	/* jQuery Mobile baut aus dem <a> ein Button-Element mit eigenen Abstaenden -
+	   deshalb hier nur der Abstand nach oben und die Ausrichtung des Hinweistextes
+	   daneben, nicht die Optik des Knopfes selbst. */
+	.cc-diag-reset-zeile {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin-top: 6px;
 	}
 	.cc-diag-reset-hint {
 		font-size: 0.8em;
 		color: #888;
-		margin-left: 8px;
 	}
 
 	/* Buttonleiste - eigener kleiner Abstand statt des frueheren <p>, dessen
@@ -547,11 +562,17 @@
 	<div class="cc-group">
 		<div class="cc-group-title">Diagnose</div>
 		<div id="diagbox"><TMPL_VAR NAME=DIAGNOSTICS></div>
-		<!-- Bewusst klein und unauffaellig: Das ist nichts, was man im Normalbetrieb
-		     braucht - eher etwas, das man nach dem Beheben eines Problems einmal
-		     anfasst, um wieder eine saubere Ausgangslage zu haben. -->
-		<a href="#" id="btnresetstats" class="cc-diag-reset">Statistik zurücksetzen</a>
-		<span id="resetstatshint" class="cc-diag-reset-hint"></span>
+		<!-- Gleiche Auszeichnung wie Abbrechen/Speichern unten (jQuery-Mobile-Button,
+		     data-mini), damit die Seite einheitlich aussieht.
+
+		     Bewusst ein <a> und KEIN <button>: Ein button innerhalb des Formulars
+		     wuerde beim Klick absenden - und damit ausgerechnet einen Neustart des
+		     Plugins ausloesen, waehrend das Zuruecksetzen laeuft. -->
+		<div class="cc-diag-reset-zeile">
+			<a href="#" id="btnresetstats" data-role="button" data-inline="true"
+				data-mini="true" data-icon="refresh">Statistik zurücksetzen</a>
+			<span id="resetstatshint" class="cc-diag-reset-hint"></span>
+		</div>
 	</div>
 
 	<div id="form-error-message" class="form-error-message"></div>
