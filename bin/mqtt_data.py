@@ -115,7 +115,7 @@ sensor_data = {
     176: {
         'NAME' : 'SETTING_RF_PAIRING',
         'PUSH'  :  3,
-        'INFO' : 'Zustand der Funk-Anlernung (Bedeutung im Protokoll nicht dokumentiert)'
+        'INFO' : 'Zustand der Funk-Anlernung, etwa beim Verbinden einer Fernbedienung'
     },
     192: {
         'NAME' : 'DAYS_TO_REPLACE_FILTER',
@@ -177,7 +177,7 @@ sensor_data = {
     219: {
         'NAME' : 'AVOIDED_COOLING_CURRENT_TARGET',
         'PUSH'  :  3,
-        'INFO' : 'Zielwert der Kühlrückgewinnung (Bedeutung im Protokoll nicht dokumentiert)'
+        'INFO' : 'Bedeutung unbekannt - weder im Zehnder-Protokoll noch in der Referenzbibliothek benannt. Der Name hier ist geraten'
     },
     221: {
         'NAME' : 'TEMPERATURE_SUPPLY',
@@ -187,7 +187,7 @@ sensor_data = {
     },
     225: {
         'NAME' : 'COMFORTCONTROL_MODE',
-        'INFO' : 'Betriebsart der Komfortregelung (Bedeutung im Protokoll nicht dokumentiert)'
+        'INFO' : 'Betriebsart der sensorgeführten Lüftung - gehört zu den Befehlen SENSOR_TEMP, SENSOR_HUMC und SENSOR_HUMP'
     },
     227: {
         'NAME' : 'BYPASS_STATE',
@@ -195,7 +195,7 @@ sensor_data = {
     },
     228: {
         'NAME' : 'FROSTPROTECT_UNBALANCE',
-        'INFO' : 'Unwucht der Ventilatoren durch den Frostschutz (Bedeutung im Protokoll nicht dokumentiert)'
+        'INFO' : 'Unwucht der Ventilatoren durch den Frostschutz - Bedeutung der Werte weder im Protokoll noch in der Referenzbibliothek beschrieben'
     },
     274: {
         'NAME' : 'TEMPERATURE_EXTRACT',
