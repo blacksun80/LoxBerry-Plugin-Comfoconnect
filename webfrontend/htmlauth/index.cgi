@@ -814,6 +814,11 @@ sub readSensorCatalog
 		# Messwert an einer Stelle - anders als bei den Befehlen, deren Wirkung sich
 		# nicht als Daten ablegen lässt.
 		$e{INFO} = $1 if ($rumpf =~ /'INFO'\s*:\s*'((?:[^'\\]|\\.)*)'/);
+		$e{GRUPPE} = $1 if ($rumpf =~ /'GRUPPE'\s*:\s*'((?:[^'\\]|\\.)*)'/);
+		# Reihenfolge in der Datei merken. Danach werden die Gruppen sortiert -
+		# nicht alphabetisch, denn "Betrieb und Lüfterstufe" gehört nach oben und
+		# das Zubehör ans Ende, nicht umgekehrt.
+		$e{POS} = scalar(keys %katalog);
 		$katalog{$pdid} = \%e if ($e{NAME});
 	}
 
@@ -839,52 +844,73 @@ sub getSensorTable
 	# hat noch nie gesendet), bleibt die Spalte leer statt eine Null vorzutäuschen.
 	my $werte = ($status && ref($status->{werte}) eq 'HASH') ? $status->{werte} : {};
 
-	my @zeilen;
+	# Nach Gruppen ordnen. Die Reihenfolge der Gruppen ergibt sich aus dem ersten
+	# Auftreten in mqtt_data.py (POS), innerhalb einer Gruppe wird nach pdid
+	# sortiert. Alphabetisch wäre falsch: "Betrieb und Lüfterstufe" gehört nach
+	# oben, das Zubehör ans Ende.
+	my (%nach_gruppe, %gruppe_pos);
+	for my $pdid (keys %$katalog) {
+		my $g = $katalog->{$pdid}->{GRUPPE};
+		$g = "Sonstige" if (!defined($g) || $g eq "");
+		push @{ $nach_gruppe{$g} }, $pdid;
+		$gruppe_pos{$g} = $katalog->{$pdid}->{POS}
+			if (!exists $gruppe_pos{$g} || $katalog->{$pdid}->{POS} < $gruppe_pos{$g});
+	}
+
 	my $aktiv = 0;
 	my $gesamt = 0;
 
-	for my $pdid (sort { $a <=> $b } keys %$katalog) {
-		my $e = $katalog->{$pdid};
-		$gesamt++;
-		my $an = $aus{$pdid} ? 0 : 1;
-		$aktiv++ if ($an);
+	# Spaltenüberschriften einmal ganz oben, wie bei den Befehlen. Die Kopfzellen
+	# tragen dieselben Spaltenklassen wie die Datenzellen, damit die Breiten
+	# zusammenpassen, obwohl zwischen den Gruppen Zwischenüberschriften stehen.
+	# "ID" statt "pdid": Der Protokollbegriff sagt nur etwas, wenn man die
+	# Zehnder-Dokumentation kennt. Der Tooltip stellt die Verbindung dorthin her,
+	# ohne die schmale Spalte zu sprengen.
+	my $html = "<table class=\"cc-sensors\"><tr>"
+		. "<th class=\"cc-sensor-hak\">Aktiv</th>"
+		. "<th class=\"cc-sensor-pdid\" title=\"Kennnummer im Zehnder-Protokoll (pdid)\">ID</th>"
+		. "<th class=\"cc-sensor-name-fix\">Name (MQTT-Topic)</th>"
+		. "<th class=\"cc-sensor-note\">Bedeutung</th>"
+		. "<th class=\"cc-sensor-push-fix\">Intervall</th>"
+		. "<th class=\"cc-sensor-val\">Wert</th></tr></table>";
 
-		my $wert = "";
-		if (ref($werte->{$pdid}) eq 'ARRAY' && defined($werte->{$pdid}->[0])) {
-			$wert = $werte->{$pdid}->[0];
-			$wert =~ s/</&lt;/g;
+	for my $g (sort { $gruppe_pos{$a} <=> $gruppe_pos{$b} } keys %nach_gruppe) {
+		my @zeilen;
+		for my $pdid (sort { $a <=> $b } @{ $nach_gruppe{$g} }) {
+			my $e = $katalog->{$pdid};
+			$gesamt++;
+			my $an = $aus{$pdid} ? 0 : 1;
+			$aktiv++ if ($an);
+
+			my $wert = "";
+			if (ref($werte->{$pdid}) eq 'ARRAY' && defined($werte->{$pdid}->[0])) {
+				$wert = $werte->{$pdid}->[0];
+				$wert =~ s/</&lt;/g;
+			}
+
+			my $info = defined($e->{INFO}) ? $e->{INFO} : "";
+			$info =~ s/\\'/'/g;
+			$info =~ s/</&lt;/g;
+
+			push @zeilen,
+				"<tr class=\"cc-sensor-row" . ($an ? "" : " cc-sensor-aus") . "\" data-pdid=\"$pdid\">"
+				. "<td class=\"cc-sensor-hak\"><input type=\"checkbox\" name=\"sensor_on_$pdid\" "
+				. ($an ? "checked " : "") . "/></td>"
+				. "<td class=\"cc-sensor-pdid\">$pdid</td>"
+				. "<td class=\"cc-sensor-name-fix\">$e->{NAME}</td>"
+				. "<td class=\"cc-sensor-note\">$info</td>"
+				. "<td class=\"cc-sensor-push-fix\">" . ($e->{PUSH} ? "$e->{PUSH}s" : "&ndash;") . "</td>"
+				. "<td class=\"cc-sensor-val\" id=\"sv$pdid\">$wert</td>"
+				. "</tr>";
 		}
 
-		# Der ComfoCool-Vermerk ist jetzt nur noch ein Hinweis, keine Bedingung:
-		# Diese Sensoren werden immer angemeldet (die Anlage nimmt das auch ohne
-		# Modul an und antwortet mit 0). Der Vermerk sagt lediglich, warum der Wert
-		# womöglich nichtssagend ist - und lädt dazu ein, ihn abzuwählen.
-		my $info = defined($e->{INFO}) ? $e->{INFO} : "";
-		$info =~ s/\\'/'/g;
-		$info =~ s/</&lt;/g;
-		# Der ComfoCool-Vermerk hängt hinten an der Beschreibung statt in einer
-		# eigenen Spalte - er betrifft nur zwei von 52 Zeilen und wäre als eigene,
-		# fast immer leere Spalte reine Platzverschwendung.
-		$info .= " <span class=\"cc-sensor-opt\">(nur mit ComfoCool)</span>"
-			if (($e->{PRODUCT} || 0) == 6);
-
-		push @zeilen,
-			"<tr class=\"cc-sensor-row" . ($an ? "" : " cc-sensor-aus") . "\" data-pdid=\"$pdid\">"
-			. "<td><input type=\"checkbox\" name=\"sensor_on_$pdid\" " . ($an ? "checked " : "") . "/></td>"
-			. "<td class=\"cc-sensor-pdid\">$pdid</td>"
-			. "<td class=\"cc-sensor-name-fix\">$e->{NAME}</td>"
-			. "<td class=\"cc-sensor-note\">$info</td>"
-			. "<td class=\"cc-sensor-push-fix\">" . ($e->{PUSH} ? "$e->{PUSH}s" : "&ndash;") . "</td>"
-			. "<td class=\"cc-sensor-val\" id=\"sv$pdid\">$wert</td>"
-			. "</tr>";
+		# Gruppenüberschrift mit eigenem Haken: Bei zwölf Gruppen ist "alles vom
+		# ComfoFond weg" sonst ein Klick je Zeile.
+		$html .= "<div class=\"cc-cmd-group cc-sensor-gruppe\">"
+			. "<input type=\"checkbox\" class=\"cc-gruppe-hak\" title=\"ganze Gruppe an- oder abwählen\" />"
+			. "<span>$g</span></div>";
+		$html .= "<table class=\"cc-sensors\">" . join("", @zeilen) . "</table>";
 	}
-
-	my $html = "<table class=\"cc-sensors\">"
-		# "pdid" gehört über die Zahlenspalte, nicht über die Haken - deshalb
-		# rechtsbündig wie die Zahlen darunter. Dasselbe für "Wert".
-		. "<tr><th></th><th class=\"cc-sensor-pdid\">pdid</th><th>Name (MQTT-Topic)</th><th>Bedeutung</th>"
-		. "<th>Intervall</th><th class=\"cc-sensor-val\">Wert</th></tr>"
-		. join("", @zeilen) . "</table>";
 
 	return ($html, $aktiv, $gesamt);
 }
