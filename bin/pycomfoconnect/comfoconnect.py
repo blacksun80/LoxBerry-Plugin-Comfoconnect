@@ -211,6 +211,11 @@ class ComfoConnect(object):
         # "X sensors active" count.
         self.sensors_confirmed = set()
 
+        # True, solange ein laufender Verbindungsausfall bereits gemeldet und gezaehlt
+        # ist. Verhindert, dass jeder Wiederholversuch als eigener Abbruch zaehlt -
+        # siehe _connection_thread_loop().
+        self._abbruch_gemeldet = False
+
         # True, wenn die Anlage unsere Sitzung verworfen hat (NOT_ALLOWED), die
         # TCP-Verbindung aber steht. Dann genuegt eine Neuanmeldung, siehe
         # _session_verloren() und _connection_thread_loop().
@@ -807,21 +812,31 @@ class ComfoConnect(object):
                 # initial connect - see the _is_reconnect comment in __init__.
                 self.sensors_ready = False
                 self._is_reconnect = True
-                self._zaehle('verbindungsabbrueche', 'letzter_verbindungsabbruch')
 
-                # BEWUSST als Fehler, obwohl es sich von selbst behebt: Ein Abriss
-                # der Verbindung ist eine Stoerung, auch wenn der Wiederaufbau
-                # gelingt. Das haelt die Regel einfach - was einen Stoerungsbericht
-                # verdient, ist ein Fehler, und der Berichtsschreiber braucht keinen
-                # zweiten Einstieg neben der Logstufe. Nebeneffekt: Wer das Loglevel
-                # auf "Fehler" stellt, sieht diese Abbrueche jetzt trotzdem.
+                # NUR EINMAL je Ausfall melden und zaehlen, nicht bei jedem
+                # Wiederholversuch. Diese Schleife dreht sich waehrend eines Ausfalls
+                # etwa alle 5-15 Sekunden; ohne diese Bremse zaehlte ein zweistuendiger
+                # Ausfall rund 500 "Abbrueche" (gemessen: 2099 Stueck in 8,5 Stunden)
+                # und erzeugte im selben Takt Stoerungsberichte. Die Zahl war damit
+                # wertlos - sie mass die Dauer des Ausfalls, nicht deren Anzahl.
                 #
-                # Hier und nicht in _message_thread_loop, wo der Abriss zuerst
-                # auffaellt: Dort gibt es je nach Ursache drei verschiedene Meldungen,
-                # und ein Abriss wuerde dreifach gezaehlt werden. Diese Stelle ist die
-                # eine, an der feststeht, dass die Verbindung weg ist und neu
-                # aufgebaut wird.
-                _LOGGER.error("Verbindung zur Lüftungsanlage abgerissen - baue sie neu auf.")
+                # Zurueckgesetzt wird das erst, wenn die Verbindung wieder steht
+                # (siehe unten) - dann ist der naechste Verlust wieder ein neuer.
+                if not self._abbruch_gemeldet:
+                    self._abbruch_gemeldet = True
+                    self._zaehle('verbindungsabbrueche', 'letzter_verbindungsabbruch')
+
+                    # BEWUSST als Fehler, obwohl es sich von selbst behebt: Ein Abriss
+                    # der Verbindung ist eine Stoerung, auch wenn der Wiederaufbau
+                    # gelingt. Das haelt die Regel einfach - was einen Stoerungsbericht
+                    # verdient, ist ein Fehler, und der Berichtsschreiber braucht keinen
+                    # zweiten Einstieg neben der Logstufe. Nebeneffekt: Wer das Loglevel
+                    # auf "Fehler" stellt, sieht diese Abbrueche jetzt trotzdem.
+                    #
+                    # Hier und nicht in _message_thread_loop, wo der Abriss zuerst
+                    # auffaellt: Dort gibt es je nach Ursache drei verschiedene
+                    # Meldungen, und ein Abriss wuerde dreifach gezaehlt.
+                    _LOGGER.error("Verbindung zur Lüftungsanlage abgerissen - baue sie neu auf.")
 
                 # Wait a bit to avoid hammering the bridge
                 time.sleep(5)
@@ -858,6 +873,10 @@ class ComfoConnect(object):
 
             # Only start background thread if we truly are connected, otherwise try reconnecting again
             if self.is_connected():
+                # Verbindung steht wieder - der naechste Verlust ist damit ein neuer
+                # Vorfall und darf erneut gezaehlt und gemeldet werden.
+                self._abbruch_gemeldet = False
+
                 # Reset the queue here, synchronously, BEFORE starting the message
                 # thread - not as the first line inside _message_thread_loop() itself.
                 # thread.start() returns as soon as the OS has scheduled the new

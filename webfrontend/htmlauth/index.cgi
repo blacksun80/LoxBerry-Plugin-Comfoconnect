@@ -876,7 +876,7 @@ sub getSensorTable
 	my $html = "<table class=\"cc-sensors\">"
 		# "pdid" gehört über die Zahlenspalte, nicht über die Haken - deshalb
 		# rechtsbündig wie die Zahlen darunter. Dasselbe für "Wert".
-		. "<tr><th></th><th class=\"cc-sensor-pdid\">pdid</th><th>Name (MQTT-Thema)</th><th>Bedeutung</th>"
+		. "<tr><th></th><th class=\"cc-sensor-pdid\">pdid</th><th>Name (MQTT-Topic)</th><th>Bedeutung</th>"
 		. "<th>Intervall</th><th class=\"cc-sensor-val\">Wert</th></tr>"
 		. join("", @zeilen) . "</table>";
 

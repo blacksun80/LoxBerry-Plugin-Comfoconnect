@@ -505,7 +505,7 @@
 			<div class="cc-sensor-intro">
 				Abgewählte Sensoren werden bei der Lüftungsanlage gar nicht erst
 				angemeldet und erscheinen dann auch nicht mehr per MQTT. Der Name ist
-				zugleich das MQTT-Thema. Änderungen greifen nach dem Speichern, weil
+				zugleich das MQTT-Topic. Änderungen greifen nach dem Speichern, weil
 				die Anmeldung nur beim Verbindungsaufbau erfolgt.
 				Die Liste selbst ist fest vorgegeben &ndash; ein zusätzlicher Messwert
 				braucht eine Ergänzung in <span class="mono">mqtt_data.py</span>, weil
@@ -522,12 +522,12 @@
 		<div class="cc-group-title cc-collapse-head" id="cmdhead">
 			<span class="cc-collapse-arrow" id="cmdarrow">&#9656;</span>
 			Befehle
-			<span class="cc-collapse-count">(<TMPL_VAR NAME=COMMANDSANZAHL> Themen)</span>
+			<span class="cc-collapse-count">(<TMPL_VAR NAME=COMMANDSANZAHL> Topics)</span>
 		</div>
 		<div id="cmdbody" style="display: none;">
 			<div class="cc-sensor-intro">
-				Diese Themen nimmt das Plugin entgegen. Vorangestellt wird jeweils das
-				oben eingestellte MQTT-Thema. Rechts steht, was zuletzt darauf empfangen
+				Diese Topics nimmt das Plugin entgegen. Vorangestellt wird jeweils das
+				oben eingestellte MQTT-Topic. Rechts steht, was zuletzt darauf empfangen
 				wurde &ndash; damit lässt sich prüfen, ob ein Befehl aus Loxone
 				tatsächlich ankommt.
 			</div>
