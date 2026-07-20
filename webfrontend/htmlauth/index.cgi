@@ -866,7 +866,7 @@ sub getSensorTable
 	# "ID" statt "pdid": Der Protokollbegriff sagt nur etwas, wenn man die
 	# Zehnder-Dokumentation kennt. Der Tooltip stellt die Verbindung dorthin her,
 	# ohne die schmale Spalte zu sprengen.
-	my $html = "<table class=\"cc-sensors\"><tr>"
+	my $html = "<table class=\"cc-sensors cc-sensors-kopf\"><tr>"
 		. "<th class=\"cc-sensor-hak\">Aktiv</th>"
 		. "<th class=\"cc-sensor-pdid\" title=\"Kennnummer im Zehnder-Protokoll (pdid)\">ID</th>"
 		. "<th class=\"cc-sensor-name-fix\">Name (MQTT-Topic)</th>"
@@ -909,13 +909,21 @@ sub getSensorTable
 				. "</tr>";
 		}
 
-		# Gruppenüberschrift mit eigenem Haken: Bei zwölf Gruppen ist "alles vom
-		# ComfoFond weg" sonst ein Klick je Zeile.
-		$html .= "<div class=\"cc-cmd-group cc-sensor-gruppe\">"
+		# Jede Gruppe in einem eigenen Rahmen mit abgesetzter Kopfzeile.
+		#
+		# Vorher stand die Überschrift frei über der Tabelle - dadurch landete ihr
+		# Haken senkrecht fast genau über dem Haken der ersten Zeile, und beide
+		# lasen sich als Paar statt als Ebene und Unterebene. Der abgesetzte Kopf
+		# macht sichtbar, dass der obere Haken für den ganzen Block gilt.
+		$html .= "<div class=\"cc-sgruppe\">"
+			. "<div class=\"cc-sgruppe-kopf\">"
 			. "<input type=\"checkbox\" data-role=\"none\" class=\"cc-gruppe-hak\" "
 			. "title=\"ganze Gruppe an- oder abwählen\" />"
-			. "<span>$g</span></div>";
-		$html .= "<table class=\"cc-sensors\">" . join("", @zeilen) . "</table>";
+			. "<span>$g</span>"
+			. "<span class=\"cc-sgruppe-zahl\"></span>"
+			. "</div>"
+			. "<table class=\"cc-sensors\">" . join("", @zeilen) . "</table>"
+			. "</div>";
 	}
 
 	return ($html, $aktiv, $gesamt);
@@ -1024,7 +1032,7 @@ my @COMMANDS = (
 	# jeweils eine Zwischenüberschrift liegt. Damit die Spalten trotzdem
 	# untereinander stehen, tragen die Kopfzellen dieselben Klassen wie die
 	# Datenzellen - die Breiten kommen aus dem CSS und gelten für beide.
-	my $html = "<table class=\"cc-cmds\"><tr>"
+	my $html = "<table class=\"cc-cmds cc-cmds-kopf\"><tr>"
 		. "<th class=\"cc-cmd-topic\">Topic</th>"
 		. "<th class=\"cc-cmd-werte\">Werte</th>"
 		. "<th class=\"cc-cmd-bed\">Bedeutung</th>"
@@ -1033,7 +1041,15 @@ my @COMMANDS = (
 	my $anzahl = 0;
 
 	for my $g (@COMMANDS) {
-		$html .= "<div class=\"cc-cmd-group\">$g->{gruppe}</div>";
+		# Gerahmt wie die Sensorgruppen, nur ohne Haken - hier gibt es nichts
+		# einzustellen. Die Zählung rechts steht fest und wird direkt hier
+		# eingesetzt; bei den Sensoren muss sie das JavaScript nachführen, weil
+		# sich die Auswahl ändern kann.
+		my $n = scalar @{ $g->{befehle} };
+		$html .= "<div class=\"cc-sgruppe\">"
+			. "<div class=\"cc-sgruppe-kopf\"><span>$g->{gruppe}</span>"
+			. "<span class=\"cc-sgruppe-zahl\">$n " . ($n == 1 ? "Topic" : "Topics") . "</span>"
+			. "</div>";
 		$html .= "<table class=\"cc-cmds\">";
 		for my $b (@{ $g->{befehle} }) {
 			$anzahl++;
@@ -1064,7 +1080,7 @@ my @COMMANDS = (
 				. ($fehler ? "<span class=\"cc-cmd-err\">$fehler</span>" : $wann) . "</td>"
 				. "</tr>";
 		}
-		$html .= "</table>";
+		$html .= "</table></div>";
 	}
 
 	# Abgleich mit dem, was cfc.py tatsächlich abonniert hat. Die Liste oben ist

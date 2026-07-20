@@ -288,7 +288,7 @@
 	   des Themes und kann dadurch hoeher werden als die Tabellenzeile - dann schiebt
 	   es sich ueber die Gruppenueberschrift darueber. */
 	table.cc-sensors input[type="checkbox"],
-	.cc-sensor-gruppe input[type="checkbox"] {
+	.cc-sgruppe-kopf input[type="checkbox"] {
 		width: 15px;
 		height: 15px;
 		margin: 0;
@@ -302,14 +302,42 @@
 		cursor: help;
 	}
 	/* Gruppenueberschrift mit eigenem Haken zum Umschalten der ganzen Gruppe. */
-	.cc-sensor-gruppe {
+	/* Gerahmter Block je Sensorgruppe. Der Rahmen ist bewusst leichter als der der
+	   grossen Bloecke aussen herum (#d5d5d5), sonst konkurrieren zwei
+	   Rahmenebenen miteinander. */
+	.cc-sgruppe {
+		border: 1px solid #e3e3e3;
+		border-radius: 6px;
+		margin-bottom: 10px;
+		overflow: hidden;
+	}
+	/* Abgesetzte Kopfzeile. Sie ist der Grund fuer den ganzen Rahmen: Ohne sie
+	   stand der Gruppenhaken senkrecht fast genau ueber dem Haken der ersten
+	   Zeile, und beide lasen sich als Paar statt als Ebene und Unterebene. */
+	.cc-sgruppe-kopf {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		/* Etwas Luft nach oben, damit die Ueberschrift nicht an der letzten Zeile
-		   der vorigen Gruppe klebt. */
-		margin-top: 14px !important;
+		gap: 8px;
+		background-color: #f4f4f4;
+		border-bottom: 1px solid #e3e3e3;
+		padding: 5px 10px;
+		font-weight: bold;
+		font-size: 0.87em;
+		color: #444;
 	}
+	.cc-sgruppe-zahl {
+		margin-left: auto;
+		font-weight: normal;
+		color: #999;
+		font-size: 0.92em;
+	}
+	/* Innenabstand fuer die Zeilen, damit sie nicht am Rahmen kleben. Dieselbe
+	   Einrueckung bekommt die Kopfzeile der Spalten (cc-sensors-kopf), sonst
+	   stuenden die Ueberschriften neben statt ueber ihren Spalten. */
+	.cc-sgruppe table.cc-sensors,
+	.cc-sgruppe table.cc-cmds { padding: 2px 10px 4px 10px; }
+	table.cc-sensors-kopf,
+	table.cc-cmds-kopf { padding: 0 11px; }
 	table.cc-sensors th {
 		font-weight: bold;
 		font-family: inherit;
@@ -325,13 +353,6 @@
 	.cc-sensor-note { color: #999; font-size: 0.92em; }
 
 	/* ---- Befehlsuebersicht ----------------------------------------------- */
-	.cc-cmd-group {
-		font-weight: bold;
-		font-size: 0.85em;
-		color: #555;
-		margin: 10px 0 2px 0;
-	}
-	.cc-cmd-group:first-child { margin-top: 0; }
 	table.cc-cmds {
 		border-collapse: collapse;
 		font-size: 0.86em;
@@ -733,7 +754,7 @@
 		<!-- Abgewaehlte Zeile sofort ausgrauen - so sieht man beim Durchgehen -->
 		<!-- einer langen Liste, was man bereits angefasst hat. -->
 		$( this ).closest( "tr" ).toggleClass( "cc-sensor-aus", !this.checked );
-		ccGruppenHaken( $( this ).closest( "table" ).prev( ".cc-sensor-gruppe" ) );
+		ccGruppenHaken( $( this ).closest( "table" ).prev( ".cc-sgruppe-kopf" ) );
 		ccZaehleSensoren();
 	} );
 
@@ -741,7 +762,7 @@
 	<!-- Gruppen waere "alles vom ComfoFond weg" sonst ein Klick je Zeile. -->
 	$( "#sensorbody" ).on( "change", ".cc-gruppe-hak", function() {
 		var an = this.checked;
-		$( this ).closest( ".cc-sensor-gruppe" ).next( "table" )
+		$( this ).closest( ".cc-sgruppe-kopf" ).next( "table" )
 			.find( "input[name^='sensor_on_']" ).each( function() {
 				this.checked = an;
 				$( this ).closest( "tr" ).toggleClass( "cc-sensor-aus", !an );
@@ -759,9 +780,14 @@
 		if ( !g ) { return; }
 		g.checked = ( an === haken.length );
 		g.indeterminate = ( an > 0 && an < haken.length );
+
+		<!-- Zaehlung rechts im Gruppenkopf. Zeigt nebenbei, worauf sich der Haken -->
+		<!-- daneben bezieht - naemlich auf diese Zeilen und nur auf diese. -->
+		kopf.find( ".cc-sgruppe-zahl" ).text(
+			an === haken.length ? haken.length + " Sensoren" : an + " von " + haken.length );
 	}
 
-	$( ".cc-sensor-gruppe" ).each( function() { ccGruppenHaken( $( this ) ); } );
+	$( ".cc-sgruppe-kopf" ).each( function() { ccGruppenHaken( $( this ) ); } );
 
 	$( "#btnresetstats" ).on( "click", function( e ) {
 		e.preventDefault();
