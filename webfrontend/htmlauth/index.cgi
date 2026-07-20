@@ -894,8 +894,13 @@ sub getSensorTable
 
 			push @zeilen,
 				"<tr class=\"cc-sensor-row" . ($an ? "" : " cc-sensor-aus") . "\" data-pdid=\"$pdid\">"
-				. "<td class=\"cc-sensor-hak\"><input type=\"checkbox\" name=\"sensor_on_$pdid\" "
-				. ($an ? "checked " : "") . "/></td>"
+				# data-role="none" ist hier PFLICHT: Ohne das baut jQuery Mobile aus dem
+			# Kontrollkästchen ein eigenes Bedienelement mit eigenem Kastenmodell und
+			# eigenen Abständen. In einer Tabelle sprengt das die Zeilenhöhe, und die
+			# Kästchen schieben sich über die Gruppenüberschrift darüber. Die beiden
+			# Kästchen im Überwachungsblock weiter oben tragen es aus demselben Grund.
+			. "<td class=\"cc-sensor-hak\"><input type=\"checkbox\" data-role=\"none\" "
+				. "name=\"sensor_on_$pdid\" " . ($an ? "checked " : "") . "/></td>"
 				. "<td class=\"cc-sensor-pdid\">$pdid</td>"
 				. "<td class=\"cc-sensor-name-fix\">$e->{NAME}</td>"
 				. "<td class=\"cc-sensor-note\">$info</td>"
@@ -907,7 +912,8 @@ sub getSensorTable
 		# Gruppenüberschrift mit eigenem Haken: Bei zwölf Gruppen ist "alles vom
 		# ComfoFond weg" sonst ein Klick je Zeile.
 		$html .= "<div class=\"cc-cmd-group cc-sensor-gruppe\">"
-			. "<input type=\"checkbox\" class=\"cc-gruppe-hak\" title=\"ganze Gruppe an- oder abwählen\" />"
+			. "<input type=\"checkbox\" data-role=\"none\" class=\"cc-gruppe-hak\" "
+			. "title=\"ganze Gruppe an- oder abwählen\" />"
 			. "<span>$g</span></div>";
 		$html .= "<table class=\"cc-sensors\">" . join("", @zeilen) . "</table>";
 	}
