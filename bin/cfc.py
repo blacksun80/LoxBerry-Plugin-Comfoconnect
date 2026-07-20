@@ -539,52 +539,52 @@ def _dispatch_message(topic, value):
         else:
             _LOGGER.error("SENSOR_HUMP: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Werte 0, 1, 2")
     elif topic == mqtt_topic + "BOOST_MODE_TIME":
-        boost_mode_time=to_big(value)
+        boost_mode_time=seconds_to_timerfield(value)
         _LOGGER.debug("BOOST_MODE_TIME hex: " + str(boost_mode_time))
         _LOGGER.info("BOOST_MODE_TIME " + str(value) + " sec" + " übernommen")
     elif topic == mqtt_topic + "BOOST_MODE":
         if int(value) == 1:
-            comfoconnect.cmd_rmi_request(b'\x84\x15\x01\x06\x00\x00\x00\x00' + boost_mode_time + b'\x00\x00\x03')
+            comfoconnect.cmd_rmi_request(b'\x84\x15\x01\x06\x00\x00\x00\x00' + boost_mode_time + b'\x03')
             _LOGGER.info("Befehl BOOST_MODE an Lüftungsanlage gesendet")
         else:
             _LOGGER.error("BOOST_MODE: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN_TIME":
-        ventmode_stop_supply_fan_time=to_big(value)
+        ventmode_stop_supply_fan_time=seconds_to_timerfield(value)
         _LOGGER.debug("VENTMODE_STOP_SUPPLY_FAN_TIME hex " + str(ventmode_stop_supply_fan_time))
         _LOGGER.info("VENTMODE_STOP_SUPPLY_FAN_TIME " + str(value) + " sec" + " übernommen")
     elif topic == mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN":
         if int(value) == 1:
-            comfoconnect.cmd_rmi_request(b'\x84\x15\x07\x01\x00\x00\x00\x00' + ventmode_stop_supply_fan_time + b'\x00\x00\x01')
+            comfoconnect.cmd_rmi_request(b'\x84\x15\x07\x01\x00\x00\x00\x00' + ventmode_stop_supply_fan_time + b'\x01')
             _LOGGER.info("Befehl VENTMODE_STOP_SUPPLY_FAN an Lüftungsanlage gesendet")
         else:
             _LOGGER.error("VENTMODE_STOP_SUPPLY_FAN: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN_TIME":
-        ventmode_stop_exhaust_fan_time=to_big(value)
+        ventmode_stop_exhaust_fan_time=seconds_to_timerfield(value)
         _LOGGER.debug("VENTMODE_STOP_EXHAUST_FAN_TIME in hex: " + str(ventmode_stop_exhaust_fan_time))
         _LOGGER.info("VENTMODE_STOP_EXHAUST_FAN_TIME " + str(value) + " sec" + " übernommen")
     elif topic == mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN":
         if int(value) == 1:
-            comfoconnect.cmd_rmi_request(b'\x84\x15\x06\x01\x00\x00\x00\x00' + ventmode_stop_exhaust_fan_time + b'\x00\x00\x01')
+            comfoconnect.cmd_rmi_request(b'\x84\x15\x06\x01\x00\x00\x00\x00' + ventmode_stop_exhaust_fan_time + b'\x01')
             _LOGGER.info("Befehl VENTMODE_STOP_EXHAUST_FAN an Lüftungsanlage gesendet")
         else:
             _LOGGER.error("VENTMODE_STOP_EXHAUST_FAN: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "BYPASS_ON_TIME":
-        bypass_on_time=to_big(value)
+        bypass_on_time=seconds_to_timerfield(value)
         _LOGGER.debug("BYPASS_ON_TIME in hex: " + str(bypass_on_time))
         _LOGGER.info("BYPASS_ON_TIME " + str(value) + " sec" + " übernommen")
     elif topic == mqtt_topic + "BYPASS_ON":
         if int(value) == 1:
-            comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_on_time + b'\x00\x00\x01')
+            comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_on_time + b'\x01')
             _LOGGER.info("Befehl BYPASS_ON an Lüftungsanlage gesendet")
         else:
             _LOGGER.error("BYPASS_ON: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
     elif topic == mqtt_topic + "BYPASS_OFF_TIME":
-        bypass_off_time=to_big(value)
+        bypass_off_time=seconds_to_timerfield(value)
         _LOGGER.debug("BYPASS_OFF_TIME in hex: " + str(bypass_off_time))
         _LOGGER.info("BYPASS_OFF_TIME " + str(value) + " sec")
     elif topic == mqtt_topic + "BYPASS_OFF":
         if int(value) == 1:
-            comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_off_time + b'\x00\x00\x02')
+            comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_off_time + b'\x02')
             _LOGGER.info("Befehl BYPASS_OFF an Lüftungsanlage gesendet")
         else:
             _LOGGER.error("BYPASS_OFF: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Wert 1")
@@ -593,10 +593,10 @@ def _dispatch_message(topic, value):
             comfoconnect.cmd_rmi_request(CMD_BYPASS_AUTO)
             _LOGGER.info("Befehl BYPASS_AUTO an Lüftungsanlage gesendet")
         elif int(value) == 1:
-            comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_on_time + b'\x00\x00\x01')
+            comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_on_time + b'\x01')
             _LOGGER.info("Befehl BYPASS_ON an Lüftungsanlage gesendet")
         elif int(value) == 2:
-            comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_off_time + b'\x00\x00\x02')
+            comfoconnect.cmd_rmi_request(b'\x84\x15\x02\x01\x00\x00\x00\x00' + bypass_off_time + b'\x02')
             _LOGGER.info("Befehl BYPASS_OFF an Lüftungsanlage gesendet")
         else:
             _LOGGER.error("BYPASS: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Werte 0, 1, 2")
@@ -648,19 +648,6 @@ def to_little(val):
 
     return str_little
 
-def to_big(val):
-    """Wandelt eine Sekundenangabe in das 2-Byte-Zeitfeld (little-endian).
-
-    Ueber to_seconds() statt direkt int(): Loxone schickt Zahlen regelmaessig in
-    Fliesskommaschreibweise ("600.0"), und int("600.0") wirft ValueError. Das
-    landete dann als Fehlermeldung im Log, und die betroffene Zeit (Boost,
-    Bypass, Ventilationsmodus) blieb still auf ihrem alten Wert stehen.
-    """
-    val = to_seconds(val)
-    big_hex = val.to_bytes(2, byteorder='little').hex()
-    big_hex = bytearray.fromhex(big_hex)
-    return big_hex
-
 # Abwesenheit ("Abwesend bis ...") - Unit 0x15 SCHEDULE, SubUnit 01, Eintrag 0x0B.
 #
 # NICHT zu verwechseln mit 8415 0101, das ist die Luefterstufe: dort ist das
@@ -694,10 +681,15 @@ def seconds_to_timerfield(seconds):
     Nachgerechnet an den dokumentierten Beispielen: Boost "10 Minuten" ist
     58020000 = 600, Bypass "1 Stunde" ist 100e0000 = 3600.
 
-    Bewusst 4 echte Bytes statt to_big() + zwei Nullbytes: to_big() kann nur
-    65535 Sekunden abbilden (gut 18 Stunden). Gemessen wurde eine Abwesenheit
-    von 346091 Sekunden - damit waere daraus still 18411 (gut 5 Stunden)
-    geworden, die Anlage haette also eine voellig andere Zeit bekommen.
+    Vier echte Bytes. Frueher wurde hier ein 2-Byte-Feld plus zwei angehaengte
+    Nullbytes verwendet - das konnte nur 65535 Sekunden abbilden (gut 18 Stunden)
+    und warf darueber einen OverflowError, woraufhin die betroffene Zeit still auf
+    ihrem alten Wert stehen blieb. Die Zehnder-App erlaubt fuer Boost aber 24
+    Stunden, also 86400 Sekunden.
+
+    Die erzeugte Bytefolge ist fuer alle Werte bis 65535 identisch mit der
+    frueheren - nachgerechnet fuer 0, 1, 600, 900, 3600, 7200, 43200 und 65535.
+    Der Umstieg aendert also an funktionierenden Befehlen kein einziges Bit.
     """
     seconds = int(seconds)
     if seconds < 0:
@@ -1220,6 +1212,20 @@ def write_status_loop():
                     'sensoren_aus': sorted(sensoren_aus),
                     'befehle': {k: [str(w), t, f] for k, (w, t, f) in list(letzte_befehle.items())},
                     'befehlsthemen': list(abonnierte_themen),
+
+                    # Aktuell wirksame Zeitvorgaben. Wichtig, weil Loxone einen Wert
+                    # nur bei AENDERUNG sendet: Nach einem Neustart des Plugins
+                    # gelten wieder die Vorgaben, waehrend in Loxone noch die alte
+                    # Zahl steht. Ohne diese Anzeige liesse sich nicht feststellen,
+                    # mit welcher Dauer ein Boost oder Bypass tatsaechlich laeuft.
+                    'zeiten': {
+                        'BOOST_MODE_TIME': int.from_bytes(boost_mode_time, 'little'),
+                        'BYPASS_ON_TIME': int.from_bytes(bypass_on_time, 'little'),
+                        'BYPASS_OFF_TIME': int.from_bytes(bypass_off_time, 'little'),
+                        'VENTMODE_STOP_SUPPLY_FAN_TIME': int.from_bytes(ventmode_stop_supply_fan_time, 'little'),
+                        'VENTMODE_STOP_EXHAUST_FAN_TIME': int.from_bytes(ventmode_stop_exhaust_fan_time, 'little'),
+                        'COMFOCOOL_OFF_TIME': comfocool_off_time,
+                    },
                 }
 
                 # Dieselben Zaehler zusaetzlich als Langzeitwert. Die Zahlen oben
@@ -1308,11 +1314,11 @@ def main():
     search = False
     snapshotdir = ""
 
-    boost_mode_time = b'\x84\x03'
-    ventmode_stop_supply_fan_time = b'\x10\x0e'
-    ventmode_stop_exhaust_fan_time = b'\x10\x0e'
-    bypass_on_time = b'\x10\x0e'
-    bypass_off_time = b'\x10\x0e'
+    boost_mode_time = seconds_to_timerfield(900)            # 15 Minuten
+    ventmode_stop_supply_fan_time = seconds_to_timerfield(3600)   # 1 Stunde
+    ventmode_stop_exhaust_fan_time = seconds_to_timerfield(3600)  # 1 Stunde
+    bypass_on_time = seconds_to_timerfield(3600)            # 1 Stunde
+    bypass_off_time = seconds_to_timerfield(3600)           # 1 Stunde
     # Sekunden; 0 = keine Zeit gesetzt, dann schaltet COMFOCOOL_OFF dauerhaft.
     comfocool_off_time = 0
     configfile = ""
