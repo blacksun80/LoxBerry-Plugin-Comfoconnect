@@ -6,6 +6,7 @@ import os
 import time
 import threading
 import traceback
+import functools
 import signal
 from pycomfoconnect import *
 import getopt
@@ -69,24 +70,82 @@ plugin_start = time.time()
 mqtt_abbrueche = 0
 mqtt_letzter_abbruch = None
 
-# Wird in setup_logger() gesetzt, sobald ein Verzeichnis für Störungsberichte
+# Wird in setup_logger() gesetzt, sobald ein Verzeichnis für Log-Snapshots
 # übergeben wurde. Hier schon definiert, damit der Status-Thread ihn auch dann
 # lesen kann, wenn es (noch) keinen gibt.
-stoerungsschreiber = None
+snapshotschreiber = None
 
 # Führt dieselben Zähler zusätzlich über Neustarts hinweg fort (siehe Klasse
 # Langzeitstatistik). Wird in main() angelegt, sobald das Datenverzeichnis bekannt
 # ist; bleibt None, wenn keines übergeben wurde.
 langzeit = None
 
+# Sensorauswahl des Benutzers, in main() aus der Konfiguration gefuellt (siehe
+# sensorauswahl_anwenden). Hier schon definiert, damit der Status-Thread sie auch
+# dann lesen kann, wenn die Konfiguration noch nicht eingelesen ist.
+sensoren_aus = set()
+
+# Zuletzt an MQTT gesendeter Wert je pdid, fuer die Sensortabelle in der
+# Weboberflaeche. Bewusst nur der Wert und sein Zeitpunkt, kein Verlauf: Das hier
+# ist eine Anzeige, keine Datenhaltung - dafuer gibt es MQTT und Loxone.
+letzte_werte = {}
+
+# Zuletzt empfangener Befehl je Thema, fuer die Befehlstabelle in der
+# Weboberflaeche: (Wert, Zeitpunkt, Fehlertext oder None).
+#
+# Beantwortet die Frage, die sich sonst nur muehsam aus dem Log beantworten laesst:
+# "Ich schicke aus Loxone etwas und nichts passiert" - ist die Nachricht ueberhaupt
+# angekommen, und wurde sie verarbeitet oder lief sie auf einen Fehler?
+letzte_befehle = {}
+
+# Themen, die tatsaechlich abonniert wurden - die Wahrheit darueber, welche Befehle
+# es gibt. Wird in die Statusdatei geschrieben, damit die Weboberflaeche ihre
+# Anzeigeliste dagegen pruefen kann.
+#
+# Hintergrund: Die Anzeigeliste in index.cgi ist zwangslaeufig eine zweite Liste
+# derselben Themen - was ein Befehl BEWIRKT, steht in _dispatch_message() und laesst
+# sich nicht sinnvoll als Daten ablegen. Statt so zu tun, als gaebe es die Doppelung
+# nicht, macht sie sich hier bemerkbar, sobald sie auseinanderlaeuft.
+abonnierte_themen = []
+
+
+def _abonniere(client, name):
+    """Abonniert ein Befehlsthema und merkt es sich fuer die Weboberflaeche."""
+    client.subscribe(mqtt_topic + name, qos=0)
+    if name not in abonnierte_themen:
+        abonnierte_themen.append(name)
+
 # Filled in by main() from --statusfile. None until then, so write_status() can no-op
 # safely if it is ever called too early.
 statusfile = None
 
+def thread_sicher(fn):
+    """Verhindert, dass ein Fehler in einem Rueckruf den fremden Thread mitreisst.
+
+    Die MQTT-Rueckrufe unten werden von paho im eigenen Netzwerk-Thread aufgerufen.
+    Eine durchgereichte Ausnahme beendet dort die Schleife - die MQTT-Seite ist
+    danach tot, waehrend das Plugin weiterlaeuft und nach aussen gesund aussieht:
+    Sensorwerte gehen nicht mehr raus, Befehle kommen nicht mehr an, und im Log
+    steht nichts, was darauf hindeutet.
+    """
+    @functools.wraps(fn)
+    def sicher(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            # ERROR, nicht WARNING: Das ist immer ein Programmierfehler, und der
+            # Log-Snapshot soll die Vorgeschichte dazu festhalten.
+            _LOGGER.error("Fehler im MQTT-Rückruf %s (%s: %s):\n%s"
+                          % (fn.__name__, type(e).__name__, e, traceback.format_exc().rstrip()))
+    return sicher
+
+
+@thread_sicher
 def on_publish(client, userdata, mid):
     _LOGGER.debug("Published Data - mid: "+str(mid))
     pass
 
+@thread_sicher
 def on_connect(client, userdata, flags, rc):
     global mqtt_connected, mqtt_last_change, sensorwatch_published, away_active_published, away_remaining_published
 
@@ -109,53 +168,54 @@ def on_connect(client, userdata, flags, rc):
 
     client.publish(mqtt_topic + "Status", payload="Online", qos=0, retain=True)
 
-    client.subscribe(mqtt_topic + "FAN_MODE", qos=0)
-    client.subscribe(mqtt_topic + "FAN_MODE_AWAY", qos=0)
-    client.subscribe(mqtt_topic + "AWAY_FOR", qos=0)
-    client.subscribe(mqtt_topic + "AWAY_END", qos=0)
-    client.subscribe(mqtt_topic + "ERROR_RESET", qos=0)
-    client.subscribe(mqtt_topic + "COMFOCOOL", qos=0)
-    client.subscribe(mqtt_topic + "COMFOCOOL_AUTO", qos=0)
-    client.subscribe(mqtt_topic + "COMFOCOOL_OFF", qos=0)
-    client.subscribe(mqtt_topic + "COMFOCOOL_OFF_TIME", qos=0)
-    client.subscribe(mqtt_topic + "FAN_MODE_LOW", qos=0)
-    client.subscribe(mqtt_topic + "FAN_MODE_MEDIUM", qos=0)
-    client.subscribe(mqtt_topic + "FAN_MODE_HIGH", qos=0)
-    client.subscribe(mqtt_topic + "MODE", qos=0)
-    client.subscribe(mqtt_topic + "MODE_AUTO", qos=0)
-    client.subscribe(mqtt_topic + "MODE_MANUAL", qos=0)
-    client.subscribe(mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN", qos=0)
-    client.subscribe(mqtt_topic + "START_EXHAUST_FAN", qos=0)
-    client.subscribe(mqtt_topic + "START_SUPPLY_FAN", qos=0)
-    client.subscribe(mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN", qos=0)
-    client.subscribe(mqtt_topic + "BOOST_MODE_END", qos=0)
-    client.subscribe(mqtt_topic + "TEMPPROF", qos=0)
-    client.subscribe(mqtt_topic + "TEMPPROF_NORMAL", qos=0)
-    client.subscribe(mqtt_topic + "TEMPPROF_COOL", qos=0)
-    client.subscribe(mqtt_topic + "TEMPPROF_WARM", qos=0)
-    client.subscribe(mqtt_topic + "BYPASS", qos=0)
-    client.subscribe(mqtt_topic + "BYPASS_ON", qos=0)
-    client.subscribe(mqtt_topic + "BYPASS_OFF", qos=0)
-    client.subscribe(mqtt_topic + "BYPASS_AUTO", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_TEMP", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_TEMP_OFF", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_TEMP_AUTO", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_TEMP_ON", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMC", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMC_OFF", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMC_AUTO", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMC_ON", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMP", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMP_OFF", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMP_AUTO", qos=0)
-    client.subscribe(mqtt_topic + "SENSOR_HUMP_ON", qos=0)
-    client.subscribe(mqtt_topic + "BOOST_MODE", qos=0)
-    client.subscribe(mqtt_topic + "BOOST_MODE_TIME", qos=0)
-    client.subscribe(mqtt_topic + "VENTMODE_STOP_SUPPLY_FAN_TIME", qos=0)
-    client.subscribe(mqtt_topic + "VENTMODE_STOP_EXHAUST_FAN_TIME", qos=0)
-    client.subscribe(mqtt_topic + "BYPASS_ON_TIME", qos=0)
-    client.subscribe(mqtt_topic + "BYPASS_OFF_TIME", qos=0)
+    _abonniere(client, "FAN_MODE")
+    _abonniere(client, "FAN_MODE_AWAY")
+    _abonniere(client, "AWAY_FOR")
+    _abonniere(client, "AWAY_END")
+    _abonniere(client, "ERROR_RESET")
+    _abonniere(client, "COMFOCOOL")
+    _abonniere(client, "COMFOCOOL_AUTO")
+    _abonniere(client, "COMFOCOOL_OFF")
+    _abonniere(client, "COMFOCOOL_OFF_TIME")
+    _abonniere(client, "FAN_MODE_LOW")
+    _abonniere(client, "FAN_MODE_MEDIUM")
+    _abonniere(client, "FAN_MODE_HIGH")
+    _abonniere(client, "MODE")
+    _abonniere(client, "MODE_AUTO")
+    _abonniere(client, "MODE_MANUAL")
+    _abonniere(client, "VENTMODE_STOP_SUPPLY_FAN")
+    _abonniere(client, "START_EXHAUST_FAN")
+    _abonniere(client, "START_SUPPLY_FAN")
+    _abonniere(client, "VENTMODE_STOP_EXHAUST_FAN")
+    _abonniere(client, "BOOST_MODE_END")
+    _abonniere(client, "TEMPPROF")
+    _abonniere(client, "TEMPPROF_NORMAL")
+    _abonniere(client, "TEMPPROF_COOL")
+    _abonniere(client, "TEMPPROF_WARM")
+    _abonniere(client, "BYPASS")
+    _abonniere(client, "BYPASS_ON")
+    _abonniere(client, "BYPASS_OFF")
+    _abonniere(client, "BYPASS_AUTO")
+    _abonniere(client, "SENSOR_TEMP")
+    _abonniere(client, "SENSOR_TEMP_OFF")
+    _abonniere(client, "SENSOR_TEMP_AUTO")
+    _abonniere(client, "SENSOR_TEMP_ON")
+    _abonniere(client, "SENSOR_HUMC")
+    _abonniere(client, "SENSOR_HUMC_OFF")
+    _abonniere(client, "SENSOR_HUMC_AUTO")
+    _abonniere(client, "SENSOR_HUMC_ON")
+    _abonniere(client, "SENSOR_HUMP")
+    _abonniere(client, "SENSOR_HUMP_OFF")
+    _abonniere(client, "SENSOR_HUMP_AUTO")
+    _abonniere(client, "SENSOR_HUMP_ON")
+    _abonniere(client, "BOOST_MODE")
+    _abonniere(client, "BOOST_MODE_TIME")
+    _abonniere(client, "VENTMODE_STOP_SUPPLY_FAN_TIME")
+    _abonniere(client, "VENTMODE_STOP_EXHAUST_FAN_TIME")
+    _abonniere(client, "BYPASS_ON_TIME")
+    _abonniere(client, "BYPASS_OFF_TIME")
 
+@thread_sicher
 def on_disconnect(client, userdata, rc):
     global mqtt_connected, mqtt_last_change, mqtt_abbrueche, mqtt_letzter_abbruch
 
@@ -183,9 +243,18 @@ def on_message(client, userdata, msg):
     topic = msg.topic
     value = str(msg.payload.decode("utf-8"))
 
+    # Kurzname ohne das eingestellte Praefix - die Tabelle in der Weboberflaeche
+    # zeigt die Themen genauso an, und das Praefix ist dort ohnehin ueberall gleich.
+    kurz = topic[len(mqtt_topic):] if topic.startswith(mqtt_topic) else topic
+
     try:
         _dispatch_message(topic, value)
+        letzte_befehle[kurz] = (value, time.time(), None)
     except Exception as e:
+        # Auch den Fehlschlag festhalten. Sonst zeigte die Tabelle den Wert an, als
+        # waere er verarbeitet worden - gerade beim Suchen nach "warum passiert
+        # nichts" waere das die falsche Faehrte.
+        letzte_befehle[kurz] = (value, time.time(), fehlertext(e))
         # A malformed/empty MQTT payload (e.g. an empty retained message, or a value
         # that isn't a valid number where int(value) is expected) must never crash
         # this callback: paho runs on_message on its network thread, and an uncaught
@@ -532,6 +601,7 @@ def _dispatch_message(topic, value):
         else:
             _LOGGER.error("BYPASS: Ungültiger Wert wurde vom MQTT Broker empfangen - gültige Werte 0, 1, 2")
 
+@thread_sicher
 def on_subscribe(client, userdata, mid, granted_qos):
     _LOGGER.info("Subscribed: "+str(mid)+" "+str(granted_qos))
 
@@ -716,6 +786,43 @@ def send_away(seconds):
     comfoconnect.cmd_rmi_request(cmd)
     return cmd
 
+def sensorauswahl_anwenden(pcfg):
+    """Liest, welche Sensoren in den Einstellungen abgewählt wurden.
+
+    Gibt die Menge der abgewaehlten pdids zurueck. Der Katalog in mqtt_data.py ist
+    und bleibt die einzige Quelle dafuer, WELCHE Sensoren es gibt - hier steht nur,
+    welche davon der Benutzer nicht moechte.
+
+    Bewusst keine Moeglichkeit, eigene pdids zu ergaenzen: Der Rohwert wird nach
+    Byte-Laenge dekodiert, nicht nach PDO-Typ (siehe _handle_rpdo_notification in
+    comfoconnect.py). Vierbyte-Werte kaemen als Hex-Zeichenkette an, und
+    vorzeichenlose Werte oberhalb von 127 bzw. 32767 kippten ins Negative. Ein
+    neuer Sensor braucht deshalb ohnehin eine Codeaenderung - dann kann er auch
+    gleich richtig in mqtt_data.py stehen.
+
+    Absichtlich nachsichtig: Ein unbrauchbarer Eintrag wird uebersprungen und
+    protokolliert, statt den Start zu verhindern. Ein Tippfehler in der Auswahl darf
+    nicht die ganze Lueftungssteuerung lahmlegen.
+    """
+    abschnitt = pcfg.get('SENSORS') or {}
+
+    aus = set()
+    for wert in abschnitt.get('aus') or []:
+        try:
+            aus.add(int(wert))
+        except (TypeError, ValueError):
+            _LOGGER.warning("Sensorauswahl: '%s' ist keine gueltige pdid - wird ignoriert." % wert)
+
+    unbekannt = aus - set(sensor_data)
+    if unbekannt:
+        # Kein Fehler: Stand die pdid frueher im Katalog und ist inzwischen
+        # entfallen, bleibt sie hier stehen und laeuft einfach ins Leere.
+        _LOGGER.debug("Sensorauswahl: %s stehen nicht (mehr) im Katalog."
+                      % ", ".join(str(p) for p in sorted(unbekannt)))
+
+    return aus
+
+
 class Langzeitstatistik:
     """Führt die Ereigniszähler über Neustarts hinweg fort.
 
@@ -827,7 +934,7 @@ class Langzeitstatistik:
             _LOGGER.debug("Langzeitstatistik konnte nicht geschrieben werden: " + fehlertext(e))
 
 
-class StoerungsSchreiber(logging.Handler):
+class SnapshotSchreiber(logging.Handler):
     """Sichert bei einem Fehler die Logzeilen davor und danach in eine eigene Datei.
 
     Warum das nötig ist: Bei Loglevel DEBUG wachsen die Logdateien schnell, und
@@ -850,21 +957,24 @@ class StoerungsSchreiber(logging.Handler):
     """
 
     def __init__(self, verzeichnis, vorlauf=120, nachlauf=120,
-                 max_zeilen=20000, max_dateien=5, sperrzeit=600):
+                 max_zeilen=20000, max_dateien=5):
         super().__init__()
         self.verzeichnis = verzeichnis
         self.vorlauf = vorlauf
         self.nachlauf = nachlauf
         self.max_zeilen = max_zeilen
         self.max_dateien = max_dateien
-        self.sperrzeit = sperrzeit
 
         self.puffer = collections.deque()
         self.datei = None
         self.ende = 0
-        self.naechster_erlaubt = 0
-        self.anzahl_berichte = 0
-        self.letzter_bericht = None
+        self.anzahl_snapshots = 0
+        self.letzter_snapshot = None
+
+        # Letzter Schreibfehler, damit er in der Weboberflaeche sichtbar wird statt
+        # nur im Log zu stehen (siehe emit()).
+        self.fehler = None
+        self._fehler_gemeldet = False
 
     def emit(self, record):
         # Diese Methode läuft in JEDEM Thread, der etwas protokolliert. Sie darf
@@ -883,24 +993,47 @@ class StoerungsSchreiber(logging.Handler):
                 self.datei.write(zeile + "\n")
                 if jetzt > self.ende:
                     self._schliessen()
-            elif record.levelno >= logging.ERROR and jetzt >= self.naechster_erlaubt:
-                self._starten(jetzt, record)
+            elif record.levelno >= logging.ERROR:
+                self._starten(jetzt, record.getMessage())
 
-        except Exception:
-            pass
+        except Exception as e:
+            # Frueher stand hier ein blankes "pass". Das war falsch gedacht: Diese
+            # Methode laeuft in jedem Thread, der etwas protokolliert, und darf
+            # deshalb nichts nach oben durchlassen - aber sie darf den Fehler auch
+            # nicht spurlos verschlucken. Genau das ist passiert: Es wurde kein
+            # Bericht geschrieben, und es gab keinerlei Hinweis darauf, warum nicht.
+            #
+            # Ausgabe direkt auf stderr statt ueber den Logger: Von hier aus zu
+            # protokollieren hiesse, waehrend der Zustellung einer Meldung eine neue
+            # zu erzeugen. Was auf stderr geht, landet ueber wrapper.pl ohnehin in
+            # derselben Logdatei.
+            self.fehler = "%s: %s" % (type(e).__name__, e)
+            if not self._fehler_gemeldet:
+                self._fehler_gemeldet = True
+                try:
+                    sys.stderr.write(
+                        "Log-Snapshot konnte nicht geschrieben werden (%s). "
+                        "Ziel: %s\n" % (self.fehler, self.verzeichnis))
+                    sys.stderr.flush()
+                except Exception:
+                    pass
 
-    def _starten(self, jetzt, record):
+    def _starten(self, jetzt, grund):
         os.makedirs(self.verzeichnis, exist_ok=True)
         name = os.path.join(
             self.verzeichnis,
-            "stoerung_%s.log" % datetime.datetime.fromtimestamp(jetzt).strftime("%Y%m%d_%H%M%S")
+            "snapshot_%s.log" % datetime.datetime.fromtimestamp(jetzt).strftime("%Y%m%d_%H%M%S")
         )
-        self.datei = open(name, "w", encoding="utf-8")
+        # buffering=1 = zeilenweise schreiben. Wichtig fuer genau den Fall, fuer den
+        # es diese Berichte gibt: Stuerzt der Prozess ab, wird nichts mehr
+        # geschlossen und ein normaler Puffer waere verloren - der Bericht ueber den
+        # Absturz waere leer. So steht jede Zeile sofort auf der Platte.
+        self.datei = open(name, "w", encoding="utf-8", buffering=1)
         self.ende = jetzt + self.nachlauf
-        self.letzter_bericht = jetzt
-        self.anzahl_berichte += 1
+        self.letzter_snapshot = jetzt
+        self.anzahl_snapshots += 1
 
-        self.datei.write("Störungsbericht - ausgelöst durch:\n  %s\n\n" % record.getMessage())
+        self.datei.write("Log-Snapshot - ausgelöst durch:\n  %s\n\n" % grund)
         self.datei.write("Die folgenden Zeilen umfassen etwa %d Sekunden davor und %d danach.\n"
                          % (self.vorlauf, self.nachlauf))
         self.datei.write("=" * 78 + "\n")
@@ -909,11 +1042,10 @@ class StoerungsSchreiber(logging.Handler):
 
     def _schliessen(self):
         try:
-            self.datei.write("=" * 78 + "\nEnde des Störungsberichts.\n")
+            self.datei.write("=" * 78 + "\nEnde des Log-Snapshots.\n")
             self.datei.close()
         finally:
             self.datei = None
-            self.naechster_erlaubt = time.time() + self.sperrzeit
             self._aufraeumen()
 
     def _aufraeumen(self):
@@ -921,7 +1053,7 @@ class StoerungsSchreiber(logging.Handler):
         try:
             dateien = sorted(
                 (os.path.join(self.verzeichnis, f) for f in os.listdir(self.verzeichnis)
-                 if f.startswith("stoerung_") and f.endswith(".log")),
+                 if f.startswith("snapshot_") and f.endswith(".log")),
                 key=os.path.getmtime, reverse=True
             )
             for alt in dateien[self.max_dateien:]:
@@ -953,6 +1085,7 @@ def to_seconds(value):
     """
     return int(float(value))
 
+@thread_sicher
 def on_log(client, userdata, level, buf):
     _LOGGER.debug("Paho: " + buf)
 
@@ -971,6 +1104,13 @@ def callback_sensor(var, value):
             value = -1
     elif 'CONV' in sensor_data[var]:
         value = eval(sensor_data[var]['CONV'] % (value))
+
+    # Fuer die Sensortabelle in der Weboberflaeche mitschreiben. BEWUSST hier, nach
+    # der Umrechnung und VOR der PUSH-Drosselung: Angezeigt werden soll der Wert, den
+    # die Anlage gerade meldet - nicht der, den wir zuletzt weitergegeben haben. Sonst
+    # stuende bei einem Sensor mit langem Sendeintervall minutenlang ein veralteter
+    # Wert in der Tabelle, obwohl laengst frische Daten da sind.
+    letzte_werte[var] = (value, time.time())
 
     # Senden an den MQTT Broker nur bei Änderungen und nach Ablauf der PUSH Zeit, parametriert in mqtt_data.py
     if 'PUSH' in sensor_data[var]:
@@ -1024,9 +1164,9 @@ def write_status_loop():
                         comfoconnect.stats[name] = None if name.startswith('letzt') else 0
                 globals()['mqtt_abbrueche'] = 0
                 globals()['mqtt_letzter_abbruch'] = None
-                if stoerungsschreiber:
-                    stoerungsschreiber.anzahl_berichte = 0
-                    stoerungsschreiber.letzter_bericht = None
+                if snapshotschreiber:
+                    snapshotschreiber.anzahl_snapshots = 0
+                    snapshotschreiber.letzter_snapshot = None
                 langzeit.zuruecksetzen()
                 _LOGGER.info("Diagnose-Statistik wurde über die Weboberfläche zurückgesetzt.")
         except Exception as e:
@@ -1069,8 +1209,17 @@ def write_status_loop():
                     'mqtt_abbrueche': mqtt_abbrueche,
                     'mqtt_letzter_abbruch': mqtt_letzter_abbruch,
                     'stats': dict(comfoconnect.stats) if comfoconnect else {},
-                    'stoerungsberichte': stoerungsschreiber.anzahl_berichte if stoerungsschreiber else 0,
-                    'letzter_stoerungsbericht': stoerungsschreiber.letzter_bericht if stoerungsschreiber else None,
+                    'snapshots': snapshotschreiber.anzahl_snapshots if snapshotschreiber else 0,
+                    'letzter_snapshot': snapshotschreiber.letzter_snapshot if snapshotschreiber else None,
+
+                    # Sensortabelle der Weboberflaeche. Als Zeichenkette, nicht als
+                    # Zahl: In der Tabelle wird der Wert nur angezeigt, und so bleibt
+                    # er exakt so stehen, wie er auch auf MQTT gegangen ist - ohne
+                    # dass JSON aus 21.0 eine 21 macht.
+                    'werte': {str(p): [str(w), t] for p, (w, t) in list(letzte_werte.items())},
+                    'sensoren_aus': sorted(sensoren_aus),
+                    'befehle': {k: [str(w), t, f] for k, (w, t, f) in list(letzte_befehle.items())},
+                    'befehlsthemen': list(abonnierte_themen),
                 }
 
                 # Dieselben Zaehler zusaetzlich als Langzeitwert. Die Zahlen oben
@@ -1082,7 +1231,7 @@ def write_status_loop():
                 if langzeit:
                     laufend = dict(status['stats'])
                     laufend['mqtt_abbrueche'] = mqtt_abbrueche
-                    laufend['stoerungsberichte'] = status['stoerungsberichte']
+                    laufend['snapshots'] = status['snapshots']
                     langzeit.uebernehmen(laufend)
                     langzeit.speichern()
                     status['gesamt'] = dict(langzeit.daten['zaehler'])
@@ -1199,7 +1348,7 @@ def main():
     # Abstuerze in Hintergrund-Threads in unser Logging holen.
     #
     # Python meldet einen abgestuerzten Thread von sich aus nur direkt auf stderr -
-    # am Logger vorbei. Folge: kein ERROR, kein Stoerungsbericht, kein Zaehler, und
+    # am Logger vorbei. Folge: kein ERROR, kein Log-Snapshot, kein Zaehler, und
     # die Statusanzeige merkt nichts. Genau so ist am 20.07. der Verbindungsthread
     # gestorben, waehrend nach aussen alles normal aussah; der Traceback stand nur
     # deshalb im Log, weil wrapper.pl stderr dort hineinleitet.
@@ -1217,6 +1366,24 @@ def main():
         )
 
     threading.excepthook = thread_absturz
+
+    # Dasselbe fuer den Haupt-Thread. Ohne das landet ein ungefangener Absturz nur
+    # ueber stderr im Log (weil wrapper.pl es dorthin umleitet) - aber eben nicht als
+    # Logmeldung. Folge: kein ERROR, kein Log-Snapshot, keine Vorgeschichte, und
+    # der Traceback steht irgendwo zwischen den DEBUG-Zeilen statt am Ende einer
+    # nachvollziehbaren Kette.
+    #
+    # KeyboardInterrupt ausgenommen: Das ist ein Abbruch von Hand, kein Fehler.
+    def haupt_absturz(typ, wert, spur):
+        if issubclass(typ, KeyboardInterrupt):
+            sys.__excepthook__(typ, wert, spur)
+            return
+        _LOGGER.error(
+            "Das Plugin ist abgestuerzt und beendet sich:\n%s"
+            % "".join(traceback.format_exception(typ, wert, spur)).rstrip()
+        )
+
+    sys.excepthook = haupt_absturz
 
     # Erst hier, nicht in setup_logger(): braucht einen funktionierenden Logger, um
     # eine unlesbare Datei melden zu koennen.
@@ -1251,6 +1418,24 @@ def main():
             sensorwatch_timeout_sec = int(pcfg['MAIN'].get('SENSORWATCH_TIMEOUT_SEC', 60))
         except (TypeError, ValueError):
             sensorwatch_timeout_sec = 60
+
+        # Sensorauswahl des Benutzers. mqtt_data.py bleibt der mitgelieferte Katalog
+        # und wird nur gelesen - hier steht ausschliesslich die ABWEICHUNG davon.
+        #
+        # Bewusst so herum: Kaeme ein Plugin-Update mit neuen Sensoren, wuerde eine in
+        # der Config eingefrorene Vollkopie der Liste diese neuen Eintraege dauerhaft
+        # verdecken. So kommen sie automatisch dazu, und die eigene Auswahl bleibt
+        # trotzdem erhalten (die Config wird beim Update gesichert und
+        # zurueckgespielt, siehe preupgrade.sh/postupgrade.sh).
+        global sensoren_aus, sensors_expected
+        sensoren_aus = sensorauswahl_anwenden(pcfg)
+
+        # Erwarteten Zaehlerstand SOFORT festlegen, nicht erst kurz vor der
+        # Registrierung. Der Status-Thread laeuft schon, waehrend die Verbindung
+        # aufgebaut wird - stand hier noch der Vorgabewert (der volle Katalog),
+        # zeigte die Weboberflaeche in dieser Zeit "Registriere Sensoren (0 von 52)",
+        # obwohl nur 48 angehakt waren.
+        sensors_expected = len([p for p in sensor_data if p not in sensoren_aus])
 
     except Exception as e:
         _LOGGER.exception(str(e))
@@ -1399,7 +1584,7 @@ def main():
             try:
                 laufend = dict(comfoconnect.stats) if comfoconnect else {}
                 laufend['mqtt_abbrueche'] = mqtt_abbrueche
-                laufend['stoerungsberichte'] = stoerungsschreiber.anzahl_berichte if stoerungsschreiber else 0
+                laufend['snapshots'] = snapshotschreiber.anzahl_snapshots if snapshotschreiber else 0
                 langzeit.uebernehmen(laufend)
                 langzeit.speichern(erzwingen=True)
             except Exception:
@@ -1500,38 +1685,20 @@ def main():
     # MQTT ist zu diesem Zeitpunkt bereits verbunden und das Veroeffentlichen haengt
     # nicht an diesem Durchlauf - Werte bereits registrierter Sensoren gehen sofort
     # raus, waehrend die uebrigen noch angemeldet werden (siehe callback_sensor()).
-    # Sensoren, die an ein bestimmtes Zusatzgeraet gebunden sind (siehe
-    # 'ONLY_WITH_PRODUCT' in mqtt_data.py), werden nur registriert, wenn sich dieses
-    # Geraet an der Anlage gemeldet hat. Die Anlage teilt ihre Geraeteliste von selbst
-    # kurz nach dem Verbindungsaufbau mit - has_product() wartet notfalls kurz darauf.
     #
-    # Noetig, weil die Anlage z.B. die ComfoCool-pdids AUCH OHNE Modul annimmt und mit
-    # 0 beantwortet. Am Verhalten der Anlage allein liesse sich also nicht erkennen,
-    # ob das Geraet ueberhaupt existiert.
-    # Jede Produkt-ID nur EINMAL abfragen und das Ergebnis merken. has_product()
-    # wartet im ungünstigsten Fall bis zum Zeitlimit - pro Sensor gefragt, wären das
-    # bei zwei ComfoCool-Sensoren doppelte Wartezeit beim Start jeder Anlage ohne
-    # Modul, ohne jeden Nutzen.
-    produkt_vorhanden = {}
-    for daten in sensor_data.values():
-        p = daten.get('ONLY_WITH_PRODUCT')
-        if p and p not in produkt_vorhanden:
-            produkt_vorhanden[p] = comfoconnect.has_product(p)
+    # Keine Pruefung mehr, ob Zubehoer wie das ComfoCool ueberhaupt angeschlossen
+    # ist. Die Anlage nimmt das Abonnement auch ohne Modul an und antwortet mit 0 -
+    # es entsteht also kein Fehler, nur ein nichtssagender Wert. Wen das stoert, der
+    # waehlt die beiden Eintraege in den Einstellungen ab; das ist ehrlicher als
+    # eine automatische Erkennung, die beim Start jedes Mal auf eine Antwort wartet
+    # und dabei den erwarteten Zaehlerstand erst spaet kennt (siehe unten).
+    sensor_ids = [pdid for pdid in sensor_data if pdid not in sensoren_aus]
 
-    sensor_ids = []
-    nicht_vorhanden = []
-    for pdid, daten in sensor_data.items():
-        noetiges_produkt = daten.get('ONLY_WITH_PRODUCT')
-        if noetiges_produkt and not produkt_vorhanden.get(noetiges_produkt):
-            nicht_vorhanden.append(daten['NAME'])
-            continue
-        sensor_ids.append(pdid)
+    abgewaehlt = [sensor_data[p]['NAME'] for p in sensor_data if p in sensoren_aus]
+    if abgewaehlt:
+        _LOGGER.info("In den Einstellungen abgewählt (%d): %s"
+                     % (len(abgewaehlt), ", ".join(abgewaehlt)))
 
-    if nicht_vorhanden:
-        _LOGGER.info("Nicht angeschlossenes Zubehör - folgende Sensoren entfallen: %s"
-                     % ", ".join(nicht_vorhanden))
-
-    sensors_expected = len(sensor_ids)
     connection_lost = False
     uebersprungen = []
 
@@ -1655,11 +1822,11 @@ def setup_logger(name, snapshotdir=""):
 
     # Die Loglevel-Einstellung des LoxBerry wird bewusst NICHT mehr am Logger
     # gesetzt, sondern an den ausgebenden Handlern. Das klingt nach Haarspalterei,
-    # macht aber den entscheidenden Unterschied für die Störungsberichte:
+    # macht aber den entscheidenden Unterschied für die Log-Snapshots:
     #
     # Ein Logger verwirft Meldungen unterhalb seines Levels sofort - sie entstehen
     # gar nicht erst und erreichen KEINEN Handler. Stand der LoxBerry also auf
-    # "Fehler", lief der Ringpuffer des StoerungsSchreibers leer mit, und ein
+    # "Fehler", lief der Ringpuffer des SnapshotSchreibers leer mit, und ein
     # Bericht enthielt am Ende nur die Fehlerzeile selbst. Ausgerechnet die
     # Vorgeschichte, die den Fehler erklärt, fehlte.
     #
@@ -1684,24 +1851,42 @@ def setup_logger(name, snapshotdir=""):
         if isinstance(h, logging.FileHandler):
             h.setLevel(loglevel)
 
-    # Störungsberichte (siehe StoerungsSchreiber). Bewusst am ROOT-Logger und nicht
+    # Log-Snapshots (siehe SnapshotSchreiber). Bewusst am ROOT-Logger und nicht
     # an unserem eigenen: So werden auch die Meldungen der Bibliothek
     # (pycomfoconnect, eigener Logger "comfoconnect") mitgeschnitten - und gerade
     # die erklären eine Störung meistens.
     #
     # Der Handler bekommt dasselbe Format wie die Logdatei, damit ein Bericht
     # aussieht wie ein Ausschnitt daraus und sich direkt vergleichen lässt.
-    global stoerungsschreiber
-    stoerungsschreiber = None
+    global snapshotschreiber
+    snapshotschreiber = None
     if snapshotdir:
         try:
-            stoerungsschreiber = StoerungsSchreiber(snapshotdir)
-            stoerungsschreiber.setFormatter(logging.Formatter(
+            snapshotschreiber = SnapshotSchreiber(snapshotdir)
+            snapshotschreiber.setFormatter(logging.Formatter(
                 '%(asctime)s.%(msecs)03d <%(levelname)s> %(message)s', datefmt='%H:%M:%S'))
-            stoerungsschreiber.setLevel(logging.DEBUG)
-            logging.getLogger().addHandler(stoerungsschreiber)
+            snapshotschreiber.setLevel(logging.DEBUG)
+            logging.getLogger().addHandler(snapshotschreiber)
+
+            # Schreibbarkeit sofort pruefen, nicht erst im Fehlerfall. Sonst faellt
+            # ein fehlendes Schreibrecht genau dann auf, wenn man den Bericht
+            # braucht - und dann ist der Vorfall vorbei.
+            probe = os.path.join(snapshotdir, ".schreibprobe")
+            with open(probe, "w") as f:
+                f.write("ok")
+            os.remove(probe)
+
+            logger.info("Log-Snapshots aktiv (ab Stufe FEHLER, %ds davor und %ds danach): %s"
+                        % (snapshotschreiber.vorlauf, snapshotschreiber.nachlauf, snapshotdir))
         except Exception as e:
-            logger.error("Konnte Störungsberichte nicht einrichten: " + str(e))
+            snapshotschreiber = None
+            logger.error("Log-Snapshots NICHT aktiv - Verzeichnis %s ist nicht beschreibbar (%s: %s)"
+                         % (snapshotdir, type(e).__name__, e))
+    else:
+        # Ohne --snapshotdir gibt es keine Berichte. Das ist kein Fehler (beim
+        # Suchlauf etwa gewollt), muss aber sichtbar sein - sonst wartet man
+        # vergeblich auf Dateien, die nie entstehen koennen.
+        logger.info("Log-Snapshots nicht aktiv (kein Ablageverzeichnis übergeben).")
 
     return logger
 

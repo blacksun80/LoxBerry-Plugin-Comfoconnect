@@ -101,7 +101,7 @@ $clouddns	= $cfg->param("BASE.CLOUDDNS");
 my $statusfile = "/var/run/shm/$psubfolder/status.json";
 system("mkdir -p /var/run/shm/$psubfolder > /dev/null 2>&1");
 
-# Verzeichnis für Störungsberichte. BEWUSST im Datenverzeichnis und nicht beim Log:
+# Verzeichnis für Log-Snapshots. BEWUSST im Datenverzeichnis und nicht beim Log:
 # Das Logverzeichnis liegt auf der Ramdisk (nach einem Neustart weg) und wird von
 # LoxBerry automatisch aufgeräumt, sobald es zu groß wird - genau das hat bei einem
 # nächtlichen Ausfall die entscheidenden Stunden gekostet. Geschrieben wird nur im

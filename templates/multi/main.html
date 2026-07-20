@@ -197,6 +197,15 @@
 	.cc-diag-note {
 		color: #777;
 	}
+	/* Die Zeitspanne ist die Nebeninformation - gesucht wird im Log nach der
+	   Uhrzeit, die davor steht. */
+	.cc-diag-vor {
+		color: #999;
+		font-size: 0.9em;
+	}
+	table.cc-diag .mono {
+		font-family: monospace;
+	}
 	.cc-diag-reports {
 		font-size: 0.85em;
 		color: #555;
@@ -205,17 +214,166 @@
 	.cc-diag-reports .mono {
 		font-family: monospace;
 	}
-	.cc-diag-reset {
+	/* ---- Sensorliste ---------------------------------------------------- */
+	.cc-collapse-head {
+		cursor: pointer;
+		user-select: none;
+	}
+	.cc-collapse-arrow {
 		display: inline-block;
-		margin-top: 9px;
-		font-size: 0.8em;
-		color: #888 !important;
-		text-decoration: underline;
+		width: 12px;
+		transition: transform 0.12s;
+	}
+	.cc-collapse-arrow.auf { transform: rotate(90deg); }
+	.cc-collapse-count {
+		font-weight: normal;
+		color: #888;
+		font-size: 0.9em;
+	}
+	.cc-sensor-intro {
+		font-size: 0.85em;
+		color: #666;
+		margin: 2px 0 8px 0;
+		max-width: 780px;
+	}
+	table.cc-sensors {
+		border-collapse: collapse;
+		font-size: 0.86em;
+		width: 100%;
+		max-width: 900px;
+	}
+	table.cc-sensors th {
+		text-align: left;
+		color: #555;
+		padding: 2px 10px 4px 0;
+		border-bottom: 1px solid #ddd;
+	}
+	/* Die Ueberschriften der beiden Zahlenspalten mitziehen: "pdid" gehoert ueber
+	   die Nummern, nicht ueber die Haken, und "Wert" rechtsbuendig wie die Werte
+	   darunter. Ohne diese Regel erbt th nur das linksbuendige Standardverhalten,
+	   waehrend die td-Regeln weiter unten die Zellen rechts ausrichten. */
+	table.cc-sensors th.cc-sensor-pdid,
+	table.cc-sensors th.cc-sensor-val {
+		text-align: right;
+		font-family: inherit;
+		color: #555;
+	}
+	table.cc-sensors td {
+		padding: 1px 10px 1px 0;
+		border-bottom: 1px solid #f2f2f2;
+		vertical-align: middle;
+		/* Siehe die gleichlautende Regel bei table.cc-cmds: gemeinsame Zeilenhoehe,
+		   damit Schreibmaschinen- und Proportionalschrift auf derselben Grundlinie
+		   sitzen. */
+		line-height: 1.7;
+	}
+	table.cc-sensors td * { line-height: inherit; }
+	/* Abgewaehlte Zeilen blass, aber lesbar - sie sollen als "aus" erkennbar
+	   sein, ohne dass man den Namen nicht mehr entziffern kann. */
+	.cc-sensor-aus td { color: #b0b0b0; }
+	.cc-sensor-pdid {
+		font-family: monospace;
+		text-align: right;
+		width: 50px;
+	}
+	.cc-sensor-name-fix { font-family: monospace; width: 230px; }
+	.cc-sensor-push-fix { color: #888; width: 62px; }
+	.cc-sensor-opt { color: #b58900; }
+	/* Der Messwert steht dicktengleich und rechtsbuendig, damit die Spalte beim
+	   sekuendlichen Aktualisieren nicht staendig die Breite wechselt. */
+	.cc-sensor-val {
+		font-family: monospace;
+		text-align: right;
+		width: 90px;
+		color: #2a6496;
+	}
+	.cc-sensor-note { color: #999; font-size: 0.92em; }
+
+	/* ---- Befehlsuebersicht ----------------------------------------------- */
+	.cc-cmd-group {
+		font-weight: bold;
+		font-size: 0.85em;
+		color: #555;
+		margin: 10px 0 2px 0;
+	}
+	.cc-cmd-group:first-child { margin-top: 0; }
+	table.cc-cmds {
+		border-collapse: collapse;
+		font-size: 0.86em;
+		width: 100%;
+		max-width: 900px;
+	}
+	table.cc-cmds td {
+		padding: 1px 10px 1px 0;
+		border-bottom: 1px solid #f2f2f2;
+		vertical-align: top;
+		/* Feste Zeilenhoehe fuer ALLE Zellen, und die Kindelemente erben sie.
+		   Ohne das sitzt jede Zelle auf einer eigenen Grundlinie: Die Spalte
+		   "Empfangen" verschachtelt drei Schriftgroessen (0.86em Tabelle x 0.92em
+		   Zelle x 0.9em fuer die Zeitspanne), daneben stehen Schreibmaschinen- und
+		   Proportionalschrift. Bei "vertical-align: top" richten sich zwar die
+		   Zellenkanten aus, die Textzeilen darin aber nicht - besonders auffaellig
+		   in der Zeile mit der Uhrzeit. */
+		line-height: 1.7;
+	}
+	table.cc-cmds td * { line-height: inherit; }
+	/* Die Kopfzeile liegt in einer eigenen Tabelle (siehe getCommandTable), traegt
+	   aber dieselben Spaltenklassen - so stehen die Ueberschriften ueber ihren
+	   Spalten, obwohl zwischen den Gruppen Zwischenueberschriften stehen. */
+	table.cc-cmds th {
+		text-align: left;
+		font-weight: bold;
+		color: #555;
+		padding: 2px 10px 4px 0;
+		border-bottom: 1px solid #ddd;
+		/* Die Kopfzellen tragen dieselben Spaltenklassen wie die Datenzellen, damit
+		   die Breiten uebereinstimmen - dabei erben sie aber auch deren
+		   Schreibmaschinenschrift. Die gehoert zu den Werten, nicht zur
+		   Ueberschrift: Sonst steht "Topic" in einer anderen Schrift da als
+		   "Bedeutung" daneben, und die Kopfzeile passt nicht mehr zur Sensorliste. */
+		font-family: inherit;
+	}
+	table.cc-cmds th.cc-cmd-last { text-align: right; }
+	.cc-cmd-topic { font-family: monospace; width: 250px; }
+	.cc-cmd-werte { font-family: monospace; color: #777; width: 90px; }
+	.cc-cmd-bed { color: #666; }
+	/* Zuletzt empfangener Wert - dieselbe Optik wie die Sensorwerte, damit
+	   erkennbar ist, dass es sich um eine Live-Anzeige handelt. */
+	.cc-cmd-last {
+		font-family: monospace;
+		text-align: right;
+		width: 70px;
+		color: #2a6496;
+	}
+	/* Breiter geworden, seit hier Uhrzeit UND Spanne stehen ("12:03:41 (vor 3m)").
+	   Ohne die Breite bricht die Zelle um und die Zeilenhoehen tanzen. */
+	.cc-cmd-when { color: #999; width: 150px; font-size: 0.92em; }
+	table.cc-cmds .mono { font-family: monospace; }
+	.cc-cmd-err { color: #c0392b; }
+	.cc-cmd-fehler .cc-cmd-topic { color: #c0392b; }
+	/* Erscheint nur, wenn die Anzeigeliste vom laufenden Plugin abweicht. */
+	.cc-cmd-drift {
+		margin-top: 10px;
+		padding: 6px 10px;
+		border: 1px solid #e6c200;
+		background-color: #fdf8e3;
+		border-radius: 6px;
+		font-size: 0.82em;
+		color: #6b5900;
+	}
+	.cc-cmd-drift .mono { font-family: monospace; }
+	/* jQuery Mobile baut aus dem <a> ein Button-Element mit eigenen Abstaenden -
+	   deshalb hier nur der Abstand nach oben und die Ausrichtung des Hinweistextes
+	   daneben, nicht die Optik des Knopfes selbst. */
+	.cc-diag-reset-zeile {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		margin-top: 6px;
 	}
 	.cc-diag-reset-hint {
 		font-size: 0.8em;
 		color: #888;
-		margin-left: 8px;
 	}
 
 	/* Buttonleiste - eigener kleiner Abstand statt des frueheren <p>, dessen
@@ -356,14 +514,65 @@
 	     abgefangen werden und deshalb sonst nirgends mehr sichtbar waeren.
 	     Inhalt kommt fertig aus index.cgi (getDiagnostics) und wird vom selben
 	     AJAX-Aufruf mitaktualisiert wie die Statuszeile. -->
+	<!-- Sensorliste. Standardmaessig zugeklappt - 52 Zeilen wuerden die Seite
+	     sonst voellig dominieren, obwohl die meisten Benutzer daran nie etwas
+	     aendern. Im Kopf steht deshalb die Bilanz, damit man ohne Aufklappen
+	     sieht, wieviel aktiv ist. -->
+	<div class="cc-group">
+		<div class="cc-group-title cc-collapse-head" id="sensorhead">
+			<span class="cc-collapse-arrow" id="sensorarrow">&#9656;</span>
+			Sensoren
+			<span class="cc-collapse-count">(<span id="sensorcount"><TMPL_VAR NAME=SENSORSAKTIV></span>
+			von <TMPL_VAR NAME=SENSORSGESAMT> aktiv)</span>
+		</div>
+		<div id="sensorbody" style="display: none;">
+			<div class="cc-sensor-intro">
+				Abgewählte Sensoren werden bei der Lüftungsanlage gar nicht erst
+				angemeldet und erscheinen dann auch nicht mehr per MQTT. Der Name ist
+				zugleich das MQTT-Topic. Änderungen greifen nach dem Speichern, weil
+				die Anmeldung nur beim Verbindungsaufbau erfolgt.
+				Die Liste selbst ist fest vorgegeben &ndash; ein zusätzlicher Messwert
+				braucht eine Ergänzung in <span class="mono">mqtt_data.py</span>, weil
+				dort auch Datentyp und Umrechnung hinterlegt sein müssen.
+			</div>
+			<TMPL_VAR NAME=SENSORTABLE>
+		</div>
+	</div>
+
+	<!-- Befehlsuebersicht. Reine Anzeige - hier gibt es nichts einzustellen.
+	     Zweck: sehen, was ueberhaupt moeglich ist, und pruefen, ob ein aus Loxone
+	     gesendeter Befehl hier angekommen ist. -->
+	<div class="cc-group">
+		<div class="cc-group-title cc-collapse-head" id="cmdhead">
+			<span class="cc-collapse-arrow" id="cmdarrow">&#9656;</span>
+			Befehle
+			<span class="cc-collapse-count">(<TMPL_VAR NAME=COMMANDSANZAHL> Topics)</span>
+		</div>
+		<div id="cmdbody" style="display: none;">
+			<div class="cc-sensor-intro">
+				Diese Topics nimmt das Plugin entgegen. Vorangestellt wird jeweils das
+				oben eingestellte MQTT-Topic. Rechts steht, was zuletzt darauf empfangen
+				wurde &ndash; damit lässt sich prüfen, ob ein Befehl aus Loxone
+				tatsächlich ankommt.
+			</div>
+			<TMPL_VAR NAME=COMMANDTABLE>
+		</div>
+	</div>
+
 	<div class="cc-group">
 		<div class="cc-group-title">Diagnose</div>
 		<div id="diagbox"><TMPL_VAR NAME=DIAGNOSTICS></div>
-		<!-- Bewusst klein und unauffaellig: Das ist nichts, was man im Normalbetrieb
-		     braucht - eher etwas, das man nach dem Beheben eines Problems einmal
-		     anfasst, um wieder eine saubere Ausgangslage zu haben. -->
-		<a href="#" id="btnresetstats" class="cc-diag-reset">Statistik zurücksetzen</a>
-		<span id="resetstatshint" class="cc-diag-reset-hint"></span>
+		<!-- Gleiche Auszeichnung wie Abbrechen/Speichern unten (jQuery-Mobile-Button,
+		     data-mini), damit die Seite einheitlich aussieht.
+
+		     Bewusst ein <a> und KEIN <button>: Ein button innerhalb des Formulars
+		     wuerde beim Klick absenden - und damit ausgerechnet einen Neustart des
+		     Plugins ausloesen, waehrend das Zuruecksetzen laeuft. -->
+		<div class="cc-diag-reset-zeile">
+			<a href="#" id="btnresetstats" data-role="button" data-inline="true"
+				data-mini="true" data-icon="refresh">Statistik zurücksetzen</a>
+			<span id="resetstatshint" class="cc-diag-reset-hint"></span>
+		</div>
 	</div>
 
 	<div id="form-error-message" class="form-error-message"></div>
@@ -432,17 +641,69 @@
 			if ( typeof data.diagnostics !== "undefined" ) {
 				$( "#diagbox" ).html( data.diagnostics );
 			}
+			<!-- Nur die Wertespalte auffrischen. Die Tabelle selbst wird bewusst -->
+			<!-- NICHT ersetzt: Sonst waeren Haken und Eingaben, die der Benutzer -->
+			<!-- gerade gesetzt, aber noch nicht gespeichert hat, jede Sekunde weg. -->
+			if ( data.werte ) {
+				$.each( data.werte, function( pdid, wert ) {
+					$( "#sv" + pdid ).text( wert );
+				} );
+			}
+			<!-- Ebenso die Befehlstabelle: nur die beiden rechten Spalten. -->
+			if ( data.befehle ) {
+				$.each( data.befehle, function( topic, b ) {
+					$( "#cv" + topic ).text( b.wert );
+					var w = $( "#cw" + topic );
+					if ( b.fehler ) {
+						w.html( '<span class="cc-cmd-err"></span>' ).find( "span" ).text( b.fehler );
+						w.closest( "tr" ).addClass( "cc-cmd-fehler" );
+					} else {
+						<!-- .html(), weil die Zelle Uhrzeit und Spanne in eigenen -->
+						<!-- Auszeichnungen enthaelt. Der Inhalt stammt ausschliesslich -->
+						<!-- aus eigenen Zeitangaben, nicht aus Benutzereingaben. -->
+						w.html( b.wann );
+						w.closest( "tr" ).removeClass( "cc-cmd-fehler" );
+					}
+				} );
+			}
 		} );
 	}
 	setInterval( refreshStatus, 1000 );
 
 	<!-- Zuruecksetzen der Statistik. Bewusst mit Rueckfrage: Die Gesamtwerte koennen -->
-	<!-- Monate umfassen und sind danach unwiederbringlich weg. Die Stoerungsberichte -->
+	<!-- Monate umfassen und sind danach unwiederbringlich weg. Die Log-Snapshots -->
 	<!-- selbst bleiben liegen - die sind die eigentlichen Beweisstuecke und haengen -->
 	<!-- nicht an den Zaehlern. -->
+	<!-- ===== Sensorliste ============================================== -->
+
+	<!-- Auf-/Zuklappen. Startet zugeklappt (siehe style im Markup). -->
+	$( "#sensorhead" ).on( "click", function() {
+		$( "#sensorbody" ).slideToggle( 120 );
+		$( "#sensorarrow" ).toggleClass( "auf" );
+	} );
+
+	$( "#cmdhead" ).on( "click", function() {
+		$( "#cmdbody" ).slideToggle( 120 );
+		$( "#cmdarrow" ).toggleClass( "auf" );
+	} );
+
+	<!-- Zaehler im Kopf mitfuehren, damit er auch im zugeklappten Zustand stimmt, -->
+	<!-- ohne dass man erst speichern muss. -->
+	function ccZaehleSensoren() {
+		var n = $( "#sensorbody" ).find( "input[name^='sensor_on_']:checked" ).length;
+		$( "#sensorcount" ).text( n );
+	}
+
+	$( "#sensorbody" ).on( "change", "input[name^='sensor_on_']", function() {
+		<!-- Abgewaehlte Zeile sofort ausgrauen - so sieht man beim Durchgehen -->
+		<!-- einer langen Liste, was man bereits angefasst hat. -->
+		$( this ).closest( "tr" ).toggleClass( "cc-sensor-aus", !this.checked );
+		ccZaehleSensoren();
+	} );
+
 	$( "#btnresetstats" ).on( "click", function( e ) {
 		e.preventDefault();
-		if ( !confirm( "Alle Diagnose-Zähler auf null zurücksetzen?\n\nDie gespeicherten Störungsberichte bleiben erhalten." ) ) {
+		if ( !confirm( "Alle Diagnose-Zähler auf null zurücksetzen?\n\nDie gespeicherten Log-Snapshots bleiben erhalten." ) ) {
 			return;
 		}
 		$( "#resetstatshint" ).text( "wird zurückgesetzt..." );

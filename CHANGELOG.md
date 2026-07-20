@@ -24,6 +24,23 @@ Lüftungsanlage ab, konnte sich das Plugin dabei aufhängen, ohne es zu bemerken
 Mehrere Ursachen behoben (Wettlaufsituationen zwischen den Threads, falsch
 zugeordnete Antworten der Anlage, verschluckte Fehlermeldungen).
 
+**Stiller Tod einzelner Programmteile.** Stürzte einer der Hintergrundprozesse ab,
+lief das Plugin als leere Hülle weiter: Die Statusanzeige sah normal aus, es kamen
+aber keine Messwerte mehr an und Befehle blieben wirkungslos. Ursache war, dass
+Python solche Abstürze nur auf einem Nebenkanal meldet, am Logbuch vorbei.
+
+Betroffen waren mehrere Stellen, die alle abgesichert wurden: die Verarbeitung
+eines eingehenden Messwerts (ein einziger unerwarteter Wert hätte die gesamte
+Datenübertragung stillgelegt), die fünf MQTT-Rückrufe sowie Abstürze des
+Hauptprogramms. Alle landen jetzt als Fehler im Log — samt Fehlerbericht und
+Log-Snapshot — und reißen nichts mehr mit.
+
+**Verbindungsabbrüche wurden vielfach gezählt.** Ein achtstündiger Ausfall
+erschien in der Statistik als 2099 Abbrüche, weil jeder Wiederholversuch mitgezählt
+wurde. Die Zahl maß damit die Dauer eines Ausfalls statt deren Anzahl. Jetzt wird
+einmal je Ausfall gezählt; erst wenn die Verbindung wieder stand, gilt der nächste
+Verlust als neuer Vorfall.
+
 ---
 
 ## Neue Funktionen
@@ -55,10 +72,37 @@ Zustand und Kondensatortemperatur als Sensoren übertragen (`COMFOCOOL_STATE`,
 `COMFOCOOL_TEMPERATURE_CONDENSOR`), und es lässt sich über `COMFOCOOL` zwischen
 Automatik und Aus umschalten — wahlweise dauerhaft oder für eine bestimmte Zeit.
 
-Das Plugin erkennt selbst, ob ein ComfoCool vorhanden ist: Die Anlage meldet ihre
-angeschlossenen Geräte beim Verbindungsaufbau von sich aus. Es ist dafür keine
-Einstellung nötig, und wer nachrüstet, bekommt die Werte nach dem nächsten
-Neustart automatisch. Anlagen ohne Kühlmodul sehen davon nichts.
+Ohne Kühlmodul liefern diese beiden Sensoren durchgehend 0 — die Anlage nimmt die
+Anmeldung nämlich auch dann an. Wen das stört, wählt sie in der Sensorliste ab
+(siehe unten).
+
+**Sensorliste in der Weboberfläche.** Alle Sensoren stehen jetzt als aufklappbare
+Tabelle in den Einstellungen — mit Haken zum An- und Abwählen und dem aktuellen
+Messwert je Sensor, sekündlich aktualisiert. Zugeklappt zeigt die Kopfzeile, wie
+viele aktiv sind. Abgewählte Sensoren werden bei der Lüftungsanlage gar nicht erst
+angemeldet und erscheinen dann auch nicht mehr per MQTT.
+
+Welche Sensoren es gibt, gibt weiterhin die Datei `mqtt_data.py` vor; über die
+Oberfläche wird nur ausgewählt. Ein zusätzlicher Messwert braucht also nach wie vor
+eine Ergänzung dort — dort stehen auch Datentyp und Umrechnung, ohne die ein
+Rohwert nicht sinnvoll zu deuten ist.
+
+Die Auswahl liegt in der Plugin-Konfiguration und übersteht damit ein Update. Neue
+Sensoren aus künftigen Versionen kommen trotzdem automatisch dazu, statt von einer
+eingefrorenen Kopie der Liste verdeckt zu werden.
+
+**17 zusätzliche Sensoren** (52 → 69): Filterwechsel-Status, modulierende
+Lüfterstufe, die vier Analogeingänge der Optionsbox, die ComfoFond-Gruppe für den
+Erdwärmetauscher (Außen- und Erdreichtemperatur, Auslastung) sowie der
+ComfoCool-Verdichter. Alle Sensoren haben jetzt eine Beschreibung mit Einheit —
+`AVOIDED_HEATING_TOTAL_YEAR` sagte vorher niemandem etwas, „Eingesparte
+Heizenergie im laufenden Jahr in kWh" schon.
+
+**Befehlsübersicht in der Weboberfläche.** Ein zweiter aufklappbarer Block listet
+alle 46 Topics, die das Plugin entgegennimmt — nach Themen gruppiert, mit
+zulässigen Werten, Bedeutung und dem zuletzt darauf empfangenen Wert samt Uhrzeit.
+Damit lässt sich prüfen, ob ein Befehl aus Loxone tatsächlich ankommt; schlug die
+Verarbeitung fehl, steht der Grund daneben.
 
 **Diagnose-Anzeige.** Manche Aussetzer fängt das Plugin im laufenden Betrieb
 selbst ab — eine ausbleibende Antwort der Anlage, ein kurzer Verbindungsabbruch,
@@ -75,20 +119,24 @@ Zahlen löschen würde, die den Vorfall belegen. Über „Statistik zurücksetze
 unterhalb der Tabelle lässt sich jederzeit wieder bei null anfangen, etwa nachdem
 die Ursache eines Problems behoben wurde.
 
-**Störungsberichte.** Tritt ein Fehler auf, sichert das Plugin automatisch einen
+**Log-Snapshots.** Tritt eine Störung auf, sichert das Plugin automatisch einen
 Ausschnitt des Logs — zwei Minuten davor und danach — in
-`data/plugins/comfoconnect/`. Hintergrund: Das normale Logverzeichnis liegt im
+`data/plugins/comfoconnect/`. Ausgelöst wird nicht nur durch Fehlermeldungen,
+sondern auch durch **Verbindungsabbrüche und verworfene Sitzungen**. Die fängt das
+Plugin sauber ab und meldet sie deshalb nur als Warnung — ohne diesen zusätzlichen
+Auslöser hätte es also ausgerechnet für den häufigsten Störfall nie einen Snapshot
+gegeben. Hintergrund: Das normale Logverzeichnis liegt im
 Arbeitsspeicher und wird von LoxBerry aufgeräumt, sobald es zu groß wird. Bei
 einem nächtlichen Ausfall war am Morgen deshalb regelmäßig nichts mehr davon übrig.
-Die Berichte überstehen das Aufräumen und einen Neustart.
+Die Snapshots überstehen das Aufräumen und einen Neustart.
 
 Ebenfalls neu erfasst: **Abstürze in Hintergrundprozessen**. Python meldet die von
 sich aus nur auf einem Nebenkanal, am Logbuch vorbei — ein gestorbener Verbindungs-
 oder Nachrichtenprozess blieb dadurch praktisch unsichtbar, während das Plugin nach
 außen normal aussah und trotzdem nichts mehr tat. Solche Abstürze landen jetzt als
-Fehler im Log und lösen einen Störungsbericht aus.
+Fehler im Log und lösen einen Log-Snapshot aus.
 
-Wichtig dabei: Ein Störungsbericht enthält **immer die vollständigen Details**,
+Wichtig dabei: Ein Log-Snapshot enthält **immer die vollständigen Details**,
 unabhängig vom eingestellten Loglevel. Das Loglevel steuert weiterhin nur, was in
 der normalen Logdatei landet — es kann also dauerhaft auf „Fehler" stehen bleiben
 (kleines, übersichtliches Log), und im Ernstfall liegt trotzdem die komplette
