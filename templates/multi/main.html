@@ -278,7 +278,27 @@
 	}
 	.cc-sensor-name-fix { font-family: monospace; width: 230px; }
 	.cc-sensor-push-fix { color: #888; width: 62px; }
-	.cc-sensor-opt { color: #b58900; }
+	/* Feste Breite fuer die Hakenspalte: Die Kopfzeile steht in einer eigenen
+	   Tabelle (wegen der Gruppenueberschriften dazwischen), ohne feste Breite
+	   wuerde sie anders umbrechen als die Datentabellen darunter. Breit genug
+	   fuer die Ueberschrift "Aktiv", der Haken sitzt darunter linksbuendig. */
+	.cc-sensor-hak { width: 42px; }
+	/* Gepunktete Unterlinie als Hinweis, dass an "ID" ein Tooltip haengt. */
+	table.cc-sensors th[title] {
+		border-bottom: 1px dotted #aaa;
+		cursor: help;
+	}
+	/* Gruppenueberschrift mit eigenem Haken zum Umschalten der ganzen Gruppe. */
+	.cc-sensor-gruppe {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.cc-sensor-gruppe input { margin: 0; }
+	table.cc-sensors th {
+		font-weight: bold;
+		font-family: inherit;
+	}
 	/* Der Messwert steht dicktengleich und rechtsbuendig, damit die Spalte beim
 	   sekuendlichen Aktualisieren nicht staendig die Breite wechselt. */
 	.cc-sensor-val {
@@ -698,8 +718,35 @@
 		<!-- Abgewaehlte Zeile sofort ausgrauen - so sieht man beim Durchgehen -->
 		<!-- einer langen Liste, was man bereits angefasst hat. -->
 		$( this ).closest( "tr" ).toggleClass( "cc-sensor-aus", !this.checked );
+		ccGruppenHaken( $( this ).closest( "table" ).prev( ".cc-sensor-gruppe" ) );
 		ccZaehleSensoren();
 	} );
+
+	<!-- Haken in der Gruppenueberschrift: schaltet die ganze Gruppe. Bei zwoelf -->
+	<!-- Gruppen waere "alles vom ComfoFond weg" sonst ein Klick je Zeile. -->
+	$( "#sensorbody" ).on( "change", ".cc-gruppe-hak", function() {
+		var an = this.checked;
+		$( this ).closest( ".cc-sensor-gruppe" ).next( "table" )
+			.find( "input[name^='sensor_on_']" ).each( function() {
+				this.checked = an;
+				$( this ).closest( "tr" ).toggleClass( "cc-sensor-aus", !an );
+			} );
+		ccZaehleSensoren();
+	} );
+
+	<!-- Zustand des Gruppenhakens aus seinen Zeilen ableiten: alle an, alle aus -->
+	<!-- oder gemischt (dann der unbestimmte Zustand, den HTML dafuer vorsieht). -->
+	function ccGruppenHaken( kopf ) {
+		if ( !kopf || !kopf.length ) { return; }
+		var haken = kopf.next( "table" ).find( "input[name^='sensor_on_']" );
+		var an = haken.filter( ":checked" ).length;
+		var g = kopf.find( ".cc-gruppe-hak" )[ 0 ];
+		if ( !g ) { return; }
+		g.checked = ( an === haken.length );
+		g.indeterminate = ( an > 0 && an < haken.length );
+	}
+
+	$( ".cc-sensor-gruppe" ).each( function() { ccGruppenHaken( $( this ) ); } );
 
 	$( "#btnresetstats" ).on( "click", function( e ) {
 		e.preventDefault();
