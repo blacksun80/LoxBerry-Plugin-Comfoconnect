@@ -107,40 +107,34 @@
 		opacity: 0.45;
 	}
 
-	/* Kopfzeile: Status links, Schaltflaechen rechts. flex-wrap laesst die Knoepfe
-	   auf schmalen Schirmen unter den Status rutschen statt ihn zu quetschen. */
-	.cc-kopf {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		flex-wrap: wrap;
-		gap: 24px;
-		/* Abstand nach unten wie bei .cc-intro - siehe Kommentar dort. */
-		margin: 0 auto 28px auto;
-	}
-
-	/* Steuerung des Plugins - getrennt vom Speichern der Einstellungen.
-	   Knoepfe in einer Zeile, der Hinweis darunter: Stuende er daneben, wuerde
-	   die Zeile bei jeder Meldung breiter und die Knoepfe wanderten seitwaerts. */
+	/* Steuerung des Plugins - getrennt vom Speichern der Einstellungen. */
 	.cc-steuerung {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 2px;
-		margin: 0;
-	}
-	.cc-steuerknoepfe {
 		display: flex;
 		align-items: center;
 		gap: 8px;
+		justify-content: center;
+		margin: 14px 0 4px 0;
 	}
 	.cc-steuerhinweis {
 		font-size: 0.85em;
 		color: #b58900;
-		text-align: center;
-		/* Platz freihalten, damit die Knoepfe beim Erscheinen einer Meldung nicht
-		   nach oben springen. */
-		min-height: 1.2em;
+	}
+
+	/* Wartekringel. Bewusst aus reinem CSS und ohne Bilddatei: Ein rundum
+	   gleichmaessiger Rahmen, von dem eine Seite eingefaerbt ist - dreht man ihn,
+	   entsteht der laufende Bogen. */
+	.cc-spinner {
+		display: inline-block;
+		width: 15px;
+		height: 15px;
+		border: 2px solid #d5d5d5;
+		border-top-color: #2b7cd3;
+		border-radius: 50%;
+		animation: cc-dreh 0.7s linear infinite;
+	}
+	.cc-spinner[hidden] { display: none; }
+	@keyframes cc-dreh {
+		to { transform: rotate(360deg); }
 	}
 
 	/* Eigener Bestaetigungsdialog. Ersetzt confirm() - das ist nicht gestaltbar,
@@ -171,12 +165,25 @@
 		color: #222;
 		margin-bottom: 8px;
 	}
+	.cc-modal-body {
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+		margin-bottom: 16px;
+	}
 	.cc-modal-text {
 		font-size: 0.9em;
 		color: #555;
 		line-height: 1.45;
-		margin-bottom: 16px;
 	}
+	/* Der Kringel im Dialog etwas groesser und auf Hoehe der ersten Textzeile. */
+	#ccmodalspin {
+		width: 18px;
+		height: 18px;
+		flex: 0 0 auto;
+		margin-top: 1px;
+	}
+	.cc-modal-knoepfe[hidden] { display: none; }
 	.cc-modal-knoepfe {
 		display: flex;
 		gap: 8px;
@@ -527,8 +534,7 @@
 		   Der Abstand nach unten muss mit dem von .cc-intro uebereinstimmen. */
 		padding: 14px 26px;
 		display: table;
-		/* Kein eigener Abstand mehr - den bringt jetzt .cc-kopf mit. */
-		margin: 0;
+		margin: 0 auto 28px auto;
 		font-size: 1.05em;
 	}
 	#statusbox .cc-status-icon {
@@ -567,30 +573,9 @@
 	</div>
 </center>
 
-<!-- Status und Schaltflaechen bewusst nebeneinander und ganz oben: Vorher standen
-     die Knoepfe unten am Formular. Man musste zum Bedienen hinunterscrollen und
-     sah dann ausgerechnet die Statusanzeige nicht mehr, die sagt, ob der Befehl
-     gewirkt hat. -->
 <center>
-	<div class="cc-kopf" id="steuerung">
-		<div id="statusbox" class="<TMPL_VAR NAME=STATUSCLASS>">
-			<span class="cc-status-icon">&#9679;</span><b><TMPL_VAR NAME=T::FORMTABLE.STATUS_LABEL></b> <span id="statustext"><TMPL_VAR NAME=STATUSTEXT></span>
-		</div>
-		<!-- Die Schaltflaeche zum Speichern steht ausserhalb des Formulars und wird -->
-		<!-- ueber form="main_form" zugeordnet. So bleibt das normale Abschicken samt -->
-		<!-- der Pruefung des IP-Feldes erhalten. -->
-		<div class="cc-steuerung">
-			<div class="cc-steuerknoepfe">
-				<a href="#" id="btnstartstop" data-role="button" data-inline="true" data-mini="true"
-					data-icon="power">Starten</a>
-				<a href="#" id="btnrestart" data-role="button" data-inline="true" data-mini="true"
-					data-icon="refresh">Neu starten</a>
-				<button type="submit" form="main_form" id="btnsubmit" data-role="button" data-inline="true"
-					data-mini="true" data-icon="check"><TMPL_VAR NAME=T::BUTTON.SAVE>
-				</button>
-			</div>
-			<span id="steuerhinweis" class="cc-steuerhinweis"></span>
-		</div>
+	<div id="statusbox" class="<TMPL_VAR NAME=STATUSCLASS>">
+		<span class="cc-status-icon">&#9679;</span><b><TMPL_VAR NAME=T::FORMTABLE.STATUS_LABEL></b> <span id="statustext"><TMPL_VAR NAME=STATUSTEXT></span>
 	</div>
 </center>
 
@@ -741,14 +726,30 @@
 	<div class="cc-modal-hg" id="ccmodal">
 		<div class="cc-modal">
 			<div class="cc-modal-titel" id="ccmodaltitel"></div>
-			<div class="cc-modal-text" id="ccmodaltext"></div>
-			<div class="cc-modal-knoepfe">
+			<div class="cc-modal-body">
+				<span class="cc-spinner" id="ccmodalspin" hidden></span>
+				<div class="cc-modal-text" id="ccmodaltext"></div>
+			</div>
+			<div class="cc-modal-knoepfe" id="ccmodalknoepfe">
 				<button type="button" id="ccmodalnein">Abbrechen</button>
 				<button type="button" id="ccmodalja" class="cc-modal-ja">OK</button>
 			</div>
 		</div>
 	</div>
 
+	<div class="cc-steuerung" id="steuerung">
+		<a href="#" id="btnstartstop" data-role="button" data-inline="true" data-mini="true"
+			data-icon="power">Starten</a>
+		<a href="#" id="btnrestart" data-role="button" data-inline="true" data-mini="true"
+			data-icon="refresh">Neu starten</a>
+		<button type="submit" id="btnsubmit" data-role="button" data-inline="true"
+			data-mini="true" data-icon="check"><TMPL_VAR NAME=T::BUTTON.SAVE>
+		</button>
+		<!-- Hier steht nur noch, was von Dauer ist - etwa der Hinweis, dass die
+		     gespeicherten Aenderungen einen Neustart brauchen. Der Verlauf eines
+		     Befehls laeuft im Dialog ab. -->
+		<span id="steuerhinweis" class="cc-steuerhinweis"></span>
+	</div>
 </form>
 
 </div><!-- /cc-plugin -->
@@ -842,8 +843,13 @@
 				if ( fertig ) {
 					ccWarte = null;
 					ccGespeichert = false;
-					$( "#steuerhinweis" ).text( "" );
+					ccArbeitFertig();
 					ccKnoepfe();
+				} else {
+					<!-- Noch unterwegs: den laufenden Statustext im Dialog -->
+					<!-- mitschreiben. Der beschreibt den Fortschritt genauer als -->
+					<!-- jede feste Meldung - etwa "Registriere 12 von 48". -->
+					if ( data.statustext ) { $( "#ccmodaltext" ).text( data.statustext ); }
 				}
 			}
 			ccStartzeit = gestartet;
@@ -950,6 +956,10 @@
 	<!-- Worauf der Hinweis neben den Schaltflaechen gerade wartet: stop, start -->
 	<!-- oder restart. null heisst: nichts unterwegs. -->
 	var ccWarte = null;
+	<!-- Kennung der Notbremse aus ccSteuern(). -->
+	var ccWarteAbbruch = null;
+	<!-- Solange gesetzt, laesst sich der Dialog nicht wegklicken. -->
+	var ccModalFest = false;
 	<!-- Startzeit des laufenden Prozesses aus der Statusabfrage. -->
 	var ccStartzeit = null;
 
@@ -999,6 +1009,9 @@
 	<!-- Fragt nach und ruft weiter auf, sobald der Benutzer bestaetigt hat. -->
 	<!-- Ersetzt confirm(): gestaltbar und ohne fremdes Browser-Aussehen. -->
 	function ccFrage( titel, text, jaText, weiter ) {
+		ccModalFest = false;
+		$( "#ccmodalspin" ).prop( "hidden", true );
+		$( "#ccmodalknoepfe" ).prop( "hidden", false );
 		$( "#ccmodaltitel" ).text( titel );
 		$( "#ccmodaltext" ).text( text );
 		$( "#ccmodalja" ).text( jaText );
@@ -1011,16 +1024,67 @@
 	}
 	$( "#ccmodalnein" ).on( "click", function() { $( "#ccmodal" ).removeClass( "auf" ); } );
 	<!-- Klick neben den Kasten und Escape schliessen ihn ebenfalls. -->
+	<!-- Waehrend ein Befehl laeuft ist der Dialog fest: Ihn wegzuklicken wuerde -->
+	<!-- den Vorgang nicht abbrechen, sondern nur die Sicht darauf nehmen. -->
 	$( "#ccmodal" ).on( "click", function( e ) {
-		if ( e.target === this ) { $( this ).removeClass( "auf" ); }
+		if ( e.target === this && !ccModalFest ) { $( this ).removeClass( "auf" ); }
 	} );
 	$( document ).on( "keydown", function( e ) {
-		if ( e.key === "Escape" ) { $( "#ccmodal" ).removeClass( "auf" ); }
+		if ( e.key === "Escape" && !ccModalFest ) { $( "#ccmodal" ).removeClass( "auf" ); }
 	} );
+
+	<!-- Arbeitsdialog: derselbe Kasten wie bei einer Rueckfrage, nur mit Kringel -->
+	     <!-- statt Schaltflaechen. Er bleibt stehen, bis der erwartete Zustand -->
+	     <!-- erreicht ist, und zeigt solange den laufenden Statustext - der sagt -->
+	     <!-- ohnehin genauer, was gerade passiert, als jede feste Meldung. -->
+	function ccArbeit( titel, text ) {
+		ccModalFest = true;
+		$( "#ccmodaltitel" ).text( titel );
+		$( "#ccmodaltext" ).text( text );
+		$( "#ccmodalspin" ).prop( "hidden", false );
+		$( "#ccmodalknoepfe" ).prop( "hidden", true );
+		$( "#ccmodal" ).addClass( "auf" );
+	}
+
+	<!-- Fertig: Dialog zu. -->
+	function ccArbeitFertig() {
+		ccModalFest = false;
+		$( "#ccmodal" ).removeClass( "auf" );
+	}
+
+	<!-- Schiefgegangen: Kringel weg, Text stehen lassen, einen Knopf zum -->
+	<!-- Schliessen anbieten. Der Dialog verschwindet hier bewusst NICHT von -->
+	<!-- selbst - eine Fehlermeldung, die man verpassen kann, ist keine. -->
+	function ccArbeitFehler( text ) {
+		ccModalFest = false;
+		$( "#ccmodalspin" ).prop( "hidden", true );
+		$( "#ccmodaltext" ).text( text );
+		$( "#ccmodaltitel" ).text( "Befehl fehlgeschlagen" );
+		$( "#ccmodalknoepfe" ).prop( "hidden", false );
+		$( "#ccmodalnein" ).prop( "hidden", true );
+		$( "#ccmodalja" ).text( "Schließen" ).off( "click" ).on( "click", function() {
+			$( "#ccmodalnein" ).prop( "hidden", false );
+			$( "#ccmodal" ).removeClass( "auf" );
+		} );
+	}
 
 	function ccSteuern( aktion ) {
 		ccWarte = null;
-		$( "#steuerhinweis" ).text( "…" );
+		<!-- Notbremse: Bleibt die erwartete Zustandsaenderung aus, soll sich der -->
+		<!-- Kringel nicht endlos weiterdrehen und Betrieb vortaeuschen. -->
+		if ( ccWarteAbbruch ) { clearTimeout( ccWarteAbbruch ); }
+		ccWarteAbbruch = setTimeout( function() {
+			if ( ccWarte ) {
+				ccWarte = null;
+				ccArbeitFehler( "Das Plugin hat innerhalb einer Minute nicht den erwarteten "
+					+ "Zustand gemeldet. Bitte die Seite neu laden und im Log nachsehen." );
+			}
+		}, 60000 );
+		ccArbeit( { start: "Plugin wird gestartet",
+		            stop: "Plugin wird angehalten",
+		            restart: "Plugin wird neu gestartet" }[ aktion ],
+		          "Befehl wird gesendet…" );
+		$( "#steuerhinweis" ).text( "" );
 		$.ajax( {
 			url: './index.cgi',
 			type: "POST",
@@ -1028,8 +1092,13 @@
 			dataType: "json",
 			timeout: 8000
 		} ).done( function( d ) {
-			$( "#steuerhinweis" ).text( d && d.ok ? d.meldung : ( d ? d.meldung : "fehlgeschlagen" ) );
-			if ( d && d.ok ) { ccWarte = aktion; }
+			if ( d && d.ok ) {
+				<!-- Angenommen. Der Kringel laeuft weiter, bis die Statusabfrage -->
+				<!-- den erwarteten Zustand meldet. -->
+				ccWarte = aktion;
+				return;
+			}
+			ccArbeitFehler( d && d.meldung ? d.meldung : "Der Befehl wurde nicht angenommen." );
 		} ).fail( function( xhr, art ) {
 			<!-- Status 0 heisst: abgebrochen oder Zeitlimit - der Browser hat KEINE -->
 			<!-- Antwort gesehen. Das ist kein Beleg dafuer, dass der Befehl nicht -->
@@ -1039,8 +1108,9 @@
 			if ( !xhr || xhr.status === 0 || art === "timeout" ) {
 				<!-- Keine Antwort gesehen, aber der Befehl lief vermutlich doch. -->
 				<!-- Also genauso auf das Ergebnis warten wie im Erfolgsfall. -->
+				<!-- Keine Antwort gesehen, aber der Befehl lief vermutlich doch. -->
+				<!-- Also weiter warten wie im Erfolgsfall. -->
 				ccWarte = aktion;
-				$( "#steuerhinweis" ).text( "Befehl abgesetzt – warte auf das Plugin…" );
 				return;
 			}
 			<!-- Statuscode und Antwortanfang mit ausgeben: Ein blosses -->
@@ -1048,8 +1118,7 @@
 			<!-- CGI eine Fehlerseite statt JSON, steht der Grund meist darin. -->
 			var t = ( xhr && xhr.responseText ) ? xhr.responseText.replace( /<[^>]*>/g, " " ) : "";
 			t = t.replace( /\s+/g, " " ).substring( 0, 160 );
-			$( "#steuerhinweis" ).text(
-				"fehlgeschlagen (HTTP " + ( xhr ? xhr.status : "?" ) + ")" + ( t ? ": " + t : "" ) );
+			ccArbeitFehler( "HTTP " + ( xhr ? xhr.status : "?" ) + ( t ? ": " + t : "" ) );
 		} );
 	}
 
