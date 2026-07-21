@@ -1138,12 +1138,7 @@
 				+ " die gespeicherte Konfiguration. Die Änderungen im Formular wären dabei nicht dabei. "
 				+ "Erst speichern und dann " + wort + "?",
 			"Speichern und " + wort,
-			function() {
-				<!-- Das Speichern schickt das Formular ab, die Seite wird also neu -->
-				<!-- aufgebaut. Die Absicht muss diesen Neuaufbau ueberleben. -->
-				try { sessionStorage.setItem( "ccDanach", aktion ); } catch ( e ) {}
-				$( "#main_form" ).submit();
-			} );
+			function() { ccSpeichern( aktion ); } );
 	}
 
 	$( "#btnstartstop" ).on( "click", function( e ) {
@@ -1159,52 +1154,45 @@
 		ccSteuernMitSpeichern( "restart" );
 	} );
 
-	<!-- Nach dem Speichern ist die Datei geschrieben, der laufende Prozess kennt -->
-	<!-- sie aber noch nicht - daher der Hinweis auf den Neustart. -->
-	$( "#main_form" ).on( "submit", function() {
-		<!-- Das Formular wird normal abgeschickt, die Seite also neu aufgebaut. -->
-		<!-- Der Merker muss diesen Neuaufbau ueberleben, sonst waere nach dem -->
-		<!-- Speichern nicht mehr bekannt, DASS gespeichert wurde. -->
-		try {
-			sessionStorage.setItem( "ccGespeichert", "1" );
-			<!-- Rollposition mitnehmen. Der frueher benutzte Anker in der -->
-			<!-- Formularadresse (#steuerung) taugt dafuer nicht: jQuery Mobile -->
-			<!-- verwendet den Hash fuer seine EIGENE Seitennavigation und deutet -->
-			<!-- ihn als Seiten-ID statt als Sprungmarke - die Seite landete -->
-			<!-- deshalb oben. -->
-			sessionStorage.setItem( "ccRollen",
-				String( window.pageYOffset || document.documentElement.scrollTop || 0 ) );
-		} catch ( e ) {}
-		ccStandStart = ccStand();
-		ccGeaendert = false;
-	} );
-
-	<!-- Nach dem Neuaufbau: Wurde eben gespeichert, kennt der laufende Prozess die -->
-	<!-- neue Konfiguration noch nicht. Das sagt der Hinweis neben den Schaltflaechen -->
-	<!-- (siehe ccKnoepfe) - ein Dialog waere hier zu viel, denn niemand muss sofort -->
-	<!-- handeln. Ist das Plugin ohnehin gestoppt, entfaellt der Hinweis: Dann wirkt -->
-	<!-- die Aenderung beim naechsten Start ganz von selbst. -->
-	try {
-		if ( sessionStorage.getItem( "ccGespeichert" ) === "1" ) {
-			sessionStorage.removeItem( "ccGespeichert" );
+	<!-- Speichern ohne Seitenneuaufbau. -->
+	     <!-- Frueher wurde das Formular ganz normal abgeschickt und die Seite neu -->
+	     <!-- gerendert. Das brachte drei Probleme mit sich: Die Ansicht sprang an den -->
+	     <!-- Seitenanfang, ein Anker dagegen half nicht (jQuery Mobile deutet den Hash -->
+	     <!-- als eigene Seiten-ID), und ein nachtraegliches Zurueckrollen war als -->
+	     <!-- Zucken sichtbar. Alle drei verschwinden, wenn gar nichts neu aufgebaut -->
+	     <!-- wird - die Seite zeigt ohnehin schon genau das, was gespeichert wurde. -->
+	function ccSpeichern( danach ) {
+		var knopf = $( "#btnsubmit" );
+		knopf.addClass( "ui-disabled" );
+		$.ajax( {
+			url: "./index.cgi",
+			type: "POST",
+			data: $( "#main_form" ).serialize(),
+			timeout: 15000
+		} ).done( function() {
+			ccStandStart = ccStand();
+			ccGeaendert = false;
 			ccGespeichert = true;
-			<!-- Wurde das Speichern von Starten oder Neu starten ausgeloest, jetzt -->
-			<!-- ohne weitere Nachfrage ausfuehren - danach gefragt hat der Klick. -->
-			var danach = sessionStorage.getItem( "ccDanach" );
-			sessionStorage.removeItem( "ccDanach" );
-			<!-- Erst zurueckrollen, dann den gemerkten Befehl ausfuehren. Loest -->
-			<!-- dieser den Arbeitsdialog aus, rollt der ohnehin wieder nach oben - -->
-			<!-- beim reinen Speichern bleibt die Ansicht dagegen stehen. -->
-			var pos = parseInt( sessionStorage.getItem( "ccRollen" ) || "0", 10 );
-			sessionStorage.removeItem( "ccRollen" );
-			if ( pos > 0 ) {
-				<!-- Verzoegert, weil jQuery Mobile nach dem Aufbau selbst an den -->
-				<!-- Seitenanfang rollt und uns sonst ueberschreibt. -->
-				setTimeout( function() { window.scrollTo( 0, pos ); }, 60 );
-			}
+			ccKnoepfe();
+			<!-- Sollte im Anschluss gestartet oder neu gestartet werden, jetzt. -->
 			if ( danach ) { ccSteuern( danach ); }
-		}
-	} catch ( e ) {}
+		} ).fail( function( xhr ) {
+			ccFrage( "Speichern fehlgeschlagen",
+				"Die Einstellungen konnten nicht geschrieben werden (HTTP "
+					+ ( xhr ? xhr.status : "?" ) + "). Die Seite bitte neu laden.",
+				"Schließen", function() {} );
+		} ).always( function() {
+			knopf.removeClass( "ui-disabled" );
+		} );
+	}
+
+	<!-- Der Knopf bleibt ein submit-Knopf: So prueft der Browser vorher die -->
+	<!-- Eingabefelder (etwa das Muster im IP-Feld) und das Ereignis entsteht -->
+	<!-- ueberhaupt erst, wenn alles gueltig ist. -->
+	$( "#main_form" ).on( "submit", function( e ) {
+		e.preventDefault();
+		ccSpeichern( null );
+	} );
 
 	ccKnoepfe();
 
