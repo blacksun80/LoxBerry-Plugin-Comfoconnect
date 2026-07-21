@@ -784,16 +784,35 @@
 			<!-- .html() statt .text(): index.cgi liefert hier eine fertige Tabelle. -->
 			<!-- Der Inhalt stammt ausschliesslich aus eigenen Zaehlern und Zeitangaben, -->
 			<!-- nicht aus Benutzereingaben - es kann also nichts Fremdes eingeschleust werden. -->
+			<!-- Startzeit merken, um einen Neustart erkennen zu koennen. -->
+			var gestartet = ( typeof data.gestartet !== "undefined" ) ? data.gestartet : null;
 			if ( typeof data.laeuft !== "undefined" ) {
 				var neu = data.laeuft ? true : false;
 				if ( neu !== ccLaeuft ) {
 					ccLaeuft = neu;
-					<!-- Zustand hat sich geaendert: Die Meldung "wird gestartet..." -->
-					<!-- hat sich damit erledigt. -->
-					if ( !ccGespeichert ) { $( "#steuerhinweis" ).text( "" ); }
 					ccKnoepfe();
 				}
 			}
+			<!-- Den Hinweis abraeumen, sobald das eingetreten ist, worauf er wartet. -->
+			<!-- Bei "stop" ist das der Stillstand, bei "start" der Lauf - und bei -->
+			<!-- "restart" eine NEUE Startzeit. Auf den Lauf allein zu warten reicht -->
+			<!-- dort nicht: Der war vorher schon da, es springt nichts um, und der -->
+			<!-- Text blieb ewig stehen. -->
+			if ( ccWarte ) {
+				var fertig = false;
+				if ( ccWarte === "stop" )    { fertig = !ccLaeuft; }
+				if ( ccWarte === "start" )   { fertig = ccLaeuft; }
+				if ( ccWarte === "restart" ) {
+					fertig = ccLaeuft && gestartet !== null && gestartet !== ccStartzeit;
+				}
+				if ( fertig ) {
+					ccWarte = null;
+					ccGespeichert = false;
+					$( "#steuerhinweis" ).text( "" );
+					ccKnoepfe();
+				}
+			}
+			ccStartzeit = gestartet;
 			if ( typeof data.diagnostics !== "undefined" ) {
 				$( "#diagbox" ).html( data.diagnostics );
 			}
@@ -894,6 +913,11 @@
 	var ccLaeuft = <TMPL_VAR NAME=LAEUFT> ? true : false;
 	var ccGeaendert = false;
 	var ccGespeichert = false;
+	<!-- Worauf der Hinweis neben den Schaltflaechen gerade wartet: stop, start -->
+	<!-- oder restart. null heisst: nichts unterwegs. -->
+	var ccWarte = null;
+	<!-- Startzeit des laufenden Prozesses aus der Statusabfrage. -->
+	var ccStartzeit = null;
 
 	<!-- Formularstand beim Laden merken, um spaeter Aenderungen zu erkennen. -->
 	function ccStand() {
@@ -923,8 +947,14 @@
 		$( "#btnrescan" ).toggleClass( "ui-disabled",
 			ccLaeuft || $( "#iplanc" ).val() !== "" );
 
-		$( "#steuerhinweis" ).text(
-			( ccGespeichert && ccLaeuft ) ? "Gespeichert – wirkt nach einem Neustart" : "" );
+		<!-- Nur anfassen, wenn gerade kein Befehl unterwegs ist: ccKnoepfe() laeuft -->
+		<!-- bei jedem Zustandswechsel, und waehrend eines Neustarts faellt einer an -->
+		<!-- (das kurze Anhalten). Ohne diese Sperre wischte er die Meldung -->
+		<!-- "wird neu gestartet..." mitten im Vorgang weg. -->
+		if ( !ccWarte ) {
+			$( "#steuerhinweis" ).text(
+				( ccGespeichert && ccLaeuft ) ? "Gespeichert – wirkt nach einem Neustart" : "" );
+		}
 	}
 
 	$( "#main_form" ).on( "change input", function() {
@@ -955,6 +985,7 @@
 	} );
 
 	function ccSteuern( aktion ) {
+		ccWarte = null;
 		$( "#steuerhinweis" ).text( "…" );
 		$.ajax( {
 			url: './index.cgi',
@@ -964,7 +995,7 @@
 			timeout: 8000
 		} ).done( function( d ) {
 			$( "#steuerhinweis" ).text( d && d.ok ? d.meldung : ( d ? d.meldung : "fehlgeschlagen" ) );
-			if ( d && d.ok && aktion !== "stop" ) { ccGespeichert = false; }
+			if ( d && d.ok ) { ccWarte = aktion; }
 		} ).fail( function( xhr, art ) {
 			<!-- Status 0 heisst: abgebrochen oder Zeitlimit - der Browser hat KEINE -->
 			<!-- Antwort gesehen. Das ist kein Beleg dafuer, dass der Befehl nicht -->
@@ -972,6 +1003,9 @@
 			<!-- Also nicht "fehlgeschlagen" behaupten, sondern die Statusabfrage -->
 			<!-- entscheiden lassen, die ohnehin sekuendlich nachsieht. -->
 			if ( !xhr || xhr.status === 0 || art === "timeout" ) {
+				<!-- Keine Antwort gesehen, aber der Befehl lief vermutlich doch. -->
+				<!-- Also genauso auf das Ergebnis warten wie im Erfolgsfall. -->
+				ccWarte = aktion;
 				$( "#steuerhinweis" ).text( "Befehl abgesetzt – warte auf das Plugin…" );
 				return;
 			}

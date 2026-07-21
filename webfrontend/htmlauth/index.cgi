@@ -134,7 +134,12 @@ if ( $cgi->param('ajax_status') || $cgi->url_param('ajax_status') ) {
 	}
 
 	print JSON::PP->new->utf8(0)->encode({ statustext => $status_text, statusclass => $status_class, diagnostics => $diagnostics, werte => $werte, befehle => $befehle,
-		laeuft => laeuftNoch($status_daten) });
+		laeuft => laeuftNoch($status_daten),
+		# Startzeit des laufenden Prozesses. Die Oberflaeche erkennt daran einen
+		# Neustart: "laeuft" allein reicht dafuer nicht, denn vorher wie nachher
+		# steht dort "ja" - der Hinweis "wird neu gestartet..." blieb deshalb
+		# stehen, obwohl der Neustart laengst durch war.
+		gestartet => ($status_daten ? $status_daten->{plugin_start} : undef) });
 	exit;
 }
 
