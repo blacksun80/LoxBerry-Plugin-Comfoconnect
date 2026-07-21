@@ -845,11 +845,6 @@
 					ccGespeichert = false;
 					ccArbeitFertig();
 					ccKnoepfe();
-				} else {
-					<!-- Noch unterwegs: den laufenden Statustext im Dialog -->
-					<!-- mitschreiben. Der beschreibt den Fortschritt genauer als -->
-					<!-- jede feste Meldung - etwa "Registriere 12 von 48". -->
-					if ( data.statustext ) { $( "#ccmodaltext" ).text( data.statustext ); }
 				}
 			}
 			ccStartzeit = gestartet;
@@ -1039,6 +1034,11 @@
 	     <!-- ohnehin genauer, was gerade passiert, als jede feste Meldung. -->
 	function ccArbeit( titel, text ) {
 		ccModalFest = true;
+		<!-- Nach oben rollen, solange der Dialog davor liegt: Sobald er sich -->
+		<!-- schliesst, steht die Statusanzeige unmittelbar vor Augen. Die -->
+		<!-- Schaltflaechen sitzen am Formularende, ohne diesen Sprung saehe man -->
+		<!-- ausgerechnet das Ergebnis nicht. -->
+		$( "html, body" ).animate( { scrollTop: 0 }, 200 );
 		$( "#ccmodaltitel" ).text( titel );
 		$( "#ccmodaltext" ).text( text );
 		$( "#ccmodalspin" ).prop( "hidden", false );
@@ -1083,7 +1083,7 @@
 		ccArbeit( { start: "Plugin wird gestartet",
 		            stop: "Plugin wird angehalten",
 		            restart: "Plugin wird neu gestartet" }[ aktion ],
-		          "Befehl wird gesendet…" );
+		          "Der Befehl wurde übergeben. Das dauert einen Moment." );
 		$( "#steuerhinweis" ).text( "" );
 		$.ajax( {
 			url: './index.cgi',
