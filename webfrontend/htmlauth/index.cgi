@@ -196,7 +196,12 @@ if ( $cgi->param('ajax_control') ) {
 			my $skript = "$inst/bin/plugins/$psubfolder/wrapper.pl";
 			die "$skript nicht gefunden" if (!-e $skript);
 
-			my $rc = system("perl $skript $aktion > /dev/null 2>&1 &");
+			# setsid und </dev/null sind hier NICHT kosmetisch: Ein bloss mit "&"
+			# abgesetzter Prozess erbt die offenen Kanaele des CGI - darunter die
+			# Verbindung zum Browser. Wenn er endet, reisst sie mit ab, und die
+			# Oberflaeche meldete "HTTP 0", obwohl der Befehl ausgefuehrt wurde.
+			# Deshalb komplett abnabeln: eigene Sitzung, alle drei Kanaele zu.
+			my $rc = system("setsid perl $skript $aktion </dev/null >/dev/null 2>&1 &");
 			die "Aufruf fehlgeschlagen (rc=$rc)" if ($rc != 0);
 
 			$ok = 1;
