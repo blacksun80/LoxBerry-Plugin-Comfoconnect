@@ -55,10 +55,49 @@ PBIN=$LBPBIN/$PDIR
   
 echo "<INFO> Installation as root user started."
 
+# ---------------------------------------------------------------------------
+# Systempakete: erst pruefen, dann erst installieren.
+#
+# Frueher standen diese drei Pakete in dpkg/apt. Dann uebernimmt LoxBerry die
+# Installation - und zwar bei JEDEM Update aufs Neue: Apt-Datenbank aufraeumen,
+# "apt-get update" gegen alle konfigurierten Quellen, danach die Pakete
+# neu einspielen ("3 reinstalled"), obwohl sie unveraendert vorhanden sind.
+# Das waren rund anderthalb Minuten je Installation, und der Umweg ueber
+# "apt-get update" holte sich nebenbei die Fehlermeldungen fremder Paketquellen
+# ins Plugin-Log, mit denen dieses Plugin nichts zu tun hat.
+#
+# Hier wird stattdessen nachgesehen, was fehlt. Im Regelfall fehlt nichts, dann
+# passiert auch nichts. Nur beim ersten Mal - oder wenn jemand ein Paket
+# entfernt hat - wird tatsaechlich installiert.
+BENOETIGT="libstring-escape-perl python3-paho-mqtt python3-setuptools"
+FEHLEND=""
+for PAKET in $BENOETIGT; do
+	if ! dpkg-query -W -f='${Status}' "$PAKET" 2>/dev/null | grep -q "ok installed"; then
+		FEHLEND="$FEHLEND $PAKET"
+	fi
+done
+
+if [ -n "$FEHLEND" ]; then
+	echo "<INFO> Fehlende Systempakete werden installiert:$FEHLEND"
+	apt-get update
+	if DEBIAN_FRONTEND=noninteractive apt-get -y install $FEHLEND; then
+		echo "<OK> Systempakete installiert."
+	else
+		echo "<ERROR> Systempakete konnten nicht installiert werden:$FEHLEND"
+		echo "<ERROR> Ohne diese Pakete laeuft das Plugin nicht."
+		exit 2
+	fi
+else
+	echo "<OK> Alle benoetigten Systempakete sind vorhanden."
+fi
+
 echo "<INFO> Checking pip..."
 # NOTE: no --upgrade here (see protobuf comment below) - just make sure pip is
 # present, don't force a slow version check against PyPI on every single install.
-python3 -m pip install pip
+if ! python3 -m pip --version >/dev/null 2>&1; then
+	echo "<INFO> pip fehlt und wird installiert."
+	python3 -m pip install pip
+fi
 
 echo "<INFO> Start installing protobuf..."
 # NOTE: must be quoted - unquoted "protobuf>=3.20.3" is parsed by bash as a
@@ -73,6 +112,13 @@ echo "<INFO> Start installing protobuf..."
 # update, even when protobuf was already correctly installed. Without
 # --upgrade we still get protobuf>=3.20.3 installed/upgraded automatically the
 # one time it's actually missing or too old - just not on every run after that.
+# Dieselbe Ueberlegung wie oben bei den Systempaketen: Ist eine passende Fassung
+# schon da, entfaellt der pip-Aufruf komplett. Die Pruefung laeuft rein lokal.
+if python3 -c 'import google.protobuf, sys; from google.protobuf import __version__ as v; sys.exit(0 if tuple(int(x) for x in v.split(".")[:3]) >= (3,20,3) else 1)' 2>/dev/null; then
+	echo "<OK> protobuf ist bereits in passender Fassung vorhanden."
+	exit 0
+fi
+
 python3 -m pip install "protobuf>=3.20.3"
 INSTALLED=$(pip3 list --format=columns | grep "protobuf" | grep -v grep | wc -l)
 if [ ${INSTALLED} -ne "0" ]; then

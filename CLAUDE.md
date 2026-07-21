@@ -111,6 +111,20 @@ Snapshot-Schreiber hat sein eigenes Versagen einmal komplett verschluckt.
 Wechsel mit offenen Änderungen hat schon Arbeit gekostet und einen Merge-Konflikt
 in `mqtt_data.py` hinterlassen.
 
+## Installation
+
+`dpkg/apt` ist **bewusst leer**. Steht dort etwas, übernimmt LoxBerry die
+Paketinstallation — bei jedem Update aufs Neue, samt `apt-get update` gegen alle
+Quellen des Systems und erneutem Einspielen unveränderter Pakete (rund
+anderthalb Minuten). Stattdessen prüft `postroot.sh` mit `dpkg-query`, was
+fehlt, und installiert nur das. Dasselbe für `protobuf` per Importprüfung statt
+`pip install`.
+
+GPG-Fehler im Installationslog (`sury.org`, `yarnpkg`) stammen aus fremden
+Paketquellen des LoxBerry und haben mit dem Plugin nichts zu tun. Seit die
+Paketinstallation nur noch bei Bedarf läuft, tauchen sie im Normalfall gar
+nicht mehr auf.
+
 ## Prüfen vor dem Abschluss
 
 ```bash
