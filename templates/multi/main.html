@@ -948,6 +948,8 @@
 	var ccLaeuft = <TMPL_VAR NAME=LAEUFT> ? true : false;
 	var ccGeaendert = false;
 	var ccGespeichert = false;
+	<!-- Laeuft gerade ein Speichervorgang? Sperrt den Knopf gegen Doppelklicks. -->
+	var ccSpeichertGerade = false;
 	<!-- Worauf der Hinweis neben den Schaltflaechen gerade wartet: stop, start -->
 	<!-- oder restart. null heisst: nichts unterwegs. -->
 	var ccWarte = null;
@@ -965,8 +967,11 @@
 	var ccStandStart = ccStand();
 
 	function ccKnoepfe() {
-		<!-- Speichern nur, wenn wirklich etwas anders ist. -->
-		$( "#btnsubmit" ).toggleClass( "ui-disabled", !ccGeaendert );
+		<!-- Speichern nur, wenn wirklich etwas anders ist - und nicht, solange -->
+		<!-- schon gespeichert wird. Die Sperre gehoert hierher und nicht an die -->
+		<!-- Aufrufstelle: Dort lief sie in .always() und damit NACH .done(), hat -->
+		<!-- also die gerade gesetzte Sperre sofort wieder aufgehoben. -->
+		$( "#btnsubmit" ).toggleClass( "ui-disabled", ccSpeichertGerade || !ccGeaendert );
 
 		<!-- Ein Knopf, zwei Bedeutungen - je nachdem ob der Prozess laeuft. -->
 		var t = ccLaeuft ? "Stoppen" : "Starten";
@@ -975,9 +980,9 @@
 		$( "#btnrestart" ).toggleClass( "ui-disabled", !ccLaeuft );
 
 		<!-- IP und PIN sind Verbindungsparameter: waehrend des Betriebs gesperrt. -->
-		     <!-- BEWUSST readonly und NICHT disabled - gesperrte Felder sendet der -->
-		     <!-- Browser gar nicht mit, die Werte waeren beim Speichern leer und -->
-		     <!-- wuerden die Konfiguration ueberschreiben. -->
+		<!-- BEWUSST readonly und NICHT disabled - gesperrte Felder sendet der -->
+		<!-- Browser gar nicht mit, die Werte waeren beim Speichern leer und -->
+		<!-- wuerden die Konfiguration ueberschreiben. -->
 		$( "#iplanc, #pin" ).prop( "readonly", ccLaeuft )
 			.css( "background-color", ccLaeuft ? "#f2f2f2" : "" );
 		$( "#labeliplanc, #labelpin" ).css( "opacity", ccLaeuft ? 0.45 : 1 );
@@ -1162,8 +1167,8 @@
 	     <!-- Zucken sichtbar. Alle drei verschwinden, wenn gar nichts neu aufgebaut -->
 	     <!-- wird - die Seite zeigt ohnehin schon genau das, was gespeichert wurde. -->
 	function ccSpeichern( danach ) {
-		var knopf = $( "#btnsubmit" );
-		knopf.addClass( "ui-disabled" );
+		ccSpeichertGerade = true;
+		ccKnoepfe();
 		$.ajax( {
 			url: "./index.cgi",
 			type: "POST",
@@ -1182,7 +1187,8 @@
 					+ ( xhr ? xhr.status : "?" ) + "). Die Seite bitte neu laden.",
 				"Schließen", function() {} );
 		} ).always( function() {
-			knopf.removeClass( "ui-disabled" );
+			ccSpeichertGerade = false;
+			ccKnoepfe();
 		} );
 	}
 
