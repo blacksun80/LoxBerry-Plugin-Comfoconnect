@@ -589,7 +589,7 @@
 				<div class="cc-row">
 					<label class="cc-label" id="labeliplanc" for="iplanc"><TMPL_VAR NAME=T::FORMTABLE.IPLANC></label>
 					<div class="cc-field">
-						<input id="iplanc" data-role="none" onChange="disable_rescan()" name="iplanc" type="text" minlength="7" maxlength="15" size="15" pattern="^((\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.){3}(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])$" value="<TMPL_VAR NAME=IPLANC>">
+						<input id="iplanc" data-role="none" name="iplanc" type="text" minlength="7" maxlength="15" size="15" pattern="^((\d{1,2}|1\d\d|2[0-4]\d|25[0-5])\.){3}(\d{1,2}|1\d\d|2[0-4]\d|25[0-5])$" value="<TMPL_VAR NAME=IPLANC>">
 						<a id="btnrescan" data-icon="refresh" data-role="button" data-mini="true" data-inline="true" href="./index.cgi?rescan=1"><TMPL_VAR NAME=T::BUTTON.RESCAN></a>
 					</div>
 				</div>
@@ -762,18 +762,6 @@
 		scrollToTopOnError : true,
 		errorMessagePosition : $messages,
 	});
-	<!-- Button Rescan deaktivieren, falls keine IP und PIN eingegeben wurde. -->
-	disable_rescan();
-
-	function disable_rescan() {
-		if ( $( "#iplanc" ).val() != "" ) {
-				$( "#btnrescan" ).addClass('ui-disabled');
-		}
-		if ( $( "#iplanc" ).val() == "" ) {
-			$( "#btnrescan" ).removeClass('ui-disabled');
-		}
-	}
-
 	<!-- Zeitfeld und Neustart-Checkbox haengen an der Ueberwachungs-Checkbox: ohne -->
 	<!-- aktivierte Ueberwachung wird gar nichts ausgewertet, also waeren beide -->
 	<!-- wirkungslos. disabled statt nur ausgrauen, damit sie sich auch wirklich -->
@@ -995,17 +983,21 @@
 		if ( sp.length ) { sp.text( t ); } else { $( "#btnstartstop" ).text( t ); }
 		$( "#btnrestart" ).toggleClass( "ui-disabled", !ccLaeuft );
 
-		<!-- IP und PIN sind Verbindungsparameter: waehrend des Betriebs gesperrt. -->
-		<!-- BEWUSST readonly und NICHT disabled - gesperrte Felder sendet der -->
-		<!-- Browser gar nicht mit, die Werte waeren beim Speichern leer und -->
-		<!-- wuerden die Konfiguration ueberschreiben. -->
-		$( "#iplanc, #pin" ).prop( "readonly", ccLaeuft )
-			.css( "background-color", ccLaeuft ? "#f2f2f2" : "" );
-		$( "#labeliplanc, #labelpin" ).css( "opacity", ccLaeuft ? 0.45 : 1 );
+		<!-- IP und PIN sind waehrend des Betriebs bewusst NICHT gesperrt. Sie zu -->
+		     <!-- aendern ist unbedenklich: Wirksam wird der neue Wert ohnehin erst beim -->
+		     <!-- naechsten Start, und darauf weist der Hinweis neben den Schaltflaechen -->
+		     <!-- hin. Eine Sperre haette nur verhindert, dass man die Anlage im Voraus -->
+		     <!-- umkonfiguriert. -->
+		     <!-- Falls hier je wieder gesperrt werden soll: readonly nehmen, nicht -->
+		     <!-- disabled - gesperrte Felder sendet der Browser gar nicht mit, die -->
+		     <!-- Werte kaemen beim Speichern leer an und wuerden die Konfiguration -->
+		     <!-- ueberschreiben. Genau das ist schon einmal passiert. -->
 
-		<!-- Suchen nur im Stillstand und nur ohne eingetragene IP. -->
-		$( "#btnrescan" ).toggleClass( "ui-disabled",
-			ccLaeuft || $( "#iplanc" ).val() !== "" );
+		<!-- Ermitteln nur im Stillstand: Dafuer wird cfc.py mit --search gestartet, -->
+		     <!-- und zwei Instanzen gleichzeitig vertraegt die Anlage nicht. Eine bereits -->
+		     <!-- eingetragene IP ist dagegen kein Hinderungsgrund - der Vorgang ermittelt -->
+		     <!-- sie lediglich neu. -->
+		$( "#btnrescan" ).toggleClass( "ui-disabled", ccLaeuft );
 
 		<!-- Nur anfassen, wenn gerade kein Befehl unterwegs ist: ccKnoepfe() laeuft -->
 		<!-- bei jedem Zustandswechsel, und waehrend eines Neustarts faellt einer an -->
