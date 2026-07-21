@@ -1091,16 +1091,15 @@ sub getDeviceInfo
 			. "<span class=\"cc-dev-wert\">$w</span></div>";
 	}
 
-	# Angemeldete Clients. Diagnostisch der wertvollste Teil: Steht hier ein
-	# zweiter Eintrag, streitet sich jemand mit uns um die einzige Sitzung, die
-	# die Anlage vergibt.
+	# Gekoppelte Geraete (ListRegisteredApps). Das ist eine dauerhafte Liste
+	# derer, die sich einmal per PIN angemeldet haben - vergleichbar mit
+	# gekoppelten Bluetooth-Geraeten. NICHT zu verwechseln mit der Sitzung: Die
+	# vergibt die Anlage nur einmal, aber mehrere gekoppelte Geraete sind der
+	# Normalfall und voellig unkritisch.
 	if (ref($g->{clients}) eq 'ARRAY' && @{ $g->{clients} }) {
 		my @c = map { my $x = $_; $x =~ s/</&lt;/g; $x } @{ $g->{clients} };
-		my $warn = (@c > 1) ? " cc-dev-warn" : "";
-		$html .= "<div class=\"cc-dev-zeile\"><span class=\"cc-dev-name\">Angemeldet</span>"
-			. "<span class=\"cc-dev-wert$warn\">" . join(", ", @c)
-			. (@c > 1 ? " &ndash; die Anlage erlaubt nur eine Sitzung gleichzeitig" : "")
-			. "</span></div>";
+		$html .= "<div class=\"cc-dev-zeile\"><span class=\"cc-dev-name\">Gekoppelte Geräte</span>"
+			. "<span class=\"cc-dev-wert\">" . join(", ", @c) . "</span></div>";
 	}
 
 	return $html;

@@ -158,6 +158,7 @@ It can probably completely brick your ventilation. (it enters factory mode or tr
 | 0x1E      | 0x06      | rw      | UINT16    | Ventilation speed in "High" Level                           |
 | 0x1E      | 0x18      | rw      | INT16     | Disbalance in percent                                       |
 | 0x01      | 0x04      | ro      | STRING    | Serial number                                               |
+| 0x01      | 0x06      | ro      | UINT32    | Firmware version, encoded (see below)                       |
 | 0x01      | 0x08      | ro      | STRING    | Typenbezeichnung                                            |
 | 0x01      | 0x0B      | ro      | STRING    | Article number                                              |
 | 0x01      | 0x0D      | ro      | STRING    | Country (Manufacturing or Current?)                         |
@@ -204,3 +205,83 @@ This is a list of known commands:
 | `031d 0107 00`                     | Set sensor ventilation: humidity protection: off                                |
 | `031d 0107 01`                     | Set sensor ventilation: humidity protection: auto                               |
 | `031d 0107 02`                     | Set sensor ventilation: humidity protection: on                                 |
+
+# Firmware version encoding (Unit 0x01, PropertyId 0x06)
+
+The value is a UINT32 packed into four fields:
+
+| Bits  | Meaning                                     |
+|-------|---------------------------------------------|
+| 30-31 | Maturity: `0` = U, `1` = D, `2` = P, `3` = R |
+| 20-29 | Major version                               |
+| 10-19 | Minor version                               |
+| 0-9   | Patch level                                 |
+
+Example: `0xC0600002` decodes to `R1.6.2` — the same notation Zehnder uses in
+its own documentation.
+
+Reading it: `01 01 01 10 06`
+
+# Unit 0x15 (SCHEDULE) — timer entries
+
+Almost every switching command goes through this unit. What looks like a simple
+"set fan speed" is in fact a timer entry: a value that applies from a given
+moment, for a given duration.
+
+## Structure of a set command (0x84)
+
+```
+84 15 01 06  00000000  58020000  00 00 03
+│  │  │  │   └ start   └ duration          └ value
+│  │  │  └ entry
+│  │  └ subunit
+│  └ unit (0x15 = SCHEDULE)
+└ command (0x84 = set entry)
+```
+
+* **start** and **duration** are 4-byte little-endian second counts.
+* `ffffffff` as the duration means "no time limit".
+* The two bytes before the value are padding and are always `00 00`.
+
+Note the width of the duration field: it really is four bytes. Using only two
+and padding with zeroes works up to 65535 seconds (about 18 hours) and then
+silently overflows — the Zehnder app allows 24 hours for boost mode.
+
+## Commands
+
+| Command | Meaning                                                        |
+|---------|----------------------------------------------------------------|
+| `0x83`  | Read an entry. The reply contains state and remaining time.     |
+| `0x84`  | Set an entry (structure above).                                 |
+| `0x85`  | Clear an entry, returning that function to its automatic state. |
+
+## Known subunits and entries
+
+| SubUnit | Entry  | Meaning                                                  |
+|---------|--------|----------------------------------------------------------|
+| `01`    | `01`   | Fan speed (`00` away, `01` low, `02` medium, `03` high). The duration is ignored here. |
+| `01`    | `06`   | Boost mode                                               |
+| `01`    | `0B`   | Away / holiday mode. Unlike `01 01`, the duration IS honoured. |
+| `02`    | `01`   | Bypass (`00` auto, `01` open, `02` closed)               |
+| `03`    | `01`   | Temperature profile (`00` normal, `01` cool, `02` warm)  |
+| `05`    | `01`   | ComfoCool (`00` off)                                     |
+| `06`    | `01`   | Supply fan / ventilation balance                         |
+| `07`    | `01`   | Exhaust fan / ventilation balance                        |
+| `08`    | `01`   | Operating mode (auto vs. manual)                         |
+
+The distinction between `01 01` and `01 0B` matters: setting the fan speed to
+"away" via `01 01` ignores the timer, so a timed absence has to use `01 0B`.
+
+## Not documented
+
+The **weekly programme** — the schedule with weekdays and times that can be
+configured in the Zehnder app — is not covered here, and neither
+`aiocomfoconnect` nor this project implements it. It presumably uses further
+subunits or higher entry numbers of the same mechanism, but that would have to
+be confirmed by capturing traffic between the app and the bridge.
+
+## A warning
+
+Experimenting on unit `0x15` is harmless: at worst a timer ends up wrong, and
+`0x85` clears it again. This is explicitly **not** true for units `0x01` and
+`0x20` — see the warning further up.
