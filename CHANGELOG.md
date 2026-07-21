@@ -1,4 +1,6 @@
-# Änderungen gegenüber Version 0.3
+# Version 0.4
+
+Änderungen gegenüber Version 0.3.
 
 ## Behobene Fehler
 
@@ -143,6 +145,38 @@ der normalen Logdatei landet — es kann also dauerhaft auf „Fehler" stehen bl
 Vorgeschichte auf DEBUG-Ebene vor. Bisher musste man dafür durchgehend auf DEBUG
 schalten und in Kauf nehmen, dass das Log zuwächst.
 
+**Bedienung getrennt von den Einstellungen.** Früher startete jedes Speichern das
+Plugin neu, auch wenn sich nur ein Haken geändert hatte. Jetzt gibt es drei
+Schaltflächen — Starten/Stoppen, Neu starten und Speichern. Gespeichert wird ohne
+Seitenneuaufbau, die Ansicht bleibt also stehen. Liegen beim Starten oder
+Neustarten ungespeicherte Änderungen vor, wird nachgefragt.
+
+**Start, Stopp und Neustart laufen in einem Dialog ab.** Solange der Vorgang
+läuft, zeigt ein Kringel den Fortschritt; danach schließt sich das Fenster von
+selbst. Scheitert der Start, nennt der Dialog den Grund — er liest dafür die
+jüngste Fehlermeldung aus dem Plugin-Log. Vorher musste man das Log selbst
+durchsehen.
+
+**Diagnose friert nach dem Anhalten ein.** Bisher lief die angezeigte Laufzeit
+weiter, obwohl längst nichts mehr lief. Jetzt steht dort der letzte Stand mit
+Zeitpunkt.
+
+**IP und PIN jederzeit änderbar,** auch im laufenden Betrieb. Die Ermittlung der
+IP lässt sich auch dann anstoßen, wenn schon eine eingetragen ist.
+
+**Installation und Update deutlich schneller.** Die benötigten Systempakete
+wurden bisher bei jedem Update neu eingespielt, samt vollständigem
+`apt-get update` — rund anderthalb Minuten ohne jede Wirkung. Jetzt wird geprüft,
+was tatsächlich fehlt, und nur das installiert. Nebeneffekt: Fehlermeldungen
+fremder Paketquellen tauchen nicht mehr im Plugin-Log auf.
+
+**Prozesssteuerung zuverlässig.** Start und Stopp erkannten die eigenen
+Hilfsprozesse als laufendes Plugin und schlugen dadurch sporadisch fehl. Die
+Erkennung läuft jetzt über `/proc` und prüft Interpreter und Skriptpfad. Reagiert
+ein Prozess nicht auf das Beenden-Signal, wird nach fünf Sekunden nachgesetzt.
+Ein Klick auf Starten wartet außerdem nicht mehr zwanzig Sekunden — diese Pause
+gilt nur noch beim Systemstart, wo sie hingehört.
+
 **Sauberes Beenden.** Beim Neustart meldet sich das Plugin jetzt ordentlich bei
 der Lüftungsanlage ab. Vorher hielt die Anlage die alte Verbindung noch mehrere
 Sekunden fest, was den Neustart verzögerte.
@@ -161,3 +195,7 @@ Verbindung).
 
 Alle bisherigen MQTT-Topics funktionieren unverändert weiter. Die neuen kommen
 nur hinzu.
+
+Der Cronjob für den Systemstart wird beim ersten Speichern der Einstellungen neu
+geschrieben. Bis dahin startet das Plugin nach einem Neustart des LoxBerry ohne
+die vorherige Wartezeit auf das Netzwerk.

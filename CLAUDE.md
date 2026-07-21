@@ -30,8 +30,7 @@ Betreff** für die Commit-Nachricht; sie wächst weiter, bis er „gepusht" sagt
 dann fängt sie neu an. Gepusht wird von ihm selbst — nimm **keinen
 GitHub-Token** entgegen, der stünde sonst dauerhaft im Gesprächsprotokoll.
 
-Oberfläche, Logmeldungen und neue Kommentare auf Deutsch. Version bleibt
-vorerst auf 0.3.
+Oberfläche, Logmeldungen und neue Kommentare auf Deutsch.
 
 ## Die drei AJAX-Endpunkte in `index.cgi`
 
@@ -196,8 +195,6 @@ geändert hatte.
   und die Seite fror ein — Ursache und Behebung siehe `setsid` oben, **die
   Wirkung ist noch nicht bestätigt**. Falls es weiter klemmt: `perl wrapper.pl
   start` von Hand auf dem LoxBerry aufrufen und das Plugin-Log ansehen.
-* Versionsnummer steht in `plugin.cfg` und `release.cfg` weiterhin auf 0.3.
-* Zweig `sensorliste` ist noch nicht nach `master` überführt.
 * `last_keepalive_ok` in `status.json` ist inhaltsleer — das Protokoll kennt keine
   Antwort auf ein Keepalive. Besser wäre der Zeitpunkt der letzten beantworteten
   RMI-Anfrage.
