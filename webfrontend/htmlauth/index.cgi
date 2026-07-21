@@ -1074,8 +1074,20 @@ sub getDeviceInfo
 			. "</span></div>";
 	}
 
+	# Bauart des Wärmetauschers. Eine eigene Eigenschaft dafür gibt es nicht -
+	# der Tauscher ist ein passives Bauteil ohne Elektronik. Die Bauart steckt
+	# aber in der Typenbezeichnung, und die Abkürzung erschließt sich nicht von
+	# selbst.
+	my $modell = $g->{modell} || $g->{name} || "";
+	my $tauscher;
+	$tauscher = "Enthalpie (ERV) &ndash; überträgt Wärme und Feuchte"
+		if ($modell =~ /\bERV\b/i);
+	$tauscher = "Wärmerückgewinnung (HRV) &ndash; überträgt nur Wärme"
+		if ($modell =~ /\bHRV\b/i);
+
 	my @zeilen = (
 		['Lüftungsanlage',  $g->{modell} || $g->{name}],
+		['Wärmetauscher',   $tauscher],
 		['Firmware',        $g->{firmware}],
 		['Seriennummer',    $g->{seriennummer}],
 		['Artikelnummer',   $g->{artikelnummer}],
