@@ -107,6 +107,17 @@
 		opacity: 0.45;
 	}
 
+	/* Stammdaten der erkannten Geraete. */
+	.cc-dev-zeile {
+		display: flex;
+		gap: 10px;
+		font-size: 0.88em;
+		padding: 1px 0;
+	}
+	.cc-dev-name { color: #666; flex: 0 0 170px; }
+	.cc-dev-wert { color: #333; }
+	.cc-dev-warn { color: #b58900; }
+
 	/* Diagnosetabelle. Bewusst zurueckhaltend - Hinweise fuer den Fehlerfall,
 	   keine Betriebsanzeige. */
 	.cc-diag-runtime {
@@ -138,6 +149,7 @@
 	.cc-diag-num {
 		text-align: right;
 		font-family: monospace;
+		font-size: inherit;
 		font-weight: bold;
 	}
 	/* Die Kopfzeile der Zahlenspalten mitziehen, sonst steht die Ueberschrift links
@@ -168,6 +180,7 @@
 	}
 	table.cc-diag .mono {
 		font-family: monospace;
+		font-size: inherit;
 	}
 	.cc-diag-reports {
 		font-size: 0.85em;
@@ -176,6 +189,7 @@
 	}
 	.cc-diag-reports .mono {
 		font-family: monospace;
+		font-size: inherit;
 	}
 	/* ---- Sensorliste ---------------------------------------------------- */
 	.cc-collapse-head {
@@ -234,10 +248,11 @@
 	.cc-sensor-aus td { color: #b0b0b0; }
 	.cc-sensor-pdid {
 		font-family: monospace;
+		font-size: inherit;
 		text-align: right;
 		width: 50px;
 	}
-	.cc-sensor-name-fix { font-family: monospace; width: 230px; }
+	.cc-sensor-name-fix { font-family: monospace; font-size: inherit; width: 230px; }
 	.cc-sensor-push-fix { color: #888; width: 62px; }
 	/* Feste Breite, weil die Kopfzeile in einer eigenen Tabelle steht. Die
 	   Einrueckung setzt die Zeilenhaken sichtbar unter den Gruppenhaken; die
@@ -310,6 +325,7 @@
 	   sekuendlichen Aktualisieren nicht staendig die Breite wechselt. */
 	.cc-sensor-val {
 		font-family: monospace;
+		font-size: inherit;
 		text-align: right;
 		width: 90px;
 		color: #2a6496;
@@ -353,15 +369,17 @@
 	   Kopf- und Datenzellen gleichermassen. */
 	.cc-cmd-topic {
 		font-family: monospace;
+		font-size: inherit;
 		width: 250px;
 		padding-left: 18px !important;
 	}
-	.cc-cmd-werte { font-family: monospace; color: #777; width: 90px; }
+	.cc-cmd-werte { font-family: monospace; font-size: inherit; color: #777; width: 90px; }
 	.cc-cmd-bed { color: #666; }
 	/* Zuletzt empfangener Wert - dieselbe Optik wie die Sensorwerte, damit
 	   erkennbar ist, dass es sich um eine Live-Anzeige handelt. */
 	.cc-cmd-last {
 		font-family: monospace;
+		font-size: inherit;
 		text-align: right;
 		/* Breit genug fuer die eigene Ueberschrift "Letzter Wert" - mit 70px brach
 		   sie auf zwei Zeilen um und draengte sich an die Spalte daneben. */
@@ -372,7 +390,7 @@
 	/* Breiter geworden, seit hier Uhrzeit UND Spanne stehen ("12:03:41 (vor 3m)").
 	   Ohne die Breite bricht die Zelle um und die Zeilenhoehen tanzen. */
 	.cc-cmd-when { color: #999; width: 155px; font-size: 0.92em; white-space: nowrap; }
-	table.cc-cmds .mono { font-family: monospace; }
+	table.cc-cmds .mono { font-family: monospace; font-size: inherit; }
 	.cc-cmd-err { color: #c0392b; }
 	/* Kennzeichnet die Zeitvorgaben, die gerade gelten - unabhaengig davon, ob
 	   jemals ein Wert dafuer empfangen wurde. */
@@ -388,7 +406,7 @@
 		font-size: 0.82em;
 		color: #6b5900;
 	}
-	.cc-cmd-drift .mono { font-family: monospace; }
+	.cc-cmd-drift .mono { font-family: monospace; font-size: inherit; }
 	/* jQuery Mobile baut aus dem <a> ein Button-Element mit eigenen Abstaenden -
 	   deshalb hier nur der Abstand nach oben und die Ausrichtung des Hinweistextes
 	   daneben, nicht die Optik des Knopfes selbst. */
@@ -498,6 +516,15 @@
 			</div>
 		</div>
 	</div>
+
+	<!-- Stammdaten der angeschlossenen Geraete. Erscheint nur, wenn das Plugin
+	     verbunden ist und die Werte lesen konnte. -->
+	<TMPL_IF NAME=DEVICEINFO>
+	<div class="cc-group">
+		<div class="cc-group-title">Erkannte Geräte</div>
+		<div id="devbox"><TMPL_VAR NAME=DEVICEINFO></div>
+	</div>
+	</TMPL_IF>
 
 	<div class="cc-group">
 		<div class="cc-group-title"><TMPL_VAR NAME=T::FORMTABLE.SENSORWATCH_LABEL></div>

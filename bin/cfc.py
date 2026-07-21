@@ -87,6 +87,10 @@ letzte_werte = {}
 # angekommen, und wurde sie verarbeitet oder lief sie auf einen Fehler?
 letzte_befehle = {}
 
+# Stammdaten von Anlage und ComfoConnect LAN C, einmalig nach dem
+# Verbindungsaufbau gelesen (siehe geraete_abfragen).
+geraeteinfo = {}
+
 # Themen, die tatsaechlich abonniert wurden - die Wahrheit darueber, welche Befehle
 # es gibt. Wird in die Statusdatei geschrieben, damit die Weboberflaeche ihre
 # Anzeigeliste dagegen pruefen kann.
@@ -722,6 +726,88 @@ def send_away(seconds):
     comfoconnect.cmd_rmi_request(cmd)
     return cmd
 
+def version_lesbar(zahl):
+    """Uebersetzt eine 32-Bit-Firmwarenummer in die Schreibweise der Anlage.
+
+    Die Bits zerfallen in vier Felder: 30-31 Reifegrad (U/D/P/R), 20-29
+    Hauptversion, 10-19 Nebenversion, 0-9 Patch. Ergibt Angaben wie "R1.6.2".
+    """
+    reifegrad = "UDPR"[(zahl >> 30) & 3]
+    return "%s%d.%d.%d" % (reifegrad, (zahl >> 20) & 1023,
+                           (zahl >> 10) & 1023, zahl & 1023)
+
+
+def lies_eigenschaft(unit, subunit, eigenschaft, als_text=True):
+    """Liest eine Geraeteeigenschaft per RMI.
+
+    Aufbau der Anfrage: 01 <Unit> <SubUnit> 10 <EigenschaftsId>. Liefert None,
+    wenn die Anlage die Eigenschaft nicht kennt oder nicht antwortet.
+    """
+    try:
+        antwort = comfoconnect.cmd_rmi_request(
+            bytes([0x01, unit, subunit, 0x10, eigenschaft]))
+        if not antwort or not getattr(antwort, 'msg', None):
+            return None
+        rohdaten = antwort.msg.message
+        if not rohdaten:
+            return None
+        if als_text:
+            return rohdaten.decode('utf-8', 'replace').rstrip('\x00').strip() or None
+        return int.from_bytes(rohdaten, byteorder='little', signed=False)
+    except Exception as e:
+        _LOGGER.debug("Eigenschaft %02x/%02x/%02x nicht lesbar: %s"
+                      % (unit, subunit, eigenschaft, fehlertext(e)))
+        return None
+
+
+def geraete_abfragen():
+    """Fragt die Stammdaten von Anlage und ComfoConnect LAN C ab.
+
+    Wird einmalig nach dem Verbindungsaufbau aufgerufen - die Werte aendern sich
+    im Betrieb nicht. Alles Fehlende bleibt schlicht weg; keine dieser Angaben
+    ist fuer den Betrieb noetig.
+    """
+    global geraeteinfo
+    daten = {}
+
+    # Lueftungsanlage, Unit 0x01 (NODE), SubUnit 0x01
+    for name, eigenschaft, text in (
+            ('modell',        0x08, True),
+            ('name',          0x14, True),
+            ('seriennummer',  0x04, True),
+            ('artikelnummer', 0x0B, True),
+            ('land',          0x0D, True),
+            ('firmware',      0x06, False)):
+        wert = lies_eigenschaft(0x01, 0x01, eigenschaft, text)
+        if wert is None:
+            continue
+        daten[name] = version_lesbar(wert) if name == 'firmware' else wert
+
+    # ComfoConnect LAN C
+    try:
+        version = comfoconnect.cmd_version_request()
+        if version:
+            daten['lanc_firmware'] = version_lesbar(version['gatewayVersion'])
+            daten['lanc_seriennummer'] = version['serialNumber']
+            daten['lanc_comfonet'] = version_lesbar(version['comfoNetVersion'])
+    except Exception as e:
+        _LOGGER.debug("Version der ComfoConnect LAN C nicht lesbar: " + fehlertext(e))
+
+    # Angemeldete Clients - zeigt einen zweiten Mitspieler, der uns die Sitzung
+    # streitig machen koennte.
+    try:
+        daten['clients'] = [str(a['devicename']) for a in comfoconnect.cmd_list_registered_apps()]
+    except Exception as e:
+        _LOGGER.debug("Client-Liste nicht lesbar: " + fehlertext(e))
+
+    geraeteinfo = daten
+    if daten:
+        _LOGGER.info("Anlage: %s, Firmware %s, Seriennummer %s"
+                     % (daten.get('modell', '?'), daten.get('firmware', '?'),
+                        daten.get('seriennummer', '?')))
+    return daten
+
+
 def sensorauswahl_anwenden(pcfg):
     """Liest aus der Konfiguration, welche Sensoren abgewaehlt sind.
 
@@ -1122,6 +1208,8 @@ def write_status_loop():
                     'sensoren_aus': sorted(sensoren_aus),
                     'befehle': {k: [str(w), t, f] for k, (w, t, f) in list(letzte_befehle.items())},
                     'befehlsthemen': list(abonnierte_themen),
+                    'geraete': dict(geraeteinfo),
+                    'knoten': list(getattr(comfoconnect, 'knoten', [])) if comfoconnect else [],
 
                     # Aktuell wirksame Zeitvorgaben. Wichtig, weil Loxone einen Wert
                     # nur bei AENDERUNG sendet: Nach einem Neustart des Plugins
@@ -1207,7 +1295,7 @@ def publish_sensorwatch_state():
 
 
 def main():
-    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, sensorwatch_enabled, sensorwatch_timeout_sec, comfocool_off_time, sensors_expected
+    global mqtt_topic, client, debug, loglevel, logfile, _LOGGER, search, boost_mode_time, ventmode_stop_supply_fan_time, ventmode_stop_exhaust_fan_time, bypass_on_time, bypass_off_time, comfoconnect, statusfile, sensorwatch_enabled, sensorwatch_timeout_sec, comfocool_off_time, sensors_expected, geraeteinfo
 
     loglevel=logging.ERROR
     search = False
@@ -1620,6 +1708,8 @@ def main():
         # ListRegisteredApps
         for app in comfoconnect.cmd_list_registered_apps():
             _LOGGER.info("Registered Apps (UUID): " + str(app['uuid'].hex()) + ", APP Name: " + str(app['devicename']))
+
+        geraete_abfragen()
 
         # TimeRequest
         timeinfo = comfoconnect.cmd_time_request()
