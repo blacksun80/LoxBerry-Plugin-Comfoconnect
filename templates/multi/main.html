@@ -434,12 +434,6 @@
 		color: #888;
 	}
 
-	/* Buttonleiste - eigener kleiner Abstand statt des frueheren <p>, dessen
-	   Default-Margins zusaetzliche Hoehe gekostet haben. */
-	.cc-buttons {
-		text-align: center;
-		margin: 4px 0 10px 0;
-	}
 
 	/* Statusbox: eigene Klassen statt der LoxBerry-Systemklasse "hint" (die ist nur
 	   kleiner grauer Hinweistext, keine Farbe). Jeder Zustand bekommt zusaetzlich ein
@@ -641,18 +635,15 @@
 
 	<div id="form-error-message" class="form-error-message"></div>
 
+	<!-- Steuerung und Speichern in einer Zeile. "Abbrechen" ist entfallen: Es
+	     verliess nur die Seite, und seit "Speichern" gesperrt bleibt, solange
+	     nichts geaendert wurde, gibt es auch nichts abzubrechen. -->
 	<div class="cc-steuerung">
 		<span id="steuerhinweis" class="cc-steuerhinweis"></span>
 		<a href="#" id="btnstartstop" data-role="button" data-inline="true" data-mini="true"
 			data-icon="power">Starten</a>
 		<a href="#" id="btnrestart" data-role="button" data-inline="true" data-mini="true"
 			data-icon="refresh">Neu starten</a>
-	</div>
-
-	<div class="cc-buttons">
-		<a id="btncancel" data-role="button" data-inline="true" data-mini="true" data-icon="delete"
-			href="/admin/index.cgi"><TMPL_VAR NAME=T::BUTTON.CANCEL>
-		</a>
 		<button type="submit" form="main_form" id="btnsubmit" data-role="button" data-inline="true"
 			data-mini="true" data-icon="check"><TMPL_VAR NAME=T::BUTTON.SAVE>
 		</button>
@@ -853,8 +844,14 @@
 		$.post( './index.cgi', { ajax_control: aktion }, function( d ) {
 			$( "#steuerhinweis" ).text( d && d.ok ? d.meldung : ( d ? d.meldung : "fehlgeschlagen" ) );
 			if ( d && d.ok && aktion !== "stop" ) { ccGespeichert = false; }
-		}, "json" ).fail( function() {
-			$( "#steuerhinweis" ).text( "fehlgeschlagen" );
+		}, "json" ).fail( function( xhr ) {
+			<!-- Statuscode und Antwortanfang mit ausgeben: Ein blosses -->
+			<!-- "fehlgeschlagen" sagt nichts darueber, WAS schiefging. Liefert das -->
+			<!-- CGI eine Fehlerseite statt JSON, steht der Grund meist darin. -->
+			var t = ( xhr && xhr.responseText ) ? xhr.responseText.replace( /<[^>]*>/g, " " ) : "";
+			t = t.replace( /\s+/g, " " ).substring( 0, 160 );
+			$( "#steuerhinweis" ).text(
+				"fehlgeschlagen (HTTP " + ( xhr ? xhr.status : "?" ) + ")" + ( t ? ": " + t : "" ) );
 		} );
 	}
 

@@ -185,12 +185,29 @@ if ( $cgi->param('ajax_control') ) {
 	my $meldung = "Nur per POST erlaubt.";
 
 	if ((($ENV{'REQUEST_METHOD'} || '') eq 'POST') && $aktion =~ /^(start|stop|restart)$/) {
-		my $cfg = new Config::Simple("$home/config/system/general.cfg");
-		my $inst = $cfg->param("BASE.INSTALLFOLDER");
-		system("perl $inst/bin/plugins/$psubfolder/wrapper.pl $aktion > /dev/null 2>&1 &");
-		$ok = 1;
-		$meldung = { start => "Wird gestartet...", stop => "Wird angehalten...",
-		             restart => "Wird neu gestartet..." }->{$aktion};
+		# In eval: Scheitert hier etwas, soll die Oberfläche den GRUND nennen und
+		# nicht bloß "fehlgeschlagen" - sonst steht man vor derselben Blindheit wie
+		# damals beim Snapshot-Schreiber.
+		eval {
+			my $syscfg = new Config::Simple("$home/config/system/general.cfg")
+				or die "general.cfg nicht lesbar";
+			my $inst = $syscfg->param("BASE.INSTALLFOLDER")
+				or die "BASE.INSTALLFOLDER fehlt";
+			my $skript = "$inst/bin/plugins/$psubfolder/wrapper.pl";
+			die "$skript nicht gefunden" if (!-e $skript);
+
+			my $rc = system("perl $skript $aktion > /dev/null 2>&1 &");
+			die "Aufruf fehlgeschlagen (rc=$rc)" if ($rc != 0);
+
+			$ok = 1;
+			$meldung = { start => "Wird gestartet...", stop => "Wird angehalten...",
+			             restart => "Wird neu gestartet..." }->{$aktion};
+			1;
+		} or do {
+			my $fehler = $@ || "unbekannter Fehler";
+			$fehler =~ s/\s+at\s+\S+\s+line\s+\d+\.?\s*$//;
+			$meldung = "Fehler: $fehler";
+		};
 	} elsif ($aktion !~ /^(start|stop|restart)$/) {
 		$meldung = "Unbekannte Aktion.";
 	}
@@ -565,6 +582,15 @@ sub getStatus
 			my $json_text = <$fh>;
 			close($fh);
 			$status = eval { decode_json($json_text) };
+
+			# Zuerst prüfen, ob überhaupt noch jemand schreibt. Die Datei liegt auf
+			# der Ramdisk und bleibt nach dem Anhalten stehen - ohne diese Prüfung
+			# stünde dort weiter "Läuft", nur mit immer älteren Werten.
+			if ($status && !laeuftNoch($status)) {
+				return ("Plugin läuft nicht", "cc-status-error",
+					getDiagnostics($status, $psubfolder), $status);
+			}
+
 			if ($status) {
 				# Betriebsstatistik. Bewusst hier oben und unabhängig von den
 				# Statuszweigen weiter unten: Die Diagnose soll auch (und gerade) dann
