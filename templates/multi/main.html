@@ -107,6 +107,20 @@
 		opacity: 0.45;
 	}
 
+	/* Steuerung des Plugins - getrennt vom Speichern der Einstellungen. */
+	.cc-steuerung {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		justify-content: center;
+		margin: 14px 0 4px 0;
+	}
+	.cc-steuerhinweis {
+		font-size: 0.85em;
+		color: #b58900;
+		margin-right: 6px;
+	}
+
 	/* Stammdaten der erkannten Geraete. */
 	.cc-dev-zeile {
 		display: flex;
@@ -627,6 +641,14 @@
 
 	<div id="form-error-message" class="form-error-message"></div>
 
+	<div class="cc-steuerung">
+		<span id="steuerhinweis" class="cc-steuerhinweis"></span>
+		<a href="#" id="btnstartstop" data-role="button" data-inline="true" data-mini="true"
+			data-icon="power">Starten</a>
+		<a href="#" id="btnrestart" data-role="button" data-inline="true" data-mini="true"
+			data-icon="refresh">Neu starten</a>
+	</div>
+
 	<div class="cc-buttons">
 		<a id="btncancel" data-role="button" data-inline="true" data-mini="true" data-icon="delete"
 			href="/admin/index.cgi"><TMPL_VAR NAME=T::BUTTON.CANCEL>
@@ -688,6 +710,10 @@
 			<!-- .html() statt .text(): index.cgi liefert hier eine fertige Tabelle. -->
 			<!-- Der Inhalt stammt ausschliesslich aus eigenen Zaehlern und Zeitangaben, -->
 			<!-- nicht aus Benutzereingaben - es kann also nichts Fremdes eingeschleust werden. -->
+			if ( typeof data.laeuft !== "undefined" ) {
+				var neu = data.laeuft ? true : false;
+				if ( neu !== ccLaeuft ) { ccLaeuft = neu; ccKnoepfe(); }
+			}
 			if ( typeof data.diagnostics !== "undefined" ) {
 				$( "#diagbox" ).html( data.diagnostics );
 			}
@@ -782,6 +808,78 @@
 	}
 
 	$( ".cc-sgruppe-kopf" ).each( function() { ccGruppenHaken( $( this ) ); } );
+
+	<!-- ===== Steuerung: starten, stoppen, neu starten ================ -->
+
+	var ccLaeuft = <TMPL_VAR NAME=LAEUFT> ? true : false;
+	var ccGeaendert = false;
+	var ccGespeichert = false;
+
+	<!-- Formularstand beim Laden merken, um spaeter Aenderungen zu erkennen. -->
+	function ccStand() {
+		return $( "#main_form" ).serialize();
+	}
+	var ccStandStart = ccStand();
+
+	function ccKnoepfe() {
+		<!-- Speichern nur, wenn wirklich etwas anders ist. -->
+		$( "#btnsubmit" ).toggleClass( "ui-disabled", !ccGeaendert );
+
+		<!-- Ein Knopf, zwei Bedeutungen - je nachdem ob der Prozess laeuft. -->
+		var t = ccLaeuft ? "Stoppen" : "Starten";
+		var sp = $( "#btnstartstop" ).find( ".ui-btn-text" );
+		if ( sp.length ) { sp.text( t ); } else { $( "#btnstartstop" ).text( t ); }
+		$( "#btnrestart" ).toggleClass( "ui-disabled", !ccLaeuft );
+
+		<!-- IP und PIN sind Verbindungsparameter: waehrend des Betriebs gesperrt. -->
+		$( "#iplanc, #pin" ).prop( "disabled", ccLaeuft );
+		$( "#labeliplanc, #labelpin" ).css( "opacity", ccLaeuft ? 0.45 : 1 );
+
+		<!-- Suchen nur im Stillstand und nur ohne eingetragene IP. -->
+		$( "#btnrescan" ).toggleClass( "ui-disabled",
+			ccLaeuft || $( "#iplanc" ).val() !== "" );
+
+		$( "#steuerhinweis" ).text(
+			( ccGespeichert && ccLaeuft ) ? "Gespeichert – wirkt nach einem Neustart" : "" );
+	}
+
+	$( "#main_form" ).on( "change input", function() {
+		ccGeaendert = ( ccStand() !== ccStandStart );
+		ccKnoepfe();
+	} );
+
+	function ccSteuern( aktion ) {
+		$( "#steuerhinweis" ).text( "…" );
+		$.post( './index.cgi', { ajax_control: aktion }, function( d ) {
+			$( "#steuerhinweis" ).text( d && d.ok ? d.meldung : ( d ? d.meldung : "fehlgeschlagen" ) );
+			if ( d && d.ok && aktion !== "stop" ) { ccGespeichert = false; }
+		}, "json" ).fail( function() {
+			$( "#steuerhinweis" ).text( "fehlgeschlagen" );
+		} );
+	}
+
+	$( "#btnstartstop" ).on( "click", function( e ) {
+		e.preventDefault();
+		if ( ccLaeuft && !confirm( "Plugin anhalten? Es werden dann keine Werte mehr übertragen." ) ) {
+			return;
+		}
+		ccSteuern( ccLaeuft ? "stop" : "start" );
+	} );
+
+	$( "#btnrestart" ).on( "click", function( e ) {
+		e.preventDefault();
+		ccSteuern( "restart" );
+	} );
+
+	<!-- Nach dem Speichern ist die Datei geschrieben, der laufende Prozess kennt -->
+	<!-- sie aber noch nicht - daher der Hinweis auf den Neustart. -->
+	$( "#main_form" ).on( "submit", function() {
+		ccGespeichert = true;
+		ccStandStart = ccStand();
+		ccGeaendert = false;
+	} );
+
+	ccKnoepfe();
 
 	$( "#btnresetstats" ).on( "click", function( e ) {
 		e.preventDefault();

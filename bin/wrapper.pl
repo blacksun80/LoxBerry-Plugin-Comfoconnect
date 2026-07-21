@@ -110,6 +110,19 @@ my $snapshotdir = "$installfolder/data/plugins/$psubfolder";
 system("mkdir -p $snapshotdir > /dev/null 2>&1");
 
 foreach $arg (@ARGV) {
+    # Nur anhalten, ohne Neustart. cfc.py bekommt durch das schlichte pkill
+    # (SIGTERM, kein -9) die Gelegenheit, sich sauber bei der Anlage abzumelden.
+    if ($arg eq "stop") {
+        if (scalar(grep{/cfc.py/} `ps aux`)) {
+            LOGINF "Stoppe ComfoConnect...";
+            system("pkill -f $installfolder/bin/plugins/$psubfolder/cfc.py >> $logfile 2>&1");
+            wait_for_cfc_exit($installfolder, $psubfolder);
+        } else {
+            LOGINF "ComfoConnect laeuft nicht.";
+        }
+        exit(0);
+    }
+
     if (($arg eq "restart") || ($arg eq "start") || ($arg eq "search")) {
 
         if (scalar(grep{/cfc.py/} `ps aux`)) {
