@@ -472,6 +472,7 @@ sub form
     $maintemplate->param( SENSORSGESAMT => $sensors_gesamt );
 
     my ($commandtable, $commands_anzahl) = getCommandTable($status_daten);
+    $maintemplate->param( DEVICEINFO => getDeviceInfo($status_daten) );
     $maintemplate->param( COMMANDTABLE => $commandtable );
     $maintemplate->param( COMMANDSANZAHL => $commands_anzahl );
     
@@ -1042,6 +1043,67 @@ my @COMMANDS = (
 	}
 
 	return ($html, $anzahl);
+}
+
+#####################################################
+# Baut die Übersicht der erkannten Geräte.
+#
+# Die Stammdaten liest cfc.py einmalig nach dem Verbindungsaufbau per RMI aus
+# der Anlage; die Geräteliste meldet die Anlage von sich aus. Fehlt etwas,
+# entfällt die Zeile - keine dieser Angaben ist für den Betrieb nötig.
+#####################################################
+
+sub getDeviceInfo
+{
+	my ($status) = @_;
+	return "" if (!$status);
+
+	my $g = (ref($status->{geraete}) eq 'HASH') ? $status->{geraete} : {};
+	my $knoten = (ref($status->{knoten}) eq 'ARRAY') ? $status->{knoten} : [];
+	return "" if (!%$g && !@$knoten);
+
+	my $html = "";
+
+	# Angeschlossene Geräte, wie die Anlage sie meldet.
+	if (@$knoten) {
+		$html .= "<div class=\"cc-dev-zeile\"><span class=\"cc-dev-name\">Geräte am Bus</span>"
+			. "<span class=\"cc-dev-wert\">"
+			. join(", ", map { my $m = ($_->{modus} && $_->{modus} ne 'NODE_NORMAL')
+			                            ? " ($_->{modus})" : "";
+			                   "$_->{name}$m" } @$knoten)
+			. "</span></div>";
+	}
+
+	my @zeilen = (
+		['Lüftungsanlage',  $g->{modell} || $g->{name}],
+		['Firmware',        $g->{firmware}],
+		['Seriennummer',    $g->{seriennummer}],
+		['Artikelnummer',   $g->{artikelnummer}],
+		['ComfoConnect LAN C', $g->{lanc_firmware}
+			? "Firmware $g->{lanc_firmware}" . ($g->{lanc_seriennummer}
+				? ", Seriennummer $g->{lanc_seriennummer}" : "") : undef],
+		['ComfoNet',        $g->{lanc_comfonet}],
+	);
+	for my $z (@zeilen) {
+		next if (!defined($z->[1]) || $z->[1] eq "");
+		my $w = $z->[1]; $w =~ s/</&lt;/g;
+		$html .= "<div class=\"cc-dev-zeile\"><span class=\"cc-dev-name\">$z->[0]</span>"
+			. "<span class=\"cc-dev-wert\">$w</span></div>";
+	}
+
+	# Angemeldete Clients. Diagnostisch der wertvollste Teil: Steht hier ein
+	# zweiter Eintrag, streitet sich jemand mit uns um die einzige Sitzung, die
+	# die Anlage vergibt.
+	if (ref($g->{clients}) eq 'ARRAY' && @{ $g->{clients} }) {
+		my @c = map { my $x = $_; $x =~ s/</&lt;/g; $x } @{ $g->{clients} };
+		my $warn = (@c > 1) ? " cc-dev-warn" : "";
+		$html .= "<div class=\"cc-dev-zeile\"><span class=\"cc-dev-name\">Angemeldet</span>"
+			. "<span class=\"cc-dev-wert$warn\">" . join(", ", @c)
+			. (@c > 1 ? " &ndash; die Anlage erlaubt nur eine Sitzung gleichzeitig" : "")
+			. "</span></div>";
+	}
+
+	return $html;
 }
 
 #####################################################

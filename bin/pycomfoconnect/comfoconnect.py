@@ -182,6 +182,9 @@ class ComfoConnect(object):
         # siehe _connection_thread_loop().
         self._abbruch_gemeldet = False
 
+        # Geraete, die sich nach dem Anmelden gemeldet haben (CnNodeNotification).
+        self.knoten = []
+
         # True, wenn die Anlage unsere Sitzung verworfen hat (NOT_ALLOWED), die
         # TCP-Verbindung aber steht. Dann genuegt eine Neuanmeldung, siehe
         # _session_verloren() und _connection_thread_loop().
@@ -689,6 +692,7 @@ class ComfoConnect(object):
                 # Verbindung steht wieder - der naechste Verlust ist damit ein neuer
                 # Vorfall und darf erneut gezaehlt und gemeldet werden.
                 self._abbruch_gemeldet = False
+                self.knoten = []
 
                 # Warteschlange hier leeren, nicht im Nachrichten-Thread: Sonst koennte ein
                 # Wartender noch die alte erwischen und ins Leere lauschen.
@@ -874,6 +878,12 @@ class ComfoConnect(object):
                         # Abonnements auch ohne Modul an und antwortet mit 0, es gibt also
                         # keinen Fehler zu vermeiden - und wen der Wert stoert, der waehlt
                         # den Sensor in den Einstellungen ab.
+                        self.knoten.append({
+                            'name': PRODUCT_ID_MAP.get(message.msg.productId,
+                                                       'Unbekannt (%d)' % message.msg.productId),
+                            'node': message.msg.nodeId,
+                            'modus': message.msg.NodeModeType.Name(message.msg.mode),
+                        })
                         _LOGGER.info('CnNodeNotificationType: %s @ Node Id %d [%s]',
                             PRODUCT_ID_MAP.get(message.msg.productId, 'Unbekannt (%d)' % message.msg.productId),
                             message.msg.nodeId,
