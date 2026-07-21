@@ -1347,7 +1347,7 @@ sub Cronjob
 		
 		# Create the event
 		my $event = new Config::Crontab::Event (
-		-command =>  "$installfolder/bin/plugins/$psubfolder/wrapper.pl start > /dev/null 2>&1 &",
+		-command =>  "$installfolder/bin/plugins/$psubfolder/wrapper.pl boot > /dev/null 2>&1 &",
 		-user => 'loxberry',
 		-system => 1,
 		);

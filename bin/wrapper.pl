@@ -110,46 +110,30 @@ my $snapshotdir = "$installfolder/data/plugins/$psubfolder";
 system("mkdir -p $snapshotdir > /dev/null 2>&1");
 
 foreach $arg (@ARGV) {
-    # Nur anhalten, ohne Neustart. cfc.py bekommt durch das schlichte pkill
-    # (SIGTERM, kein -9) die Gelegenheit, sich sauber bei der Anlage abzumelden.
+    # Nur anhalten, ohne Neustart. cfc.py bekommt durch SIGTERM die Gelegenheit,
+    # sich sauber bei der Anlage abzumelden (Einzelheiten in stop_cfc).
     if ($arg eq "stop") {
-        if (scalar(grep{/cfc.py/} `ps aux`)) {
-            LOGINF "Stoppe ComfoConnect...";
-            system("pkill -f $installfolder/bin/plugins/$psubfolder/cfc.py >> $logfile 2>&1");
-            wait_for_cfc_exit($installfolder, $psubfolder);
-        } else {
-            LOGINF "ComfoConnect laeuft nicht.";
-        }
+        stop_cfc($installfolder, $psubfolder);
         exit(0);
     }
 
-    if (($arg eq "restart") || ($arg eq "start") || ($arg eq "search")) {
+    if (($arg eq "restart") || ($arg eq "start") || ($arg eq "boot") || ($arg eq "search")) {
 
-        if (scalar(grep{/cfc.py/} `ps aux`)) {
-            LOGINF "cfc.py already running.";
-            LOGINF "Stoppe ComfoConnect...";
-            system("pkill -f $installfolder/bin/plugins/$psubfolder/cfc.py >> $logfile 2>&1");
+        stop_cfc($installfolder, $psubfolder);
 
-            # cfc.py bekommt durch pkill (SIGTERM, kein -9) jetzt die Chance, sich per
-            # CloseSessionRequest sauber bei der Zehnder-Box abzumelden, bevor der
-            # Prozess beendet wird - kurz warten, bis er das tatsächlich getan hat,
-            # statt den neuen Prozess sofort parallel dazu zu starten. Sonst trifft der
-            # neue Prozess womöglich noch auf eine Box, die die alte Session noch nicht
-            # losgelassen hat (der "resumed"-Verzögerungseffekt, den der saubere
-            # Shutdown eigentlich vermeiden soll).
-            wait_for_cfc_exit($installfolder, $psubfolder);
-        }
-
-        if ($arg eq "restart") {
+        if ($arg eq "restart" || $arg eq "start") {
             LOGINF "Starte ComfoConnect...";
             system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile --snapshotdir $snapshotdir > /dev/null 2>>$logfile &");
             exit(0);
         }
 
-        if ($arg eq "start") {
-            LOGINF "Starte ComfoConnect...";
+        # Nur beim Systemstart (@reboot-Cronjob): Netzwerk und Broker sind da noch
+        # nicht zwangslaeufig bereit. Ein Klick in der Oberflaeche darf diese
+        # Wartezeit NICHT mitnehmen - dort wirkte sie wie ein haengender Start.
+        if ($arg eq "boot") {
             LOGINF "Warte bis der Loxberry bereit ist";
             sleep(20);
+            LOGINF "Starte ComfoConnect...";
             system("$installfolder/bin/plugins/$psubfolder/cfc.py  --configfile $installfolder/config/plugins/$psubfolder/$psubfolder.json --logfile $logfile --loglevel $loglevel --statusfile $statusfile --snapshotdir $snapshotdir > /dev/null 2>>$logfile &");
             exit(0);
         }
@@ -188,7 +172,7 @@ foreach $arg (@ARGV) {
         my $timeout_sec = $pcfg->{'MAIN'}->{'SENSORWATCH_TIMEOUT_SEC'};
         $timeout_sec = 60 if (!$timeout_sec || $timeout_sec !~ /^\d+$/ || $timeout_sec < 10);
 
-        my $running = scalar(grep{/cfc.py/} `ps aux`);
+        my $running = scalar(cfc_pids($installfolder, $psubfolder));
         my $stale_data = 0;
         my $reason = "sendet seit über ${timeout_sec}s keine Sensordaten mehr (Verbindung hängt vermutlich)";
 
@@ -210,7 +194,7 @@ foreach $arg (@ARGV) {
         if (!$running || $stale_data) {
             LOGWARN "Überwachung: ComfoConnect " . ($running ? $reason : "läuft nicht") . " - starte neu.";
             if ($running) {
-                system("pkill -f $installfolder/bin/plugins/$psubfolder/cfc.py >> $logfile 2>&1");
+                stop_cfc($installfolder, $psubfolder);
                 # Kurze, best-effort Wartezeit auf den sauberen Shutdown (siehe Kommentar
                 # oben bei "restart") - falls der Prozess wirklich haengt (genau der Fall,
                 # den der Watchdog hier abfaengt), reagiert er evtl. gar nicht auf SIGTERM;
@@ -224,9 +208,9 @@ foreach $arg (@ARGV) {
 }
 
 ##########################################################################
-# wait_for_cfc_exit - best-effort, kurze Wartezeit nach einem pkill auf
+# wait_for_cfc_exit - best-effort, kurze Wartezeit nach dem SIGTERM auf
 # cfc.py, bevor ein neuer Prozess gestartet wird. cfc.py bekommt durch das
-# reine pkill (SIGTERM statt -9) inzwischen einen Moment, sich per
+# reine SIGTERM (statt -9) inzwischen einen Moment, sich per
 # CloseSessionRequest sauber bei der Zehnder-Box abzumelden (siehe der
 # SIGTERM-Handler in cfc.py) - ohne diese Wartezeit wuerde der naechste
 # Prozess sofort parallel dazu starten und moeglicherweise noch auf eine
@@ -236,6 +220,70 @@ foreach $arg (@ARGV) {
 # einfach weitermachen - haengt der alte Prozess wirklich (z.B. der Fall, den
 # der Watchdog behandelt), soll das den Neustart nicht blockieren.
 ##########################################################################
+
+# Liefert die PIDs der laufenden cfc.py-Prozesse.
+#
+# BEWUSST nicht mehr `grep{/cfc.py/} `ps aux``: Dieses Muster trifft auch auf die
+# eigenen Hilfsprozesse zu. system("pkill -f .../cfc.py >> $logfile") enthaelt
+# Umleitungszeichen, Perl startet dafuer eine Shell - und deren Kommandozeile
+# enthaelt den Pfad und damit "cfc.py". Dasselbe gilt fuer den Startbefehl mit
+# "&". Ergebnis: Die Pruefung sah Prozesse, die gar keine Anlage bedienen, pkill
+# erschlug die eigene Shell mit, und ob ein Start oder Neustart durchkam, war
+# Glueckssache. Deshalb hier ueber /proc gehen und nur echte Python-Prozesse
+# zaehlen - eine Shell hat als argv[0] nie "python".
+sub cfc_pids
+{
+    my ($installfolder, $psubfolder) = @_;
+    my $skript = "$installfolder/bin/plugins/$psubfolder/cfc.py";
+    my @pids;
+    opendir(my $dh, "/proc") or return @pids;
+    foreach my $pid (grep { /^\d+$/ } readdir($dh)) {
+        next if ($pid == $$);
+        open(my $fh, '<', "/proc/$pid/cmdline") or next;
+        local $/ = undef;
+        my $cmd = <$fh>;
+        close($fh);
+        next if (!defined($cmd));
+        my @argv = split(/\0/, $cmd);
+        next if (scalar(@argv) < 2);
+        # argv[0] muss der Interpreter sein und argv[1] unser Skript - so kann
+        # weder eine Shell noch ein Editor mit derselben Datei mitgezaehlt werden.
+        next if ($argv[0] !~ m{(^|/)python[\d.]*$});
+        next if ($argv[1] ne $skript);
+        push @pids, $pid;
+    }
+    closedir($dh);
+    return @pids;
+}
+
+# Beendet alle cfc.py-Prozesse und wartet, bis sie wirklich weg sind.
+# Rueckgabe: 1 = beendet, 0 = liefen nicht.
+sub stop_cfc
+{
+    my ($installfolder, $psubfolder) = @_;
+    my @pids = cfc_pids($installfolder, $psubfolder);
+    if (!scalar(@pids)) {
+        LOGINF "ComfoConnect laeuft nicht.";
+        return 0;
+    }
+    LOGINF "Stoppe ComfoConnect (PID " . join(", ", @pids) . ")...";
+    # SIGTERM, damit cfc.py sich per CloseSessionRequest sauber bei der Anlage
+    # abmelden kann. kill() statt pkill: kein Shell-Aufruf, keine Selbsttreffer.
+    kill('TERM', @pids);
+    if (!wait_for_cfc_exit($installfolder, $psubfolder)) {
+        # Haengt der Prozess wirklich, muss er weg - sonst startet gleich ein
+        # zweiter daneben und welcher von beiden die Anlage bedient, ist Zufall.
+        # Genau das war als "mal geht es, mal nicht" zu sehen.
+        @pids = cfc_pids($installfolder, $psubfolder);
+        if (scalar(@pids)) {
+            LOGWARN "ComfoConnect reagiert nicht auf SIGTERM - erzwinge das Ende (PID "
+                . join(", ", @pids) . ").";
+            kill('KILL', @pids);
+            wait_for_cfc_exit($installfolder, $psubfolder);
+        }
+    }
+    return 1;
+}
 
 sub wait_for_cfc_exit
 {
@@ -250,7 +298,7 @@ sub wait_for_cfc_exit
                        # MQTT-Client-ID und takeover=True unkritisch ist.
 
     for (my $i = 0; $i < $max_wait * 5; $i++) {
-        return 1 if (!scalar(grep{/cfc.py/} `ps aux`));
+        return 1 if (!scalar(cfc_pids($installfolder, $psubfolder)));
         select(undef, undef, undef, 0.2); # 200ms
     }
     return 0;
