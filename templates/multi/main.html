@@ -1122,9 +1122,33 @@
 		} );
 	}
 
+	<!-- Starten und Neu starten lesen beide die gespeicherte Datei. Liegen im -->
+	<!-- Formular noch ungesicherte Aenderungen, liefe das Plugin mit den ALTEN -->
+	<!-- Werten an und es saehe aus, als haette die Aenderung nichts bewirkt. -->
+	<!-- Deshalb vorher fragen. Ungefragt zu speichern waere bequemer, wuerde aber -->
+	<!-- eine Aenderung festschreiben, die der Benutzer vielleicht nur ausprobiert -->
+	<!-- hat - und der Weg zurueck fehlt dann. -->
+	<!-- Nur Anhalten laesst die Aenderungen unangetastet: Dort ergibt das -->
+	<!-- Speichern keinen Sinn, das Plugin liest die Datei ja gar nicht. -->
+	function ccSteuernMitSpeichern( aktion ) {
+		if ( !ccGeaendert ) { ccSteuern( aktion ); return; }
+		var wort = ( aktion === "restart" ) ? "neu starten" : "starten";
+		ccFrage( "Ungespeicherte Änderungen",
+			"Das Plugin liest beim " + ( aktion === "restart" ? "Neustart" : "Start" )
+				+ " die gespeicherte Konfiguration. Die Änderungen im Formular wären dabei nicht dabei. "
+				+ "Erst speichern und dann " + wort + "?",
+			"Speichern und " + wort,
+			function() {
+				<!-- Das Speichern schickt das Formular ab, die Seite wird also neu -->
+				<!-- aufgebaut. Die Absicht muss diesen Neuaufbau ueberleben. -->
+				try { sessionStorage.setItem( "ccDanach", aktion ); } catch ( e ) {}
+				$( "#main_form" ).submit();
+			} );
+	}
+
 	$( "#btnstartstop" ).on( "click", function( e ) {
 		e.preventDefault();
-		if ( !ccLaeuft ) { ccSteuern( "start" ); return; }
+		if ( !ccLaeuft ) { ccSteuernMitSpeichern( "start" ); return; }
 		ccFrage( "Plugin anhalten?",
 			"Es werden dann keine Werte mehr an Loxone übertragen und keine Befehle mehr angenommen.",
 			"Anhalten", function() { ccSteuern( "stop" ); } );
@@ -1132,16 +1156,7 @@
 
 	$( "#btnrestart" ).on( "click", function( e ) {
 		e.preventDefault();
-		<!-- Ein Neustart liest die gespeicherte Datei. Sind im Formular noch -->
-		<!-- ungesicherte Aenderungen, startet das Plugin mit den ALTEN Werten - und -->
-		<!-- es sieht so aus, als haetten die Aenderungen nichts bewirkt. -->
-		if ( ccGeaendert ) {
-			ccFrage( "Ungespeicherte Änderungen",
-				"Ein Neustart liest die gespeicherte Konfiguration. Die Änderungen im Formular wären dabei nicht dabei. Erst speichern und dann neu starten?",
-				"Speichern", function() { $( "#main_form" ).submit(); } );
-			return;
-		}
-		ccSteuern( "restart" );
+		ccSteuernMitSpeichern( "restart" );
 	} );
 
 	<!-- Nach dem Speichern ist die Datei geschrieben, der laufende Prozess kennt -->
@@ -1155,18 +1170,20 @@
 		ccGeaendert = false;
 	} );
 
-	<!-- Nach dem Neuaufbau: Wurde eben gespeichert und laeuft das Plugin, kennt -->
-	<!-- der laufende Prozess die neue Konfiguration noch nicht. Also anbieten, -->
-	<!-- ihn neu zu starten, statt es nur als Hinweis hinzuschreiben. -->
+	<!-- Nach dem Neuaufbau: Wurde eben gespeichert, kennt der laufende Prozess die -->
+	<!-- neue Konfiguration noch nicht. Das sagt der Hinweis neben den Schaltflaechen -->
+	<!-- (siehe ccKnoepfe) - ein Dialog waere hier zu viel, denn niemand muss sofort -->
+	<!-- handeln. Ist das Plugin ohnehin gestoppt, entfaellt der Hinweis: Dann wirkt -->
+	<!-- die Aenderung beim naechsten Start ganz von selbst. -->
 	try {
 		if ( sessionStorage.getItem( "ccGespeichert" ) === "1" ) {
 			sessionStorage.removeItem( "ccGespeichert" );
 			ccGespeichert = true;
-			if ( ccLaeuft ) {
-				ccFrage( "Einstellungen gespeichert",
-					"Das Plugin läuft noch mit den alten Einstellungen. Soll es jetzt neu gestartet werden, damit die Änderungen wirksam werden?",
-					"Neu starten", function() { ccSteuern( "restart" ); } );
-			}
+			<!-- Wurde das Speichern von Starten oder Neu starten ausgeloest, jetzt -->
+			<!-- ohne weitere Nachfrage ausfuehren - danach gefragt hat der Klick. -->
+			var danach = sessionStorage.getItem( "ccDanach" );
+			sessionStorage.removeItem( "ccDanach" );
+			if ( danach ) { ccSteuern( danach ); }
 		}
 	} catch ( e ) {}
 
