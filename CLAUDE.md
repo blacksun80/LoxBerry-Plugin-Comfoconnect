@@ -110,3 +110,16 @@ Stellen sind wir inzwischen weiter, etwa bei der Reaktion auf `NOT_ALLOWED`.
   Antwort auf ein Keepalive. Besser wäre der Zeitpunkt der letzten beantworteten
   RMI-Anfrage.
 * ComfoCool-Befehle sind ungetestet (keine Hardware vorhanden).
+* **Drosselung in `callback_sensor` verwirft den letzten Wert.** Fällt eine
+  Änderung ins `PUSH`-Sperrfenster, wird sie weggeworfen statt nachgereicht.
+  Kommt danach längere Zeit nichts mehr, steht in MQTT dauerhaft der vorletzte
+  Wert — ein falscher, nicht nur ein verzögerter. Trifft besonders träge
+  Sensoren (Temperatur, Feuchte, Filtertage).
+
+  Geplante Lösung: Drosselung mit Nachlauf. Neuer Wert bei aktiver Sperre wird
+  als *ausstehend* gemerkt (immer nur der neueste, spätere überschreiben ihn)
+  und gesendet, sobald die Sperre fällt. Dazu ein Vergleich auf Gleichheit —
+  identische Werte gar nicht erst senden. Ergibt weniger Verkehr als heute bei
+  korrekten Werten; die Sendehäufigkeit bleibt auf eine Nachricht je Intervall
+  begrenzt. Das Nachreichen kann der Status-Thread übernehmen, der ohnehin
+  sekündlich läuft. Sensoren ohne `PUSH` bleiben unberührt.
