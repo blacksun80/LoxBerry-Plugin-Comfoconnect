@@ -579,7 +579,7 @@
 	</div>
 </center>
 
-<form method="post" data-ajax="false" name="main_form" id="main_form" action="./index.cgi#steuerung">
+<form method="post" data-ajax="false" name="main_form" id="main_form" action="./index.cgi">
 	<input type="hidden" name="saveformdata" value="1">
 
 	<div class="cc-group">
@@ -1165,7 +1165,16 @@
 		<!-- Das Formular wird normal abgeschickt, die Seite also neu aufgebaut. -->
 		<!-- Der Merker muss diesen Neuaufbau ueberleben, sonst waere nach dem -->
 		<!-- Speichern nicht mehr bekannt, DASS gespeichert wurde. -->
-		try { sessionStorage.setItem( "ccGespeichert", "1" ); } catch ( e ) {}
+		try {
+			sessionStorage.setItem( "ccGespeichert", "1" );
+			<!-- Rollposition mitnehmen. Der frueher benutzte Anker in der -->
+			<!-- Formularadresse (#steuerung) taugt dafuer nicht: jQuery Mobile -->
+			<!-- verwendet den Hash fuer seine EIGENE Seitennavigation und deutet -->
+			<!-- ihn als Seiten-ID statt als Sprungmarke - die Seite landete -->
+			<!-- deshalb oben. -->
+			sessionStorage.setItem( "ccRollen",
+				String( window.pageYOffset || document.documentElement.scrollTop || 0 ) );
+		} catch ( e ) {}
 		ccStandStart = ccStand();
 		ccGeaendert = false;
 	} );
@@ -1183,6 +1192,16 @@
 			<!-- ohne weitere Nachfrage ausfuehren - danach gefragt hat der Klick. -->
 			var danach = sessionStorage.getItem( "ccDanach" );
 			sessionStorage.removeItem( "ccDanach" );
+			<!-- Erst zurueckrollen, dann den gemerkten Befehl ausfuehren. Loest -->
+			<!-- dieser den Arbeitsdialog aus, rollt der ohnehin wieder nach oben - -->
+			<!-- beim reinen Speichern bleibt die Ansicht dagegen stehen. -->
+			var pos = parseInt( sessionStorage.getItem( "ccRollen" ) || "0", 10 );
+			sessionStorage.removeItem( "ccRollen" );
+			if ( pos > 0 ) {
+				<!-- Verzoegert, weil jQuery Mobile nach dem Aufbau selbst an den -->
+				<!-- Seitenanfang rollt und uns sonst ueberschreibt. -->
+				setTimeout( function() { window.scrollTo( 0, pos ); }, 60 );
+			}
 			if ( danach ) { ccSteuern( danach ); }
 		}
 	} catch ( e ) {}
