@@ -107,18 +107,40 @@
 		opacity: 0.45;
 	}
 
-	/* Steuerung des Plugins - getrennt vom Speichern der Einstellungen. */
+	/* Kopfzeile: Status links, Schaltflaechen rechts. flex-wrap laesst die Knoepfe
+	   auf schmalen Schirmen unter den Status rutschen statt ihn zu quetschen. */
+	.cc-kopf {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-wrap: wrap;
+		gap: 24px;
+		/* Abstand nach unten wie bei .cc-intro - siehe Kommentar dort. */
+		margin: 0 auto 28px auto;
+	}
+
+	/* Steuerung des Plugins - getrennt vom Speichern der Einstellungen.
+	   Knoepfe in einer Zeile, der Hinweis darunter: Stuende er daneben, wuerde
+	   die Zeile bei jeder Meldung breiter und die Knoepfe wanderten seitwaerts. */
 	.cc-steuerung {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 2px;
+		margin: 0;
+	}
+	.cc-steuerknoepfe {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		justify-content: center;
-		margin: 14px 0 4px 0;
 	}
 	.cc-steuerhinweis {
 		font-size: 0.85em;
 		color: #b58900;
-		margin-right: 6px;
+		text-align: center;
+		/* Platz freihalten, damit die Knoepfe beim Erscheinen einer Meldung nicht
+		   nach oben springen. */
+		min-height: 1.2em;
 	}
 
 	/* Eigener Bestaetigungsdialog. Ersetzt confirm() - das ist nicht gestaltbar,
@@ -505,7 +527,8 @@
 		   Der Abstand nach unten muss mit dem von .cc-intro uebereinstimmen. */
 		padding: 14px 26px;
 		display: table;
-		margin: 0 auto 28px auto;
+		/* Kein eigener Abstand mehr - den bringt jetzt .cc-kopf mit. */
+		margin: 0;
 		font-size: 1.05em;
 	}
 	#statusbox .cc-status-icon {
@@ -544,9 +567,30 @@
 	</div>
 </center>
 
+<!-- Status und Schaltflaechen bewusst nebeneinander und ganz oben: Vorher standen
+     die Knoepfe unten am Formular. Man musste zum Bedienen hinunterscrollen und
+     sah dann ausgerechnet die Statusanzeige nicht mehr, die sagt, ob der Befehl
+     gewirkt hat. -->
 <center>
-	<div id="statusbox" class="<TMPL_VAR NAME=STATUSCLASS>">
-		<span class="cc-status-icon">&#9679;</span><b><TMPL_VAR NAME=T::FORMTABLE.STATUS_LABEL></b> <span id="statustext"><TMPL_VAR NAME=STATUSTEXT></span>
+	<div class="cc-kopf" id="steuerung">
+		<div id="statusbox" class="<TMPL_VAR NAME=STATUSCLASS>">
+			<span class="cc-status-icon">&#9679;</span><b><TMPL_VAR NAME=T::FORMTABLE.STATUS_LABEL></b> <span id="statustext"><TMPL_VAR NAME=STATUSTEXT></span>
+		</div>
+		<!-- Die Schaltflaeche zum Speichern steht ausserhalb des Formulars und wird -->
+		<!-- ueber form="main_form" zugeordnet. So bleibt das normale Abschicken samt -->
+		<!-- der Pruefung des IP-Feldes erhalten. -->
+		<div class="cc-steuerung">
+			<div class="cc-steuerknoepfe">
+				<a href="#" id="btnstartstop" data-role="button" data-inline="true" data-mini="true"
+					data-icon="power">Starten</a>
+				<a href="#" id="btnrestart" data-role="button" data-inline="true" data-mini="true"
+					data-icon="refresh">Neu starten</a>
+				<button type="submit" form="main_form" id="btnsubmit" data-role="button" data-inline="true"
+					data-mini="true" data-icon="check"><TMPL_VAR NAME=T::BUTTON.SAVE>
+				</button>
+			</div>
+			<span id="steuerhinweis" class="cc-steuerhinweis"></span>
+		</div>
 	</div>
 </center>
 
@@ -705,16 +749,6 @@
 		</div>
 	</div>
 
-	<div class="cc-steuerung" id="steuerung">
-		<span id="steuerhinweis" class="cc-steuerhinweis"></span>
-		<a href="#" id="btnstartstop" data-role="button" data-inline="true" data-mini="true"
-			data-icon="power">Starten</a>
-		<a href="#" id="btnrestart" data-role="button" data-inline="true" data-mini="true"
-			data-icon="refresh">Neu starten</a>
-		<button type="submit" form="main_form" id="btnsubmit" data-role="button" data-inline="true"
-			data-mini="true" data-icon="check"><TMPL_VAR NAME=T::BUTTON.SAVE>
-		</button>
-	</div>
 </form>
 
 </div><!-- /cc-plugin -->
