@@ -11,11 +11,14 @@ Steuerbefehle entgegen — beides per MQTT.
 
 ## Einrichtung
 
-1. In den Plugin-Einstellungen die **IP-Adresse** der LAN C eintragen — oder das
-   Feld leer lassen und „Nach Zehnder Lüftungsanlage suchen" verwenden. Die
-   automatische Suche läuft nur, solange noch keine IP eingetragen ist.
+1. In den Plugin-Einstellungen die **IP-Adresse** der LAN C eintragen — oder
+   „IP der ComfoConnect LAN C ermitteln" anklicken. Das geht auch, wenn dort
+   bereits eine Adresse steht; die Ermittlung setzt nur voraus, dass das Plugin
+   gerade nicht läuft.
 2. **PIN** prüfen. Voreingestellt ist `0000`, der Auslieferungszustand.
-3. **Speichern.** Das Plugin startet daraufhin neu und meldet sich bei der Anlage an.
+3. **Speichern**, dann **Starten**. Speichern schreibt nur die Einstellungen —
+   wirksam werden sie beim nächsten Start. Liegen beim Starten noch
+   ungespeicherte Änderungen vor, fragt das Plugin nach.
 
 Im MQTT Gateway Plugin muss das Topic `ComfoConnect/#` abonniert sein. Das trägt
 das Plugin beim Speichern selbst ein. Unter *Incoming Overview* im MQTT-Plugin
@@ -29,6 +32,15 @@ nennt die Ursache im Klartext. Ausführlicher wird es im Log unter
 
 **Statusanzeige** — sekündlich aktualisiert: ob die Verbindung steht, wie viele
 Sensoren aktiv sind und wie alt die letzten Daten sind.
+
+**Starten, Stoppen und Neu starten** als eigene Schaltflächen, getrennt vom
+Speichern. Der Vorgang läuft in einem Dialog ab, der sich schließt, sobald das
+Plugin den erwarteten Zustand meldet. Scheitert der Start, nennt der Dialog den
+Grund — etwa dass die Anlage unter der eingetragenen Adresse nicht erreichbar
+ist.
+
+**Erkannte Geräte** — Modell, Bauart des Wärmetauschers, Firmware-Stand und die
+am Bus gemeldeten Komponenten, sobald die Verbindung steht.
 
 **Sensoren** — aufklappbare Liste aller 69 Messwerte mit Beschreibung, Einheit und
 aktuellem Wert. Nicht benötigte lassen sich abwählen; sie werden dann bei der
@@ -80,6 +92,6 @@ Welche Kennnummern (pdid) das Zehnder-Protokoll kennt, ist in
 ## Dokumentation
 
 * [MQTT-TOPICS.md](MQTT-TOPICS.md) — alle Topics
-* [CHANGELOG.md](CHANGELOG.md) — Änderungen gegenüber Version 0.3
+* [CHANGELOG.md](CHANGELOG.md) — was sich in Version 0.4 geändert hat
 * [PROTOCOL.md](PROTOCOL.md), [PROTOCOL-PDO.md](PROTOCOL-PDO.md),
   [PROTOCOL-RMI.md](PROTOCOL-RMI.md) — das Zehnder-Protokoll
