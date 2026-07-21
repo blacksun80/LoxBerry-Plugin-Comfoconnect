@@ -139,7 +139,10 @@ if ( $cgi->param('ajax_status') || $cgi->url_param('ajax_status') ) {
 		# Neustart: "laeuft" allein reicht dafuer nicht, denn vorher wie nachher
 		# steht dort "ja" - der Hinweis "wird neu gestartet..." blieb deshalb
 		# stehen, obwohl der Neustart laengst durch war.
-		gestartet => ($status_daten ? $status_daten->{plugin_start} : undef) });
+		gestartet => ($status_daten ? $status_daten->{plugin_start} : undef),
+		# Damit die Oberflaeche einen gescheiterten Start begruenden kann, statt
+		# nur auf eine Rueckmeldung zu warten, die nicht mehr kommt.
+		logfehler => letzterLogfehler($psubfolder) });
 	exit;
 }
 
@@ -1133,6 +1136,45 @@ my @COMMANDS = (
 # zweiter Prozess neben dem ersten. cfc.py schreibt die Datei sekuendlich; mehr
 # als ein paar Sekunden Rueckstand heisst, dass niemand mehr schreibt.
 #####################################################
+
+# Liefert die jüngste CRITICAL- oder ERROR-Zeile aus dem aktuellen Plugin-Log.
+#
+# Hintergrund: Scheitert der Start (etwa "Bridge not found with IP set"), beendet
+# sich cfc.py sofort wieder. Die Oberfläche sah davon nichts - sie wartete auf
+# einen Zustand, der nie eintrat, und meldete nach einer Minute nur, dass keine
+# Rückmeldung kam. Den Grund musste man im Log nachlesen. Genau den holt diese
+# Funktion, damit er im Dialog stehen kann.
+#
+# Gelesen wird nur das Ende der neuesten Datei - das Log liegt auf der Ramdisk
+# und wird bei laufendem Plugin sekündlich beschrieben.
+sub letzterLogfehler
+{
+	my ($psubfolder) = @_;
+
+	my @dateien = sort { (stat($b))[9] <=> (stat($a))[9] }
+	              glob("$lbplogdir/*.log");
+	return undef if (!@dateien);
+
+	open(my $fh, '<', $dateien[0]) or return undef;
+	# Nur die letzten 8 kB ansehen. Bei DEBUG wird das Log schnell groß, und die
+	# interessante Meldung steht immer am Ende.
+	my $groesse = (stat($dateien[0]))[7] || 0;
+	seek($fh, ($groesse > 8192) ? $groesse - 8192 : 0, 0);
+	my @zeilen = <$fh>;
+	close($fh);
+
+	my $treffer;
+	foreach my $z (@zeilen) {
+		$treffer = $z if ($z =~ /\b(CRITICAL|ERROR)\b/);
+	}
+	return undef if (!defined($treffer));
+
+	chomp($treffer);
+	$treffer =~ s/^\s+//;
+	# Auf das Wesentliche kürzen - der Zeitstempel steht vorn und bleibt drin,
+	# damit man die Stelle im Log wiederfindet.
+	return substr($treffer, 0, 300);
+}
 
 sub laeuftNoch
 {

@@ -821,6 +821,7 @@
 			<!-- nicht aus Benutzereingaben - es kann also nichts Fremdes eingeschleust werden. -->
 			<!-- Startzeit merken, um einen Neustart erkennen zu koennen. -->
 			var gestartet = ( typeof data.gestartet !== "undefined" ) ? data.gestartet : null;
+			ccLogfehlerAktuell = data.logfehler || "";
 			if ( typeof data.laeuft !== "undefined" ) {
 				var neu = data.laeuft ? true : false;
 				if ( neu !== ccLaeuft ) {
@@ -834,6 +835,17 @@
 			<!-- dort nicht: Der war vorher schon da, es springt nichts um, und der -->
 			<!-- Text blieb ewig stehen. -->
 			if ( ccWarte ) {
+				<!-- Ist waehrend des Wartens eine neue schwere Logmeldung dazu- -->
+				<!-- gekommen, ist der Vorgang gescheitert. Dann sofort abbrechen -->
+				<!-- und den Grund zeigen, statt eine Minute lang einen Kringel zu -->
+				<!-- drehen und am Ende nur zu sagen, dass nichts zurueckkam. -->
+				var lf = data.logfehler || "";
+				if ( lf && lf !== ccLogfehler ) {
+					ccWarte = null;
+					ccLogfehler = lf;
+					ccArbeitFehler( lf );
+					return;
+				}
 				var fertig = false;
 				if ( ccWarte === "stop" )    { fertig = !ccLaeuft; }
 				if ( ccWarte === "start" )   { fertig = ccLaeuft; }
@@ -957,6 +969,10 @@
 	var ccWarteAbbruch = null;
 	<!-- Solange gesetzt, laesst sich der Dialog nicht wegklicken. -->
 	var ccModalFest = false;
+	<!-- Letzte schwere Logmeldung: einmal der laufend gemeldete Stand, einmal der -->
+	<!-- beim Absetzen eines Befehls eingefrorene Vergleichswert. -->
+	var ccLogfehlerAktuell = "";
+	var ccLogfehler = "";
 	<!-- Startzeit des laufenden Prozesses aus der Statusabfrage. -->
 	var ccStartzeit = null;
 
@@ -1012,6 +1028,8 @@
 		ccModalFest = false;
 		$( "#ccmodalspin" ).prop( "hidden", true );
 		$( "#ccmodalknoepfe" ).prop( "hidden", false );
+		<!-- Hier gibt es eine echte Wahl, also beide Knoepfe. -->
+		$( "#ccmodalnein" ).show();
 		$( "#ccmodaltitel" ).text( titel );
 		$( "#ccmodaltext" ).text( text );
 		$( "#ccmodalja" ).text( jaText );
@@ -1066,15 +1084,21 @@
 		$( "#ccmodaltext" ).text( text );
 		$( "#ccmodaltitel" ).text( "Befehl fehlgeschlagen" );
 		$( "#ccmodalknoepfe" ).prop( "hidden", false );
-		$( "#ccmodalnein" ).prop( "hidden", true );
+		<!-- Nur EIN Knopf: Bei einer Meldung, die man lediglich zur Kenntnis nimmt, -->
+		<!-- taeten "Abbrechen" und "Schliessen" genau dasselbe. -->
+		<!-- .hide() statt des hidden-Attributs, weil jQuery Mobile die Knoepfe -->
+		<!-- umbaut und das Attribut dabei wirkungslos wird. -->
+		$( "#ccmodalnein" ).hide();
 		$( "#ccmodalja" ).text( "Schließen" ).off( "click" ).on( "click", function() {
-			$( "#ccmodalnein" ).prop( "hidden", false );
 			$( "#ccmodal" ).removeClass( "auf" );
 		} );
 	}
 
 	function ccSteuern( aktion ) {
 		ccWarte = null;
+		<!-- Stand der Logmeldungen festhalten: Verglichen wird gegen DIESEN Wert, -->
+		<!-- damit eine alte Meldung von vorhin nicht als neuer Fehler gilt. -->
+		ccLogfehler = ccLogfehlerAktuell;
 		<!-- Notbremse: Bleibt die erwartete Zustandsaenderung aus, soll sich der -->
 		<!-- Kringel nicht endlos weiterdrehen und Betrieb vortaeuschen. -->
 		if ( ccWarteAbbruch ) { clearTimeout( ccWarteAbbruch ); }

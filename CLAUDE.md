@@ -104,6 +104,17 @@ Block zerlegt das JavaScript, weil nur die erste Zeile auskommentiert ist. Jede
 Zeile braucht ihr eigenes `<!-- ... -->`. Eine Klammerbilanz findet das nicht —
 nur ein echter Syntaxcheck (siehe unten).
 
+**jQuery Mobile beansprucht den Hash für sich.** Ein Anker in der Formularadresse
+(`action="./index.cgi#steuerung"`) wird als Seiten-ID gedeutet, nicht als
+Sprungmarke — die Seite landet trotzdem oben. Nachträgliches Zurückrollen per
+`setTimeout` ist als Zucken sichtbar. Deshalb speichert das Formular jetzt per
+AJAX, ohne Seitenneuaufbau; damit stellt sich die Frage gar nicht.
+
+**`.always()` läuft nach `.done()`.** Eine dort bedingungslos entfernte Sperre
+hebt auf, was `.done()` gerade richtig gesetzt hat. Sperren gehören deshalb in
+`ccKnoepfe()` und werden über Merker gesteuert, nicht an der Aufrufstelle
+gesetzt und wieder entfernt.
+
 **Kein `except: pass` ohne Meldung** bei irgendetwas Diagnostischem. Der
 Snapshot-Schreiber hat sein eigenes Versagen einmal komplett verschluckt.
 
