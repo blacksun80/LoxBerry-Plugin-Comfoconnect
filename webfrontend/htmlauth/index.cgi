@@ -681,7 +681,13 @@ sub getDiagnostics
 	my ($status, $psubfolder) = @_;
 	return "" if (!$status);
 
-	my $now = Time::HiRes::time();
+	# Laeuft das Plugin nicht mehr, ist die Statusdatei eingefroren. Dann als
+	# "jetzt" den Zeitpunkt ihres letzten Schreibens nehmen und nicht die echte
+	# Uhrzeit - sonst waechst die angezeigte Laufzeit nach dem Anhalten munter
+	# weiter und jedes "vor 2min" wird mit jedem Seitenaufruf aelter, obwohl sich
+	# nichts mehr ereignet.
+	my $laeuft = laeuftNoch($status);
+	my $now = $laeuft ? Time::HiRes::time() : ($status->{now} || Time::HiRes::time());
 	my $stats = $status->{stats} || {};
 
 	# Langzeitwerte aus data/plugins/<plugin>/statistik.json (von cfc.py mitgeführt).
@@ -734,10 +740,17 @@ sub getDiagnostics
 	my $laufzeit = defined($status->{plugin_start})
 		? formatDuration($now - $status->{plugin_start}) : "unbekannt";
 
-	my $html = "<div class=\"cc-diag-runtime\">Laufzeit seit dem letzten Start: <b>$laufzeit</b></div>";
+	# Vergangenheitsform, sobald das Plugin steht - sonst liest sich die Zeile wie
+	# eine Betriebsanzeige, obwohl gar nichts mehr laeuft.
+	my $html = $laeuft
+		? "<div class=\"cc-diag-runtime\">Laufzeit seit dem letzten Start: <b>$laufzeit</b></div>"
+		: "<div class=\"cc-diag-runtime\">Das Plugin läuft nicht. Angezeigt ist der letzte Stand "
+			. "vom <b>" . formatZeitpunkt($now) . "</b>, Laufzeit bis dahin: <b>$laufzeit</b>.</div>";
 
 	if (!@zeilen) {
-		$html .= "<div class=\"cc-diag-none\">Seit dem Start keine Auffälligkeiten.</div>";
+		$html .= $laeuft
+			? "<div class=\"cc-diag-none\">Seit dem Start keine Auffälligkeiten.</div>"
+			: "<div class=\"cc-diag-none\">Bis zum Anhalten keine Auffälligkeiten.</div>";
 	} else {
 		my $kopf_gesamt = $hat_gesamt ? "<th class=\"cc-diag-num\">Gesamt</th>" : "";
 		$html .= "<table class=\"cc-diag\">"

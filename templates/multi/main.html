@@ -761,8 +761,24 @@
 	<!-- Der Endpoint in index.cgi ist dafuer bewusst schlank gehalten (siehe dort). -->
 	<!-- Echtes "sofort bei Aenderung" (Push per WebSocket/SSE) passt nicht zum -->
 	<!-- zustandslosen CGI-Modell von LoxBerry, das ist der naechstbeste Kompromiss. -->
+	<!-- ccPollOffen verhindert, dass sich Abfragen stapeln. Ohne Zeitlimit und -->
+	<!-- ohne diese Sperre belegt jede haengende Anfrage dauerhaft einen der sechs -->
+	<!-- Verbindungsplaetze, die ein Browser je Server vergibt. Bei einer Abfrage je -->
+	<!-- Sekunde ist der Vorrat in Sekunden aufgebraucht - danach kommt gar nichts -->
+	<!-- mehr durch, die Seite wirkt eingefroren und nur ein Neuladen hilft. -->
+	<!-- Genau dieses Verhalten war auf der Hardware zu sehen. -->
+	var ccPollOffen = false;
 	function refreshStatus() {
-		$.getJSON( './index.cgi?ajax_status=1', function( data ) {
+		if ( ccPollOffen ) { return; }
+		ccPollOffen = true;
+		$.ajax( {
+			url: './index.cgi?ajax_status=1',
+			dataType: "json",
+			timeout: 4000
+		} ).always( function() {
+			ccPollOffen = false;
+		} ).done( function( data ) {
+			if ( !data ) { return; }
 			$( "#statustext" ).text( data.statustext );
 			$( "#statusbox" ).removeClass( "cc-status-ok cc-status-warn cc-status-error" ).addClass( data.statusclass );
 			<!-- .html() statt .text(): index.cgi liefert hier eine fertige Tabelle. -->
@@ -940,10 +956,25 @@
 
 	function ccSteuern( aktion ) {
 		$( "#steuerhinweis" ).text( "…" );
-		$.post( './index.cgi', { ajax_control: aktion }, function( d ) {
+		$.ajax( {
+			url: './index.cgi',
+			type: "POST",
+			data: { ajax_control: aktion },
+			dataType: "json",
+			timeout: 8000
+		} ).done( function( d ) {
 			$( "#steuerhinweis" ).text( d && d.ok ? d.meldung : ( d ? d.meldung : "fehlgeschlagen" ) );
 			if ( d && d.ok && aktion !== "stop" ) { ccGespeichert = false; }
-		}, "json" ).fail( function( xhr ) {
+		} ).fail( function( xhr, art ) {
+			<!-- Status 0 heisst: abgebrochen oder Zeitlimit - der Browser hat KEINE -->
+			<!-- Antwort gesehen. Das ist kein Beleg dafuer, dass der Befehl nicht -->
+			<!-- ausgefuehrt wurde; auf der Hardware lief er in aller Regel doch. -->
+			<!-- Also nicht "fehlgeschlagen" behaupten, sondern die Statusabfrage -->
+			<!-- entscheiden lassen, die ohnehin sekuendlich nachsieht. -->
+			if ( !xhr || xhr.status === 0 || art === "timeout" ) {
+				$( "#steuerhinweis" ).text( "Befehl abgesetzt – warte auf das Plugin…" );
+				return;
+			}
 			<!-- Statuscode und Antwortanfang mit ausgeben: Ein blosses -->
 			<!-- "fehlgeschlagen" sagt nichts darueber, WAS schiefging. Liefert das -->
 			<!-- CGI eine Fehlerseite statt JSON, steht der Grund meist darin. -->
@@ -964,6 +995,15 @@
 
 	$( "#btnrestart" ).on( "click", function( e ) {
 		e.preventDefault();
+		<!-- Ein Neustart liest die gespeicherte Datei. Sind im Formular noch -->
+		<!-- ungesicherte Aenderungen, startet das Plugin mit den ALTEN Werten - und -->
+		<!-- es sieht so aus, als haetten die Aenderungen nichts bewirkt. -->
+		if ( ccGeaendert ) {
+			ccFrage( "Ungespeicherte Änderungen",
+				"Ein Neustart liest die gespeicherte Konfiguration. Die Änderungen im Formular wären dabei nicht dabei. Erst speichern und dann neu starten?",
+				"Speichern", function() { $( "#main_form" ).submit(); } );
+			return;
+		}
 		ccSteuern( "restart" );
 	} );
 
