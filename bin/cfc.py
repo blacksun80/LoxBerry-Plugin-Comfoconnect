@@ -40,26 +40,15 @@ sensors_expected = len(sensor_data)
 sensorwatch_enabled = False
 sensorwatch_timeout_sec = 60
 
-# MQTT topic reporting whether the ventilation unit has stopped sending sensor data:
-# "1" = timeout detected, "0" = data is flowing (or monitoring is switched off).
-#
-# Without this the timeout was only ever visible in the plugin's own web page, or
-# indirectly through the plugin restarting itself - so with monitoring enabled but
-# automatic restart switched off, nothing outside the browser noticed at all. As a
-# retained topic it can be wired straight into Loxone like any other sensor value.
-#
-# Published only on change (plus once per MQTT (re)connect, see on_connect) rather
-# than every second, so it doesn't add a message per second to the broker forever.
+# Meldet per MQTT, ob die Anlage noch Sensorwerte liefert. 1 = seit der
+# eingestellten Zeit nichts mehr empfangen, 0 = laeuft wieder.
 SENSORWATCH_TOPIC = "SENSOR_TIMEOUT"
 
-# Last value published to SENSORWATCH_TOPIC. None means "nothing published yet on
-# this MQTT connection" and forces the next evaluation to publish, whatever it finds.
+# Zuletzt auf SENSORWATCH_TOPIC gesendeter Wert. None = noch nichts gesendet.
 sensorwatch_published = None
 
-# Set by on_connect()/on_disconnect() - read by the status-writer thread. paho's own
-# reconnect (client.reconnect_delay_set()) already handles recovering the MQTT link by
-# itself; this flag only exists so the status file/webfrontend can show whether it is
-# currently up, it doesn't trigger any reconnect logic of its own.
+# Zustand der MQTT-Verbindung, gesetzt von on_connect/on_disconnect und vom
+# Status-Thread gelesen.
 mqtt_connected = False
 mqtt_last_change = None
 
@@ -120,13 +109,11 @@ def _abonniere(client, name):
 statusfile = None
 
 def thread_sicher(fn):
-    """Verhindert, dass ein Fehler in einem Rueckruf den fremden Thread mitreisst.
+    """Faengt Fehler in einem MQTT-Rueckruf ab.
 
-    Die MQTT-Rueckrufe unten werden von paho im eigenen Netzwerk-Thread aufgerufen.
-    Eine durchgereichte Ausnahme beendet dort die Schleife - die MQTT-Seite ist
-    danach tot, waehrend das Plugin weiterlaeuft und nach aussen gesund aussieht:
-    Sensorwerte gehen nicht mehr raus, Befehle kommen nicht mehr an, und im Log
-    steht nichts, was darauf hindeutet.
+    paho ruft diese Funktionen im eigenen Netzwerk-Thread auf. Eine
+    durchgereichte Ausnahme wuerde dort die Schleife beenden - die MQTT-Seite
+    waere danach still tot.
     """
     @functools.wraps(fn)
     def sicher(*args, **kwargs):
@@ -219,14 +206,8 @@ def on_connect(client, userdata, flags, rc):
 def on_disconnect(client, userdata, rc):
     global mqtt_connected, mqtt_last_change, mqtt_abbrueche, mqtt_letzter_abbruch
 
-    # Closing the session #############################################################################################
-    # NOTE: rc here is NOT a CONNACK code - mqtt.connack_string(rc) used to be called
-    # on it, which produces a technically-valid-looking but WRONG message (e.g. rc=1
-    # prints "unacceptable protocol version" - a CONNACK-only meaning - even though
-    # every single one of these disconnects was directly preceded by a genuinely
-    # successful CONNACK 0/Accepted just milliseconds earlier). paho's own docs say
-    # this rc is an internal MQTTErrorCode it converts to for MQTT v3.x, not
-    # something the broker sent - error_string() is the correct lookup here.
+    # rc ist hier kein CONNACK-Code, sondern der Grund der Trennung:
+    # 0 = von uns veranlasst, alles andere ein Abbruch.
     if rc==0:
         _LOGGER.info("MQTT-Verbindung sauber getrennt.")
     else:
@@ -255,11 +236,8 @@ def on_message(client, userdata, msg):
         # waere er verarbeitet worden - gerade beim Suchen nach "warum passiert
         # nichts" waere das die falsche Faehrte.
         letzte_befehle[kurz] = (value, time.time(), fehlertext(e))
-        # A malformed/empty MQTT payload (e.g. an empty retained message, or a value
-        # that isn't a valid number where int(value) is expected) must never crash
-        # this callback: paho runs on_message on its network thread, and an uncaught
-        # exception here kills that thread - the plugin then silently stops reacting
-        # to MQTT until it is manually restarted. Log and ignore instead.
+        # Ein unbrauchbarer Payload darf diesen Rueckruf nicht abbrechen: paho ruft ihn
+        # im eigenen Thread auf, eine Ausnahme wuerde die MQTT-Seite stilllegen.
         _LOGGER.error("Fehler bei Verarbeitung von MQTT %s = '%s': %s" % (topic, value, fehlertext(e)))
 
 def _dispatch_message(topic, value):
@@ -676,21 +654,7 @@ away_active_published = None
 away_remaining_published = None
 
 def seconds_to_timerfield(seconds):
-    """Baut das 4-Byte-Zeitfeld der 0x84-Befehle (Sekunden, little-endian).
-
-    Nachgerechnet an den dokumentierten Beispielen: Boost "10 Minuten" ist
-    58020000 = 600, Bypass "1 Stunde" ist 100e0000 = 3600.
-
-    Vier echte Bytes. Frueher wurde hier ein 2-Byte-Feld plus zwei angehaengte
-    Nullbytes verwendet - das konnte nur 65535 Sekunden abbilden (gut 18 Stunden)
-    und warf darueber einen OverflowError, woraufhin die betroffene Zeit still auf
-    ihrem alten Wert stehen blieb. Die Zehnder-App erlaubt fuer Boost aber 24
-    Stunden, also 86400 Sekunden.
-
-    Die erzeugte Bytefolge ist fuer alle Werte bis 65535 identisch mit der
-    frueheren - nachgerechnet fuer 0, 1, 600, 900, 3600, 7200, 43200 und 65535.
-    Der Umstieg aendert also an funktionierenden Befehlen kein einziges Bit.
-    """
+    """Wandelt Sekunden in das 4-Byte-Zeitfeld der 0x84-Befehle (little-endian)."""
     seconds = int(seconds)
     if seconds < 0:
         seconds = 0
@@ -699,16 +663,9 @@ def seconds_to_timerfield(seconds):
     return seconds.to_bytes(4, byteorder='little')
 
 def callback_alarm(node_id, errors):
-    """Veroeffentlicht die Stoerungsmeldungen der Anlage per MQTT.
+    """Veroeffentlicht die von der Anlage gemeldeten Stoerungen per MQTT.
 
-    Wird von comfoconnect.py aufgerufen, sobald eine CnAlarmNotification eintrifft -
-    also ereignisgesteuert, nicht gepollt. Die Anlage schickt bei jeder Aenderung den
-    kompletten aktuellen Fehlerstand, deshalb kann hier direkt ueberschrieben werden,
-    ohne alte Meldungen mitfuehren zu muessen.
-
-    ERROR_COUNT ist fuer die Logik in Loxone gedacht (0 = alles gut), ERROR_TEXT fuer
-    die Anzeige. Beide retained, damit ein neu verbundener Client den aktuellen Stand
-    sofort sieht statt bis zur naechsten Aenderung im Dunkeln zu tappen.
+    Sendet ERROR_COUNT und ERROR_TEXT; ohne anstehende Fehler 0 und Leerstring.
     """
     try:
         anzahl = len(errors)
@@ -721,22 +678,9 @@ def callback_alarm(node_id, errors):
         _LOGGER.error("Konnte Störungsmeldung nicht per MQTT senden: " + fehlertext(e))
 
 def poll_away_loop():
-    """Holt den Abwesenheits-Zustand zyklisch ab und veroeffentlicht ihn per MQTT.
+    """Fragt den Abwesenheitszustand zyklisch ab und veroeffentlicht ihn.
 
-    Laeuft in einem EIGENEN Thread, nicht in write_status_loop(): Ein RMI-Aufruf
-    kann im schlechtesten Fall bis zum Antwort-Timeout haengen, und das wuerde dort
-    das sekuendliche Schreiben der Statusdatei blockieren - die Weboberflaeche
-    zeigte dann faelschlich veraltete Daten an.
-
-    Antwortformat von 0x83 (14 Byte), abgeleitet aus aiocomfoconnect:
-
-        01 00000000 55020000 53020000 00
-        ^^          ^^^^^^^^ ^^^^^^^^
-        |           gesamt   Rest (jeweils Sekunden, little-endian)
-        aktiv (00 = nein, 01 = ja)
-
-    Wie bei allen Diagnosefunktionen hier gilt: Fehler werden geschluckt, das
-    darf das eigentliche Plugin niemals mit herunterreissen.
+    Laeuft in einem eigenen Thread, weil die RMI-Abfrage blockiert.
     """
     global away_active_published, away_remaining_published
 
@@ -779,22 +723,10 @@ def send_away(seconds):
     return cmd
 
 def sensorauswahl_anwenden(pcfg):
-    """Liest, welche Sensoren in den Einstellungen abgewählt wurden.
+    """Liest aus der Konfiguration, welche Sensoren abgewaehlt sind.
 
-    Gibt die Menge der abgewaehlten pdids zurueck. Der Katalog in mqtt_data.py ist
-    und bleibt die einzige Quelle dafuer, WELCHE Sensoren es gibt - hier steht nur,
-    welche davon der Benutzer nicht moechte.
-
-    Bewusst keine Moeglichkeit, eigene pdids zu ergaenzen: Der Rohwert wird nach
-    Byte-Laenge dekodiert, nicht nach PDO-Typ (siehe _handle_rpdo_notification in
-    comfoconnect.py). Vierbyte-Werte kaemen als Hex-Zeichenkette an, und
-    vorzeichenlose Werte oberhalb von 127 bzw. 32767 kippten ins Negative. Ein
-    neuer Sensor braucht deshalb ohnehin eine Codeaenderung - dann kann er auch
-    gleich richtig in mqtt_data.py stehen.
-
-    Absichtlich nachsichtig: Ein unbrauchbarer Eintrag wird uebersprungen und
-    protokolliert, statt den Start zu verhindern. Ein Tippfehler in der Auswahl darf
-    nicht die ganze Lueftungssteuerung lahmlegen.
+    Liefert die Menge der abgewaehlten pdids. Unbrauchbare Eintraege werden
+    uebersprungen und protokolliert, damit ein Tippfehler nicht den Start verhindert.
     """
     abschnitt = pcfg.get('SENSORS') or {}
 
@@ -1055,25 +987,18 @@ class SnapshotSchreiber(logging.Handler):
 
 
 def fehlertext(e):
-    """Beschreibt eine Ausnahme lesbar - auch wenn sie gar keinen Text hat.
+    """Liefert eine lesbare Beschreibung einer Ausnahme.
 
-    Die Protokoll-Ausnahmen dieser Bibliothek (PyComfoConnectNotAllowed,
-    ...NotExist, ...BadRequest und die uebrigen) sind reine Markierungsklassen
-    ohne Meldung, str() liefert dort einen LEEREN String. Wer sie nur mit str(e)
-    protokolliert, schreibt "ging nicht: " ins Log und verschweigt die Ursache -
-    genau so geschehen bei der Abwesenheitsabfrage, wo 375 Meldungen ohne jede
-    Begruendung im Log standen, obwohl der Grund (NOT_ALLOWED) eine Zeile darueber
-    stand.
+    Die Ausnahmen der Protokollschicht tragen meist keinen Text - dann bleibt
+    nur der Klassenname.
     """
     text = str(e)
     return "%s: %s" % (type(e).__name__, text) if text else type(e).__name__
 
 def to_seconds(value):
-    """Wandelt eine MQTT-Nutzlast in ganze Sekunden.
+    """Wandelt eine Zeitangabe in ganze Sekunden.
 
-    Ueber float() statt direkt int(): Loxone schickt Zahlen regelmaessig in
-    Fliesskommaschreibweise ("240.0"), und int("240.0") wirft ValueError - das
-    landete frueher als Fehlermeldung im Log statt als gesetzter Wert.
+    Loxone sendet Zahlen haeufig als "600.0"; int() allein wuerde daran scheitern.
     """
     return int(float(value))
 
@@ -1082,14 +1007,9 @@ def on_log(client, userdata, level, buf):
     _LOGGER.debug("Paho: " + buf)
 
 def callback_sensor(var, value):
-    # No gating on registration progress here: every value that arrives is published
-    # straight away, including during the initial registration sweep and during the
-    # re-registration after a reconnect. A sensor only ever sends data once the bridge
-    # has confirmed ITS OWN subscription, so an early value is a real, current reading -
-    # withholding it just delays fresh data reaching Loxone for no benefit. On real
-    # hardware the whole 50-sensor sweep completes in well under a second anyway.
-    # comfoconnect.sensors_ready still exists, but purely to drive the status display
-    # (see write_status_loop()/index.cgi), not to block anything.
+    # Jeder eintreffende Wert wird sofort veroeffentlicht, auch waehrend der
+    # Anmeldung. Ein Sensor sendet erst, nachdem die Anlage sein Abonnement
+    # bestaetigt hat - der Wert ist also gueltig.
     if (var == 81 or var == 82 or var == 86 or var == 87):
         value=int(to_little(value), base=16)
         if value == 4294967295:
@@ -1128,20 +1048,10 @@ def callback_sensor(var, value):
     
 
 def write_status_loop():
-    """Periodically persist a small health-status JSON to statusfile (ramdisk).
+    """Schreibt sekuendlich die Statusdatei fuer die Weboberflaeche.
 
-    Runs in its own daemon thread. Deliberately does not import/depend on the
-    connection thread's internals beyond reading comfoconnect's plain, cheap
-    in-memory timestamps (see comfoconnect.py: last_alive_ping/last_keepalive_ok/
-    last_sensor_data) - it just samples and writes them every 1s. This is a
-    nice-to-have diagnostic feature: any error here is logged and swallowed, it
-    must never be able to take down the actual plugin.
-
-    1s instead of the original 5s: this is a plain JSON write to a ramdisk
-    (tmpfs), not real disk I/O, so there's no SD-card-wear concern to weigh
-    against faster updates - the only real cost is CPU for a tiny JSON dump,
-    which is negligible. Combined with the shorter webfrontend poll interval,
-    this brings worst-case status staleness down from ~15s to ~3s.
+    Laeuft in einem eigenen Thread. Fehler werden protokolliert und verschluckt -
+    eine Anzeigefunktion darf den Betrieb nicht gefaehrden.
     """
     while True:
         try:
@@ -1265,18 +1175,7 @@ def write_status_loop():
 
 
 def publish_sensorwatch_state():
-    """Publishes SENSORWATCH_TOPIC whenever the sensor-data timeout state changes.
-
-    Bewusst dieselbe Auswertung wie getStatus() in index.cgi: Timeout nur melden,
-    wenn die Überwachung eingeschaltet ist UND bereits Sensoren registriert waren
-    (sonst würde direkt nach dem Start ein Timeout gemeldet, bevor überhaupt Daten
-    kommen konnten). Sind beide Bedingungen erfüllt, aber es kam noch nie ein Wert,
-    gilt das ebenfalls als Timeout - genau wie im Webfrontend.
-
-    Ist die Überwachung ausgeschaltet, wird konsequent "0" veröffentlicht statt gar
-    nichts: das Topic ist retained, ein hängengebliebenes "1" von früher würde sonst
-    für immer eine Störung vortäuschen, die niemand mehr auswertet.
-    """
+    """Veroeffentlicht SENSOR_TIMEOUT, wenn keine Sensordaten mehr eintreffen."""
     global sensorwatch_published
 
     if not comfoconnect or not mqtt_connected:
@@ -1464,22 +1363,9 @@ def main():
             json.dump(pcfg, outfile, ensure_ascii=True, indent=4)
         exit(0)
         
-    # paho-mqtt >= 2.0 requires an explicit callback_api_version as first argument and
-    # changed the on_connect/on_message/... callback signatures. All callbacks in this
-    # file (on_connect, on_disconnect, on_message, on_publish, ...) use the legacy (v1)
-    # signatures, so we explicitly request VERSION1 when it is available. This keeps the
-    # plugin working unchanged on systems that still ship paho-mqtt 1.x (e.g. LoxBerry 3,
-    # Debian bullseye's python3-paho-mqtt 1.5.1) as well as on systems where paho-mqtt 2.x
-    # is installed (e.g. some LoxBerry 4 setups).
-    # Unique per process (PID suffix), not a fixed "ComfoConnect" - during a
-    # "Speichern"-triggered restart, the old and new cfc.py processes can briefly
-    # overlap (see wait_for_cfc_exit() in wrapper.pl). Two MQTT clients connecting
-    # with the SAME client_id make the broker evict whichever one is already
-    # connected every time the other (re)connects - observed in practice as a
-    # rapid connect/disconnect loop for several seconds after every restart (each
-    # disconnect misleadingly logged, before the on_disconnect fix above, as
-    # "unacceptable protocol version"). A unique ID per process avoids the
-    # collision entirely, regardless of how long any overlap lasts.
+    # paho-mqtt ab 2.0 verlangt die Angabe der Rueckruf-Schnittstelle. Wir nutzen
+    # weiterhin die alte (VERSION1); die Abfrage haelt aeltere paho-Versionen
+    # lauffaehig, die das Argument nicht kennen.
     mqtt_client_id = "ComfoConnect-%d" % os.getpid()
     if hasattr(mqtt, "CallbackAPIVersion"):
         # paho-mqtt >= 2.0
@@ -1501,7 +1387,8 @@ def main():
         
     bridge = bridge_discovery(device_ip, search)
 
-    # Connect to the bridge
+    # Verbindungsaufbau mit mehreren Versuchen: Direkt nach einem Neustart des
+    # LoxBerry ist das Netz manchmal noch nicht bereit.
     try:
         _LOGGER.info("Connecting to the " + local_name + " - PIN: " + str(pin))
         comfoconnect = ComfoConnect(bridge, local_uuid, local_name, pin)
@@ -1512,70 +1399,36 @@ def main():
     comfoconnect.callback_sensor = callback_sensor
     comfoconnect.callback_alarm = callback_alarm
 
-    # Graceful shutdown on SIGTERM (wrapper.pl's plain `pkill -f cfc.py`, used both by
-    # a "Speichern"-triggered restart and by the watchdog). Without this the process
-    # just dies instantly with no warning to the bridge - observed in practice: the
-    # bridge then keeps the old session "alive" for several seconds ("resumed: true"
-    # on the next StartSessionConfirm), replaying a backlog of leftover messages tied
-    # to the old session before it gets around to confirming the NEW process's
-    # StartSessionRequest. Explicitly closing the session here lets the next startup
-    # connect cleanly and immediately instead of eating into its own connect timeout.
-    # Registered here (not earlier) so `comfoconnect` and `client` already exist for
-    # every SIGTERM this could plausibly catch - a signal arriving in the brief window
-    # before this line has nothing to clean up yet anyway (no session established).
+    # Sauberes Herunterfahren bei SIGTERM (wrapper.pl beendet mit pkill).
+    # Meldet die Sitzung bei der Anlage ab, damit der naechste Start nicht auf eine
+    # noch offene Sitzung trifft.
     def handle_sigterm(signum, frame):
         _LOGGER.info("SIGTERM empfangen - fahre sauber herunter (melde Session bei der Zehnder-Box ab)...")
 
-        # Tell the background threads this disconnect is intentional BEFORE sending
-        # CloseSessionRequest below - otherwise, once the bridge closes the socket in
-        # response (typically within milliseconds), the message thread has no way to
-        # tell that apart from a real, unexpected connection loss: it would log a
-        # misleading "connection was broken, we will try to reconnect" warning and
-        # start a reconnect attempt that os._exit() below cuts off anyway.
-        # mark_disconnecting() only sets flags, it doesn't block (unlike
-        # comfoconnect.disconnect()), so it's safe to call from this handler.
+        # Erst die Threads informieren, dann abmelden - sonst werten sie das Schliessen
+        # der Verbindung als Ausfall und starten einen Wiederaufbau.
         comfoconnect.mark_disconnecting()
 
         try:
             if comfoconnect.is_connected():
-                # Plain 5s default like every other command - no special short timeout
-                # here. In practice this never waits at all: the bridge answers a
-                # CloseSessionRequest by simply closing the TCP socket rather than
-                # sending a CloseSessionConfirm, and the message thread turns that into
-                # an immediate wake-up (see _CONNECTION_LOST in comfoconnect.py) instead
-                # of letting the caller sit out its timeout. Measured end-to-end in the
-                # log: request sent and process fully shut down within ~5ms. The timeout
-                # only matters if the bridge neither answers nor drops the connection -
-                # and takeover=True on the next startup covers that case anyway.
+                # Ueblicher Zeitrahmen. In der Praxis wartet das nie: Die Anlage beantwortet die
+                # Abmeldung, indem sie die Verbindung schliesst.
                 comfoconnect.cmd_close_session()
                 _LOGGER.info("Session bei der Zehnder-Box abgemeldet.")
         except OSError as e:
-            # The bridge tends to just close the TCP connection right after
-            # processing this request instead of sending an explicit
-            # CloseSessionConfirm back first - the connection dying WHILE we're
-            # waiting is a pretty strong sign the request was received and acted
-            # on (the request itself did get sent - if it hadn't, is_connected()
-            # above would already be False). Nothing more to verify here, and it's
-            # not an actual problem, so INFO rather than WARNING.
+            # Die Anlage schliesst die Verbindung meist sofort nach der Abmeldung. Dass sie
+            # dabei wegbricht, ist also kein Fehler.
             _LOGGER.info("CloseSessionRequest gesendet, Bridge hat die Verbindung direkt danach getrennt (normal): " + str(e))
         except ValueError as e:
-            # Different from the OSError case above: this is a PLAIN timeout - the
-            # connection itself did NOT drop, the bridge just never answered within
-            # the standard reply timeout. Unlike the OSError case, we genuinely don't know
-            # whether the session actually got closed - could still be sitting open
-            # on the bridge's side. takeover=True on the next startup is the safety
-            # net either way, so there's nothing more to do here, but the log
-            # shouldn't claim "normal"/success for something it can't verify.
+            # Hier kam gar keine Antwort und die Verbindung steht noch - ob die Sitzung
+            # wirklich geschlossen wurde, ist offen. takeover beim naechsten Start regelt es.
             _LOGGER.warning("CloseSessionRequest gesendet, aber keine Bestätigung erhalten (Timeout) - Session evtl. noch offen, takeover beim nächsten Start übernimmt das: " + str(e))
         except Exception as e:
             _LOGGER.warning("Konnte Session bei der Zehnder-Box nicht sauber schließen: " + fehlertext(e))
 
         try:
-            # disconnect() before loop_stop(): sends the clean DISCONNECT packet
-            # while the network thread is still running to actually flush it, then
-            # stop the thread. Doing it in the other order risks the DISCONNECT
-            # never truly leaving the socket, in which case the broker only notices
-            # via the TCP connection dropping - functionally similar, but less clean.
+            # Erst abmelden, dann den Netzwerk-Thread stoppen - sonst verlaesst das
+            # DISCONNECT-Paket den Socket womoeglich nicht mehr.
             client.disconnect()
             client.loop_stop()
         except Exception:
@@ -1598,18 +1451,9 @@ def main():
 
         _LOGGER.info("Sauber heruntergefahren.")
 
-        # NOT sys.exit(0): by the time SIGTERM can arrive here, main() has usually
-        # already returned and the interpreter is already inside its own shutdown
-        # sequence (threading._shutdown(), waiting for the non-daemon connection
-        # thread to finish - that's what has kept the process alive this whole
-        # time). Raising SystemExit via sys.exit() from a signal handler firing in
-        # the middle of that produces a harmless but ugly "Exception ignored in...
-        # SystemExit: 0" traceback in the log. os._exit() terminates the process
-        # immediately at the OS level, skipping Python's normal
-        # exception-based/atexit shutdown machinery entirely - safe here since
-        # everything worth cleaning up (the bridge session, the MQTT connection)
-        # was already handled explicitly above; there's nothing left for Python's
-        # own shutdown to do that we need.
+        # os._exit statt sys.exit: Zu diesem Zeitpunkt laeuft bereits Pythons eigene
+        # Beendigung. Ein SystemExit daraus erzeugte nur einen irrefuehrenden Traceback;
+        # aufzuraeumen gibt es nichts mehr.
         os._exit(0)
 
     signal.signal(signal.SIGTERM, handle_sigterm)
@@ -1665,11 +1509,8 @@ def main():
             if attempt >= bridge_connect_attempts:
                 _LOGGER.exception(str(e))
                 _LOGGER.critical("Not connected to bridge nach %d Versuchen" % bridge_connect_attempts)
-                # os._exit(), not exit(): comfoconnect.connect() may have already started
-                # the (non-daemon) connection thread on an earlier attempt even though
-                # this last one failed (see connect()'s "didn't reply on time" case) - a
-                # plain exit(1) would then just hang forever waiting for that thread to
-                # finish instead of actually terminating the process.
+                # os._exit statt exit: Der Verbindungs-Thread laeuft moeglicherweise schon und
+                # wuerde den Prozess sonst am Leben halten.
                 os._exit(1)
             _LOGGER.warning("Verbindung zur Bridge fehlgeschlagen (Versuch %d/%d), erneuter Versuch: %s" % (attempt, bridge_connect_attempts, fehlertext(e)))
             time.sleep(2)
@@ -1723,19 +1564,9 @@ def main():
             _LOGGER.info("Register Sensor: %d" % x + " Sensorname: " + sensor_data[x]['NAME'])
 
         except OSError as e:
-            # Connection genuinely gone mid-burst - no point continuing THIS sweep, but
-            # unlike the cases above, this is exactly the situation
-            # _connection_thread_loop() already exists to handle: it independently
-            # notices the same connection loss (via the message thread) and keeps
-            # retrying reconnect + re-registration in the background, indefinitely,
-            # without any help from here. Restarting the whole process would just
-            # reinvent that same recovery a layer higher up, for no benefit - so hand
-            # off instead of exiting. The one thing it needs from us: the sensors we
-            # hadn't gotten to yet aren't in comfoconnect.sensors (register_sensor()
-            # only adds a sensor there on SUCCESS), and _connection_thread_loop() only
-            # ever re-registers what's in there - so pre-remember them here, keyed
-            # exactly like register_sensor() itself would, or they'd silently never get
-            # attempted at all once the reconnect succeeds.
+            # Verbindung mitten in der Anmeldung verloren. Der Wiederaufbau im Hintergrund
+            # uebernimmt - die noch nicht versuchten Sensoren werden hier vorgemerkt, sonst
+            # wuerden sie dabei uebergangen.
             _LOGGER.warning(
                 "Verbindung beim Registrieren verloren (%d von %d Sensoren noch offen): %s - der "
                 "automatische Reconnect übernimmt jetzt, kein Neustart des Prozesses nötig." %
@@ -1775,20 +1606,12 @@ def main():
         )
 
     if not connection_lost:
-        # This first sweep runs here, in cfc.py's main thread, not in comfoconnect.py's
-        # _connection_thread_loop() (which only handles LATER reconnects) - so it has
-        # to set sensors_ready itself. From here on, every subsequent disconnect/
-        # reconnect clears and re-sets this flag automatically (see
-        # _connection_thread_loop()). If connection_lost is True, sensors_ready stays
-        # False and THAT loop sets it once its own reconnect sweep succeeds instead.
+        # Dieser erste Durchlauf laeuft im Hauptthread; spaetere Wiederholungen
+        # uebernimmt der Verbindungs-Thread.
         comfoconnect.sensors_ready = True
         _LOGGER.info("Sensor-Registrierung abgeschlossen: %d von %d Sensoren registriert." % (len(comfoconnect.sensors_confirmed), len(sensor_ids)))
 
-    # Diagnostic-only calls - wrapped so a connection hiccup right at this moment
-    # (e.g. still mid-reconnect after the loop above gave up early) can't crash the
-    # main thread with an uncaught exception. Not fatal to the plugin either way
-    # (the background connection/message threads keep running regardless), but an
-    # uncaught traceback here is needless noise and skips the remaining diagnostics.
+    # Reine Diagnoseabfragen - ein Aussetzer dabei darf den Start nicht verhindern.
     try:
         # VersionRequest
         version = comfoconnect.cmd_version_request()

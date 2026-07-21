@@ -101,22 +101,9 @@ $psubfolder =~ s/(.*)\/(.*)\/(.*)$/$2/g;
 if ( $cgi->param('ajax_status') || $cgi->url_param('ajax_status') ) {
 	my ($status_text, $status_class, $diagnostics, $status_daten) = getStatus($psubfolder);
 	print $cgi->header( -type => 'application/json', -charset => 'utf-8' );
-	# NOTE: encode_json() (and JSON::PP->new with the default utf8(1)) expects a
-	# proper Perl-internal Unicode string and UTF-8-*encodes* it. This script has
-	# no "use utf8;" pragma, so string literals like "Läuft" are just the raw
-	# UTF-8 *bytes* from the source file (each byte already its own "char", no
-	# Unicode flag) - exactly like everywhere else in this script, where that's
-	# fine because the bytes get printed through unchanged. encode_json() doesn't
-	# know that though: it takes those raw bytes and UTF-8-encodes them *again*,
-	# double-encoding every umlaut (e.g. "Läuft" -> "LÃ¤uft" in the browser).
-	# utf8(0) tells JSON::PP the strings are already the bytes we want in the
-	# output - it only handles the JSON structure (quotes, braces, escaping) and
-	# passes string content through untouched, consistent with how the rest of
-	# this script (and the HTML::Template output) already handles UTF-8.
-	# Sensorwerte separat: Die Tabelle wird BEWUSST nicht bei jedem Abruf neu
-	# gebaut und ersetzt - das würde Haken und Eingaben zerstören, die gerade
-	# bearbeitet, aber noch nicht gespeichert wurden. Stattdessen kommen nur die
-	# Werte, und das JS schreibt sie in die jeweilige Zelle.
+	# utf8(0) statt der Voreinstellung: Diese Datei hat kein "use utf8", die
+	# Zeichenketten liegen also bereits als UTF-8-Bytes vor. Ohne diese Angabe
+	# wuerde JSON::PP sie ein zweites Mal kodieren - aus "Läuft" wird "LÃ¤uft".
 	my $werte = {};
 	if ($status_daten && ref($status_daten->{werte}) eq 'HASH') {
 		for my $pdid (keys %{ $status_daten->{werte} }) {
@@ -519,40 +506,10 @@ sub form
 }
 
 #####################################################
-# Status-Sub - liest die Heartbeat-Datei, die cfc.py auf der Ramdisk schreibt.
+# Liest die Statusdatei und leitet daraus den Anzeigetext ab.
 #
-# Prüfreihenfolge (jede Stufe schwerwiegender als eine reine "Warnung"):
-#   1. Statusdatei fehlt komplett             -> Plugin läuft nicht
-#   2. !sensors_ready                          -> Registriere Sensoren. Gilt fuer die
-#                                                 allererste Startphase genauso wie
-#                                                 fuer jeden spaeteren Reconnect
-#                                                 mitten im Betrieb (siehe
-#                                                 comfoconnect.py: sensors_ready).
-#   3. MQTT getrennt                          -> kann ohnehin nichts liefern
-#   4. last_alive_ping zu alt (>30s)          -> Verbindungs-Thread tot/hängt
-#   5. last_sensor_data aelter als der         -> Verbindung/Thread laufen zwar noch,
-#      eingestellte Wert, obwohl Sensoren         aber die Anlage schickt nichts mehr.
-#      registriert sind UND die Ueberwachung      Der Prozess "lebt" (alive_ping bleibt
-#      eingeschaltet ist                          frisch, weil die Leseschleife einfach
-#                                                 weiterdreht) und Keepalives werden
-#                                                 beantwortet - ohne diese Pruefung
-#                                                 saehe das faelschlich wie "laeuft
-#                                                 einwandfrei" aus. Ist die Ueberwachung
-#                                                 nicht aktiviert, wird hier bewusst gar
-#                                                 nichts ausgewertet und der Status
-#                                                 bleibt unveraendert.
-#   6. Alles obige unauffällig                 -> Laeuft, X Sensoren + Alter der zuletzt
-#                                                 empfangenen Sensordaten. Das Alter ist
-#                                                 der eigentliche Lebensbeweis: eine
-#                                                 statische Meldung wie "X Sensoren
-#                                                 registriert" sieht auch dann noch gut
-#                                                 aus, wenn laengst nichts mehr fliesst.
-#                                                 Wurden Sensoren uebersprungen (von
-#                                                 dieser Anlage nicht unterstuetzt),
-#                                                 erscheint "X von Y" als Warnung.
-#
-# Genutzt sowohl beim initialen Seitenaufbau (sub form) als auch vom
-# AJAX-Status-Endpoint ganz oben, den main.html per JS periodisch abfragt.
+# Liefert (Text, CSS-Klasse, Diagnose-HTML, Rohdaten). Die Rohdaten geben
+# Sensor- und Befehlstabelle weiter, damit die Datei nur einmal geoeffnet wird.
 #####################################################
 
 sub getStatus
@@ -625,18 +582,10 @@ sub getStatus
 					$status_text = "Gestört - seit über ${watch_timeout}s keine Sensordaten mehr empfangen";
 					$status_class = "cc-status-error";
 				} else {
-					# Alter der letzten Sensordaten mit anzeigen: eine reine
-					# "X Sensoren registriert"-Meldung steht auch dann noch unveraendert
-					# da, wenn seit Minuten nichts mehr ankommt. Der mitlaufende Zaehler
-					# (Seite pollt jede Sekunde) ist der sichtbare Lebensbeweis - und er
-					# ist auch dann da, wenn die Ueberwachung ausgeschaltet ist, nur eben
-					# ohne dass daraus jemals eine Stoerung wird.
-					#
-					# Wurden Sensoren uebersprungen, wird das als Warnung angezeigt statt
-					# als Fehler: nicht jede Anlage und nicht jeder Firmware-Stand kennt
-					# alle bekannten Messwerte, das ist der Normalfall und kein Defekt.
-					# Sichtbar sein soll es trotzdem - sonst wundert man sich, warum ein
-					# erwarteter Wert in Loxone fehlt.
+					# Alter der letzten Daten mit anzeigen - eine reine Zahl aktiver Sensoren
+					# stuende auch dann noch da, wenn seit Minuten nichts mehr ankommt.
+					# Uebersprungene Sensoren gelten als Warnung, nicht als Fehler: Nicht jede
+					# Anlage kennt jeden Messwert.
 					if ($sensors_exp > 0 && $sensors_reg < $sensors_exp) {
 						$status_text = "Läuft - $sensors_reg von $sensors_exp Sensoren aktiv";
 						$status_class = "cc-status-warn";
@@ -661,17 +610,8 @@ sub getStatus
 }
 
 #####################################################
-# Alter in lesbarer Form: unter einer Sekunde in Millisekunden ("vor 340ms"),
-# darueber in ganzen Sekunden ("vor 12s") bzw. ab einer Minute als "vor 3m 05s".
-#
-# Der uebergebene Wert ist eine Fliesskommazahl (siehe getStatus) - deshalb
-# ueberall explizit runden bzw. abschneiden. Ohne das erschiene im Normalbetrieb,
-# wo die Werte im Sekundenbruchteil-Bereich liegen, eine Zahl mit einem Dutzend
-# Nachkommastellen.
-#
-# Negative Werte sind moeglich, wenn die Uhr zwischen dem Schreiben der
-# Statusdatei und dem Lesen hier minimal zurueckspringt (NTP) - dann auf 0
-# klemmen statt ein unsinniges "vor -1s" anzuzeigen.
+# Kleines Alter lesbar formatieren: Millisekunden, Sekunden, ab einer Minute
+# "vor 3m 05s".
 #####################################################
 
 sub getDiagnostics
@@ -774,17 +714,10 @@ sub getDiagnostics
 }
 
 #####################################################
-# Den mitgelieferten Sensorkatalog aus bin/mqtt_data.py lesen.
+# Liest den Sensorkatalog aus bin/mqtt_data.py.
 #
-# Ja, das ist eine Python-Datei, die hier mit einem regulären Ausdruck gelesen
-# wird - und normalerweise wäre das eine schlechte Idee. Hier ist es vertretbar:
-# Die Datei gehört zum Plugin, hat ein streng gleichförmiges Format, und die
-# Alternative wäre gewesen, den Katalog zusätzlich in einer zweiten Datei zu
-# führen. Zwei Quellen, die auseinanderlaufen können, wären der größere Schaden.
-#
-# Bewusst NICHT aus der Statusdatei: Die Sensortabelle muss sich auch dann
-# bedienen lassen, wenn das Plugin gerade nicht läuft - gerade dann will man
-# vielleicht etwas abwählen.
+# Bewusst aus der Datei und nicht aus der Statusdatei: Die Tabelle muss sich
+# auch bedienen lassen, wenn das Plugin gerade nicht laeuft.
 #####################################################
 
 sub readSensorCatalog
@@ -826,11 +759,10 @@ sub readSensorCatalog
 }
 
 #####################################################
-# Die Sensortabelle aufbauen.
+# Baut die Sensortabelle, nach Gruppen gegliedert.
 #
 # Liefert (html, anzahl_aktiv, anzahl_gesamt) - die beiden Zahlen stehen im
-# zugeklappten Zustand in der Kopfzeile, damit man ohne Aufklappen sieht, wie
-# viele Sensoren überhaupt aktiv sind.
+# zugeklappten Zustand in der Kopfzeile.
 #####################################################
 
 sub getSensorTable
@@ -930,19 +862,13 @@ sub getSensorTable
 }
 
 #####################################################
-# Befehlstabelle: alle Themen, die das Plugin entgegennimmt, mit dem zuletzt
-# darauf empfangenen Wert.
+# Baut die Befehlstabelle: alle Topics mit zulaessigen Werten, Bedeutung und
+# dem zuletzt darauf empfangenen Wert.
 #
-# Der Katalog steht bewusst HIER und nicht in einer eigenen Datei neben
-# mqtt_data.py. Eine solche Datei wuerde eine Erweiterbarkeit vortaeuschen, die es
-# nicht gibt: Was ein Befehl tatsaechlich an die Anlage schickt, steht in
-# _dispatch_message() in cfc.py (46 Zweige, rund 340 Zeilen). Ein Eintrag allein
-# wuerde abonniert, angezeigt - und taete nichts.
-#
-# Angezeigt wird zusaetzlich der zuletzt empfangene Wert. Das beantwortet die
-# haeufigste Frage beim Einrichten ("kommt mein Befehl aus Loxone hier ueberhaupt
-# an?") und macht Tippfehler im Themennamen sichtbar, weil daneben die gueltige
-# Schreibweise steht.
+# Der Katalog steht hier und nicht in einer eigenen Datei - was ein Befehl
+# bewirkt, liegt in _dispatch_message() und laesst sich nicht als Daten
+# ablegen. Eine eigene Datei taeuschte eine Erweiterbarkeit vor, die es nicht
+# gibt.
 #####################################################
 
 sub getCommandTable
@@ -1119,24 +1045,12 @@ my @COMMANDS = (
 }
 
 #####################################################
-# "Wie lange ist das her" in grober, lesbarer Form.
-#
-# Getrennt von formatAge(): Das dort ist auf den Sekundenbereich ausgelegt
-# (Altersanzeige der Sensordaten, im Normalbetrieb Millisekunden). Für Ereignisse,
-# die auch Tage zurückliegen können, käme dort "vor 2880m 00s" heraus - formal
-# richtig, aber niemand rechnet das im Kopf in zwei Tage um.
+# Formatiert eine Zeitspanne grob lesbar ("vor 6m", "vor 2 Tagen").
 #####################################################
 
 #####################################################
-# Genauer Zeitpunkt, so geschrieben wie im Logfile.
-#
-# Das Log stellt jeder Zeile "HH:MM:SS.mmm" voran. Eine Angabe wie "vor 6m" ist
-# zwar griffig, zwingt beim Nachschlagen aber zum Kopfrechnen - und danach sucht
-# man im Log trotzdem nach einer Uhrzeit. Deshalb wird beides gezeigt: die Uhrzeit
-# zum Auffinden, die Spanne zum Einordnen.
-#
-# Liegt der Zeitpunkt nicht am heutigen Tag, kommt das Datum davor - sonst führte
-# "08:14:02" bei einem drei Tage alten Eintrag in die Irre.
+# Formatiert einen Zeitpunkt wie im Logfile (HH:MM:SS), mit Datum davor, wenn
+# er nicht vom heutigen Tag stammt.
 #####################################################
 
 sub formatZeitpunkt
