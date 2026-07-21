@@ -133,7 +133,8 @@ if ( $cgi->param('ajax_status') || $cgi->url_param('ajax_status') ) {
 		}
 	}
 
-	print JSON::PP->new->utf8(0)->encode({ statustext => $status_text, statusclass => $status_class, diagnostics => $diagnostics, werte => $werte, befehle => $befehle });
+	print JSON::PP->new->utf8(0)->encode({ statustext => $status_text, statusclass => $status_class, diagnostics => $diagnostics, werte => $werte, befehle => $befehle,
+		laeuft => laeuftNoch($status_daten) });
 	exit;
 }
 
@@ -164,6 +165,56 @@ if ( $cgi->param('ajax_reset_stats') ) {
 		} else {
 			$meldung = "Konnte nicht schreiben: $!";
 		}
+	}
+
+	print $cgi->header( -type => 'application/json', -charset => 'utf-8' );
+	print JSON::PP->new->utf8(0)->encode({ ok => $ok, meldung => $meldung });
+	exit;
+}
+
+##########################################################################
+# Plugin starten, stoppen, neu starten
+##########################################################################
+# Getrennt vom Speichern: Frueher startete jedes Speichern das Plugin neu, auch
+# wenn sich nur ein Haken in der Sensorliste geaendert hatte. Nur per POST -
+# ein Aufruf, der den Betrieb unterbricht, darf nicht durch einen Link oder den
+# Vorablader des Browsers ausloesbar sein.
+if ( $cgi->param('ajax_control') ) {
+	my $aktion = $cgi->param('ajax_control');
+	my $ok = 0;
+	my $meldung = "Nur per POST erlaubt.";
+
+	if ((($ENV{'REQUEST_METHOD'} || '') eq 'POST') && $aktion =~ /^(start|stop|restart)$/) {
+		# In eval: Scheitert hier etwas, soll die Oberfläche den GRUND nennen und
+		# nicht bloß "fehlgeschlagen" - sonst steht man vor derselben Blindheit wie
+		# damals beim Snapshot-Schreiber.
+		eval {
+			my $syscfg = new Config::Simple("$home/config/system/general.cfg")
+				or die "general.cfg nicht lesbar";
+			my $inst = $syscfg->param("BASE.INSTALLFOLDER")
+				or die "BASE.INSTALLFOLDER fehlt";
+			my $skript = "$inst/bin/plugins/$psubfolder/wrapper.pl";
+			die "$skript nicht gefunden" if (!-e $skript);
+
+			# setsid und </dev/null sind hier NICHT kosmetisch: Ein bloss mit "&"
+			# abgesetzter Prozess erbt die offenen Kanaele des CGI - darunter die
+			# Verbindung zum Browser. Wenn er endet, reisst sie mit ab, und die
+			# Oberflaeche meldete "HTTP 0", obwohl der Befehl ausgefuehrt wurde.
+			# Deshalb komplett abnabeln: eigene Sitzung, alle drei Kanaele zu.
+			my $rc = system("setsid perl $skript $aktion </dev/null >/dev/null 2>&1 &");
+			die "Aufruf fehlgeschlagen (rc=$rc)" if ($rc != 0);
+
+			$ok = 1;
+			$meldung = { start => "Wird gestartet...", stop => "Wird angehalten...",
+			             restart => "Wird neu gestartet..." }->{$aktion};
+			1;
+		} or do {
+			my $fehler = $@ || "unbekannter Fehler";
+			$fehler =~ s/\s+at\s+\S+\s+line\s+\d+\.?\s*$//;
+			$meldung = "Fehler: $fehler";
+		};
+	} elsif ($aktion !~ /^(start|stop|restart)$/) {
+		$meldung = "Unbekannte Aktion.";
 	}
 
 	print $cgi->header( -type => 'application/json', -charset => 'utf-8' );
@@ -396,10 +447,10 @@ sub form
 
 		Cronjob("Uninstall");
 
+		# KEIN Neustart mehr beim Speichern - dafuer gibt es jetzt eigene Knoepfe.
+		# Frueher startete jedes Speichern das Plugin neu, auch wenn sich nur ein
+		# Haken geaendert hatte.
 		if (($cgi->param('iplanc') ne "") && ($cgi->param('pin') ne "")) {
-			system("perl $installfolder/bin/plugins/$psubfolder/wrapper.pl  restart > /dev/null 2>&1");
-
-			# Create Cronjob
 			Cronjob("Install");
 		}
 
@@ -473,6 +524,7 @@ sub form
 
     my ($commandtable, $commands_anzahl) = getCommandTable($status_daten);
     $maintemplate->param( DEVICEINFO => getDeviceInfo($status_daten) );
+    $maintemplate->param( LAEUFT => laeuftNoch($status_daten) );
     $maintemplate->param( COMMANDTABLE => $commandtable );
     $maintemplate->param( COMMANDSANZAHL => $commands_anzahl );
     
@@ -535,6 +587,15 @@ sub getStatus
 			my $json_text = <$fh>;
 			close($fh);
 			$status = eval { decode_json($json_text) };
+
+			# Zuerst prüfen, ob überhaupt noch jemand schreibt. Die Datei liegt auf
+			# der Ramdisk und bleibt nach dem Anhalten stehen - ohne diese Prüfung
+			# stünde dort weiter "Läuft", nur mit immer älteren Werten.
+			if ($status && !laeuftNoch($status)) {
+				return ("Plugin läuft nicht", "cc-status-error",
+					getDiagnostics($status, $psubfolder), $status);
+			}
+
 			if ($status) {
 				# Betriebsstatistik. Bewusst hier oben und unabhängig von den
 				# Statuszweigen weiter unten: Die Diagnose soll auch (und gerade) dann
@@ -601,7 +662,7 @@ sub getStatus
 			}
 		}
 	} else {
-		$status_text = "Plugin läuft nicht (Statusdatei fehlt)";
+		$status_text = "Plugin läuft nicht";
 		$status_class = "cc-status-error";
 		# Sonst bliebe der Diagnose-Kasten hier komplett leer und sähe defekt aus.
 		$diagnostics = "<div class=\"cc-diag-runtime\">Keine Diagnosedaten &ndash; das Plugin läuft gerade nicht.</div>";
@@ -1043,6 +1104,23 @@ my @COMMANDS = (
 	}
 
 	return ($html, $anzahl);
+}
+
+#####################################################
+# Laeuft der Plugin-Prozess?
+#
+# Bewusst am Alter der Statusdatei gemessen, nicht am Verbindungszustand: Ein
+# Verbindungsabbruch ist kein gestoppter Prozess - das Plugin baut die
+# Verbindung selbst wieder auf. Waere "Starten" dabei freigegeben, liefe ein
+# zweiter Prozess neben dem ersten. cfc.py schreibt die Datei sekuendlich; mehr
+# als ein paar Sekunden Rueckstand heisst, dass niemand mehr schreibt.
+#####################################################
+
+sub laeuftNoch
+{
+	my ($status) = @_;
+	return 0 if (!$status || !defined($status->{now}));
+	return (Time::HiRes::time() - $status->{now} < 5) ? 1 : 0;
 }
 
 #####################################################

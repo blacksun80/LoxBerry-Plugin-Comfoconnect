@@ -107,6 +107,76 @@
 		opacity: 0.45;
 	}
 
+	/* Steuerung des Plugins - getrennt vom Speichern der Einstellungen. */
+	.cc-steuerung {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		justify-content: center;
+		margin: 14px 0 4px 0;
+	}
+	.cc-steuerhinweis {
+		font-size: 0.85em;
+		color: #b58900;
+		margin-right: 6px;
+	}
+
+	/* Eigener Bestaetigungsdialog. Ersetzt confirm() - das ist nicht gestaltbar,
+	   sieht in jedem Browser anders aus und blockiert nebenbei das Skript. */
+	.cc-modal-hg {
+		display: none;
+		position: fixed;
+		top: 0; left: 0; right: 0; bottom: 0;
+		background: rgba(0,0,0,0.45);
+		/* Ueber die Kopfleiste von jQuery Mobile (z-index 1100). */
+		z-index: 2000;
+		align-items: center;
+		justify-content: center;
+	}
+	.cc-modal-hg.auf { display: flex; }
+	.cc-modal {
+		background: #fff;
+		border-radius: 10px;
+		box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+		padding: 20px 24px 16px 24px;
+		max-width: 420px;
+		margin: 20px;
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	}
+	.cc-modal-titel {
+		font-weight: bold;
+		font-size: 1.05em;
+		color: #222;
+		margin-bottom: 8px;
+	}
+	.cc-modal-text {
+		font-size: 0.9em;
+		color: #555;
+		line-height: 1.45;
+		margin-bottom: 16px;
+	}
+	.cc-modal-knoepfe {
+		display: flex;
+		gap: 8px;
+		justify-content: flex-end;
+	}
+	.cc-modal-knoepfe button {
+		font-family: inherit;
+		font-size: 0.9em;
+		padding: 7px 16px;
+		border-radius: 6px;
+		border: 1px solid #c8c8c8;
+		background: #f4f4f4;
+		color: #333;
+		cursor: pointer;
+	}
+	.cc-modal-knoepfe button.cc-modal-ja {
+		border-color: #2b7cd3;
+		background: #2b7cd3;
+		color: #fff;
+		font-weight: bold;
+	}
+
 	/* Stammdaten der erkannten Geraete. */
 	.cc-dev-zeile {
 		display: flex;
@@ -420,12 +490,6 @@
 		color: #888;
 	}
 
-	/* Buttonleiste - eigener kleiner Abstand statt des frueheren <p>, dessen
-	   Default-Margins zusaetzliche Hoehe gekostet haben. */
-	.cc-buttons {
-		text-align: center;
-		margin: 4px 0 10px 0;
-	}
 
 	/* Statusbox: eigene Klassen statt der LoxBerry-Systemklasse "hint" (die ist nur
 	   kleiner grauer Hinweistext, keine Farbe). Jeder Zustand bekommt zusaetzlich ein
@@ -486,7 +550,7 @@
 	</div>
 </center>
 
-<form method="post" data-ajax="false" name="main_form" id="main_form" action="./index.cgi">
+<form method="post" data-ajax="false" name="main_form" id="main_form" action="./index.cgi#steuerung">
 	<input type="hidden" name="saveformdata" value="1">
 
 	<div class="cc-group">
@@ -627,10 +691,26 @@
 
 	<div id="form-error-message" class="form-error-message"></div>
 
-	<div class="cc-buttons">
-		<a id="btncancel" data-role="button" data-inline="true" data-mini="true" data-icon="delete"
-			href="/admin/index.cgi"><TMPL_VAR NAME=T::BUTTON.CANCEL>
-		</a>
+	<!-- Steuerung und Speichern in einer Zeile. "Abbrechen" ist entfallen: Es
+	     verliess nur die Seite, und seit "Speichern" gesperrt bleibt, solange
+	     nichts geaendert wurde, gibt es auch nichts abzubrechen. -->
+	<div class="cc-modal-hg" id="ccmodal">
+		<div class="cc-modal">
+			<div class="cc-modal-titel" id="ccmodaltitel"></div>
+			<div class="cc-modal-text" id="ccmodaltext"></div>
+			<div class="cc-modal-knoepfe">
+				<button type="button" id="ccmodalnein">Abbrechen</button>
+				<button type="button" id="ccmodalja" class="cc-modal-ja">OK</button>
+			</div>
+		</div>
+	</div>
+
+	<div class="cc-steuerung" id="steuerung">
+		<span id="steuerhinweis" class="cc-steuerhinweis"></span>
+		<a href="#" id="btnstartstop" data-role="button" data-inline="true" data-mini="true"
+			data-icon="power">Starten</a>
+		<a href="#" id="btnrestart" data-role="button" data-inline="true" data-mini="true"
+			data-icon="refresh">Neu starten</a>
 		<button type="submit" form="main_form" id="btnsubmit" data-role="button" data-inline="true"
 			data-mini="true" data-icon="check"><TMPL_VAR NAME=T::BUTTON.SAVE>
 		</button>
@@ -688,6 +768,16 @@
 			<!-- .html() statt .text(): index.cgi liefert hier eine fertige Tabelle. -->
 			<!-- Der Inhalt stammt ausschliesslich aus eigenen Zaehlern und Zeitangaben, -->
 			<!-- nicht aus Benutzereingaben - es kann also nichts Fremdes eingeschleust werden. -->
+			if ( typeof data.laeuft !== "undefined" ) {
+				var neu = data.laeuft ? true : false;
+				if ( neu !== ccLaeuft ) {
+					ccLaeuft = neu;
+					<!-- Zustand hat sich geaendert: Die Meldung "wird gestartet..." -->
+					<!-- hat sich damit erledigt. -->
+					if ( !ccGespeichert ) { $( "#steuerhinweis" ).text( "" ); }
+					ccKnoepfe();
+				}
+			}
 			if ( typeof data.diagnostics !== "undefined" ) {
 				$( "#diagbox" ).html( data.diagnostics );
 			}
@@ -783,11 +873,136 @@
 
 	$( ".cc-sgruppe-kopf" ).each( function() { ccGruppenHaken( $( this ) ); } );
 
+	<!-- ===== Steuerung: starten, stoppen, neu starten ================ -->
+
+	var ccLaeuft = <TMPL_VAR NAME=LAEUFT> ? true : false;
+	var ccGeaendert = false;
+	var ccGespeichert = false;
+
+	<!-- Formularstand beim Laden merken, um spaeter Aenderungen zu erkennen. -->
+	function ccStand() {
+		return $( "#main_form" ).serialize();
+	}
+	var ccStandStart = ccStand();
+
+	function ccKnoepfe() {
+		<!-- Speichern nur, wenn wirklich etwas anders ist. -->
+		$( "#btnsubmit" ).toggleClass( "ui-disabled", !ccGeaendert );
+
+		<!-- Ein Knopf, zwei Bedeutungen - je nachdem ob der Prozess laeuft. -->
+		var t = ccLaeuft ? "Stoppen" : "Starten";
+		var sp = $( "#btnstartstop" ).find( ".ui-btn-text" );
+		if ( sp.length ) { sp.text( t ); } else { $( "#btnstartstop" ).text( t ); }
+		$( "#btnrestart" ).toggleClass( "ui-disabled", !ccLaeuft );
+
+		<!-- IP und PIN sind Verbindungsparameter: waehrend des Betriebs gesperrt. -->
+		     <!-- BEWUSST readonly und NICHT disabled - gesperrte Felder sendet der -->
+		     <!-- Browser gar nicht mit, die Werte waeren beim Speichern leer und -->
+		     <!-- wuerden die Konfiguration ueberschreiben. -->
+		$( "#iplanc, #pin" ).prop( "readonly", ccLaeuft )
+			.css( "background-color", ccLaeuft ? "#f2f2f2" : "" );
+		$( "#labeliplanc, #labelpin" ).css( "opacity", ccLaeuft ? 0.45 : 1 );
+
+		<!-- Suchen nur im Stillstand und nur ohne eingetragene IP. -->
+		$( "#btnrescan" ).toggleClass( "ui-disabled",
+			ccLaeuft || $( "#iplanc" ).val() !== "" );
+
+		$( "#steuerhinweis" ).text(
+			( ccGespeichert && ccLaeuft ) ? "Gespeichert – wirkt nach einem Neustart" : "" );
+	}
+
+	$( "#main_form" ).on( "change input", function() {
+		ccGeaendert = ( ccStand() !== ccStandStart );
+		ccKnoepfe();
+	} );
+
+	<!-- Fragt nach und ruft weiter auf, sobald der Benutzer bestaetigt hat. -->
+	<!-- Ersetzt confirm(): gestaltbar und ohne fremdes Browser-Aussehen. -->
+	function ccFrage( titel, text, jaText, weiter ) {
+		$( "#ccmodaltitel" ).text( titel );
+		$( "#ccmodaltext" ).text( text );
+		$( "#ccmodalja" ).text( jaText );
+		$( "#ccmodal" ).addClass( "auf" );
+		$( "#ccmodalja" ).off( "click" ).on( "click", function() {
+			$( "#ccmodal" ).removeClass( "auf" );
+			weiter();
+		} );
+		$( "#ccmodalja" ).focus();
+	}
+	$( "#ccmodalnein" ).on( "click", function() { $( "#ccmodal" ).removeClass( "auf" ); } );
+	<!-- Klick neben den Kasten und Escape schliessen ihn ebenfalls. -->
+	$( "#ccmodal" ).on( "click", function( e ) {
+		if ( e.target === this ) { $( this ).removeClass( "auf" ); }
+	} );
+	$( document ).on( "keydown", function( e ) {
+		if ( e.key === "Escape" ) { $( "#ccmodal" ).removeClass( "auf" ); }
+	} );
+
+	function ccSteuern( aktion ) {
+		$( "#steuerhinweis" ).text( "…" );
+		$.post( './index.cgi', { ajax_control: aktion }, function( d ) {
+			$( "#steuerhinweis" ).text( d && d.ok ? d.meldung : ( d ? d.meldung : "fehlgeschlagen" ) );
+			if ( d && d.ok && aktion !== "stop" ) { ccGespeichert = false; }
+		}, "json" ).fail( function( xhr ) {
+			<!-- Statuscode und Antwortanfang mit ausgeben: Ein blosses -->
+			<!-- "fehlgeschlagen" sagt nichts darueber, WAS schiefging. Liefert das -->
+			<!-- CGI eine Fehlerseite statt JSON, steht der Grund meist darin. -->
+			var t = ( xhr && xhr.responseText ) ? xhr.responseText.replace( /<[^>]*>/g, " " ) : "";
+			t = t.replace( /\s+/g, " " ).substring( 0, 160 );
+			$( "#steuerhinweis" ).text(
+				"fehlgeschlagen (HTTP " + ( xhr ? xhr.status : "?" ) + ")" + ( t ? ": " + t : "" ) );
+		} );
+	}
+
+	$( "#btnstartstop" ).on( "click", function( e ) {
+		e.preventDefault();
+		if ( !ccLaeuft ) { ccSteuern( "start" ); return; }
+		ccFrage( "Plugin anhalten?",
+			"Es werden dann keine Werte mehr an Loxone übertragen und keine Befehle mehr angenommen.",
+			"Anhalten", function() { ccSteuern( "stop" ); } );
+	} );
+
+	$( "#btnrestart" ).on( "click", function( e ) {
+		e.preventDefault();
+		ccSteuern( "restart" );
+	} );
+
+	<!-- Nach dem Speichern ist die Datei geschrieben, der laufende Prozess kennt -->
+	<!-- sie aber noch nicht - daher der Hinweis auf den Neustart. -->
+	$( "#main_form" ).on( "submit", function() {
+		<!-- Das Formular wird normal abgeschickt, die Seite also neu aufgebaut. -->
+		<!-- Der Merker muss diesen Neuaufbau ueberleben, sonst waere nach dem -->
+		<!-- Speichern nicht mehr bekannt, DASS gespeichert wurde. -->
+		try { sessionStorage.setItem( "ccGespeichert", "1" ); } catch ( e ) {}
+		ccStandStart = ccStand();
+		ccGeaendert = false;
+	} );
+
+	<!-- Nach dem Neuaufbau: Wurde eben gespeichert und laeuft das Plugin, kennt -->
+	<!-- der laufende Prozess die neue Konfiguration noch nicht. Also anbieten, -->
+	<!-- ihn neu zu starten, statt es nur als Hinweis hinzuschreiben. -->
+	try {
+		if ( sessionStorage.getItem( "ccGespeichert" ) === "1" ) {
+			sessionStorage.removeItem( "ccGespeichert" );
+			ccGespeichert = true;
+			if ( ccLaeuft ) {
+				ccFrage( "Einstellungen gespeichert",
+					"Das Plugin läuft noch mit den alten Einstellungen. Soll es jetzt neu gestartet werden, damit die Änderungen wirksam werden?",
+					"Neu starten", function() { ccSteuern( "restart" ); } );
+			}
+		}
+	} catch ( e ) {}
+
+	ccKnoepfe();
+
 	$( "#btnresetstats" ).on( "click", function( e ) {
 		e.preventDefault();
-		if ( !confirm( "Alle Diagnose-Zähler auf null zurücksetzen?\n\nDie gespeicherten Log-Snapshots bleiben erhalten." ) ) {
-			return;
-		}
+		ccFrage( "Zähler zurücksetzen?",
+			"Alle Diagnose-Zähler werden auf null gesetzt. Die gespeicherten Log-Snapshots bleiben erhalten.",
+			"Zurücksetzen", function() { ccStatsReset(); } );
+	} );
+
+	function ccStatsReset() {
 		$( "#resetstatshint" ).text( "wird zurückgesetzt..." );
 		$.post( './index.cgi', { ajax_reset_stats: 1 }, function( data ) {
 			<!-- Die Anzeige aktualisiert sich ohnehin im Sekundentakt von selbst, -->
@@ -796,5 +1011,5 @@
 		}, "json" ).fail( function() {
 			$( "#resetstatshint" ).text( "fehlgeschlagen" );
 		} );
-	} );
+	}
 </script>
