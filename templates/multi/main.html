@@ -1,12 +1,7 @@
 <style>
-	/* Eigenes, lokales CSS fuer die Label+Feld-Zeilen - angelehnt an das
-	   lb-form-row/lb-form-label/lb-form-field-Muster aus dem offiziellen
-	   LoxBerry-4-Sample-Plugin (github.com/mschlenstedt/LoxBerry-Plugin-
-	   SamplePlugin-V4), aber mit eigenen Klassennamen und ohne Abhaengigkeit
-	   von der Core-components.css. Die lb-* Klassen sind laut Core-CSS-Header
-	   ausdruecklich noch nicht fuer Plugins freigegeben ("Plugins keep jQuery
-	   Mobile") und womoeglich auf LB3 gar nicht geladen - mit einer eigenen
-	   Kopie funktioniert es auf beiden Versionen gleich. */
+	/* Label-und-Feld-Zeilen. Eigene Klassen statt der lb-*-Klassen des Cores:
+	   Die sind laut Core-CSS noch nicht fuer Plugins freigegeben und auf LB3
+	   moeglicherweise gar nicht geladen. */
 	.cc-row {
 		display: flex;
 		align-items: center;
@@ -22,14 +17,8 @@
 		flex: 0 0 190px !important;
 		width: 190px !important;
 		box-sizing: border-box;
-		/* Rechnerisch zentriert die Flexbox Label und Feld bereits exakt (siehe
-		   DevTools-Messung), der minimale Versatz kommt von der Baseline-Position
-		   des Textes innerhalb von <input> vs. <label> - per Augenmass korrigiert.
-		   !important noetig: jQuery Mobile setzt ".ui-mobile label, .ui-controlgroup-label"
-		   mit "margin: 0 0 .4em" (Klasse+Tag = hoehere Spezifitaet als unsere reine
-		   Klassenregel). Komplettes Shorthand ueberschreiben (nicht nur margin-top),
-		   sonst bleibt jQMs margin-bottom:.4em stehen und macht das Label insgesamt
-		   hoeher als das Eingabefeld - dann kippt die Zentrierung erst recht. */
+		/* !important noetig: jQuery Mobile setzt label-Abstaende per Tag-Selektor und
+		   schlaegt damit eine reine Klassenregel. */
 		margin: 6px 0 0 0 !important;
 	}
 	.cc-field {
@@ -38,33 +27,20 @@
 		gap: 10px;
 	}
 
-	/* Einheitliche Schriftart fuer den gesamten Plugin-Bereich (Intro-Box, Status,
-	   Formular, Hinweistexte), unabhaengig davon, was die umgebende LoxBerry-Version
-	   auf body/Vorfahren-Ebene vorgibt - vermeidet einen Stilbruch zwischen z.B. der
-	   kursiven Intro-Box und dem Rest, wenn LB3 und LB4 hier unterschiedliche
-	   Standardschriften mitbringen. Gaengiger System-Sans-Serif-Stack statt einer
-	   externen Schriftart, damit nichts nachgeladen werden muss. */
+	/* Einheitliche Schrift fuer den Plugin-Bereich, unabhaengig davon, was die
+	   umgebende LoxBerry-Version vorgibt. */
 	.cc-plugin {
 		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-		/* Der LoxBerry-Inhaltsbereich ist voll bildschirmbreit. Ohne Begrenzung
-		   ziehen sich die gerahmten Bloecke auf einem Desktop ueber die gesamte
-		   Breite, wodurch der Hilfetext meterweit von den Feldern entfernt steht,
-		   auf die er sich bezieht. Zentriert und begrenzt bleiben Rahmen und
-		   Zuordnung lesbar; auf schmalen Geraeten greift die Begrenzung nicht. */
+		/* Breite begrenzen: Sonst steht der Hilfetext auf einem Desktop meterweit von
+		   den Feldern entfernt, auf die er sich bezieht. */
 		max-width: 1150px;
-		/* Negativer oberer Rand: der umgebende Inhaltsbereich (jQuery Mobile
-		   ".ui-content") bringt einen eigenen Innenabstand mit, der oberhalb der
-		   Beschreibung als breiter, ungenutzter Streifen sichtbar war. Von hier aus
-		   laesst er sich nicht abschalten, ohne fremde Klassen zu ueberschreiben -
-		   ein moderater negativer Rand holt den Block hoch, ohne in den Kopfbereich
-		   zu ragen, falls eine andere LoxBerry-Version dort weniger Abstand hat. */
+		/* Negativer oberer Rand holt den Block hoch - der umgebende Inhaltsbereich
+		   bringt einen eigenen Innenabstand mit, der sich hier nicht abschalten laesst. */
 		margin: -18px auto 0 auto;
 	}
 
-	/* Ersetzt die alte, kursive Intro-Box (Klartext-<i>-Tag + Inline-Styles) durch
-	   eine ruhigere, mit dem Rest der Seite einheitliche Optik. Bewusst schmal
-	   gehalten (Padding/Margin), damit Formular und Buttons ohne Scrollen auf den
-	   Schirm passen - der Text ist eine einmalige Erklaerung, kein Arbeitsbereich. */
+	/* Beschreibungskasten oben. Bewusst schmal, damit die Schaltflaechen ohne
+	   Scrollen sichtbar bleiben. */
 	.cc-intro {
 		background-color: #fdf8e3;
 		border-radius: 8px;
@@ -81,25 +57,17 @@
 		color: #4a4a4a;
 	}
 
-	/* Ersetzt die <font size="-1">-Hinweistexte neben den Eingabefeldern - gleiche
-	   Familie wie der Rest (.cc-plugin), nur etwas kleiner/gedaempft. */
+	/* Hinweistexte neben den Eingabefeldern. */
 	.cc-hint-text {
 		font-size: 0.85em;
 		color: #666;
 	}
 
-	/* Gerahmte Themenbloecke. Ersetzen die frueheren Tabellenzeilen samt separater
-	   Label-Spalte: die Gruppenueberschrift steht jetzt im Block selbst, wodurch die
-	   20%-Spalte links komplett entfaellt und der Block deutlich flacher wird.
-
-	   Bewusst <div> und NICHT <fieldset>/<legend>, obwohl letzteres die semantisch
-	   schoenere Gruppierung waere: jQuery Mobile und das LoxBerry-Core-CSS setzen
-	   fieldset per Tag-Selektor auf "border:0; padding:0; margin:0" zurueck. Das
-	   schlaegt eine reine Klassenregel und haette den Rahmen komplett verschluckt -
-	   in der Praxis genau so passiert (Gruppen ohne Rahmen, Zeilen ineinander
-	   laufend, weil auch das Padding weg war). Mit div gibt es diesen Reset nicht.
-	   Die !important bleiben als Absicherung gegen weitere Tag-Selektoren aus dem
-	   umgebenden Theme - dieselbe Ueberlegung wie bei .cc-label oben. */
+	/* Gerahmte Themenbloecke.
+	   
+	   Bewusst div und nicht fieldset: jQuery Mobile und das Core-CSS setzen
+	   fieldset per Tag-Selektor zurueck, der Rahmen waere sonst unsichtbar.
+	   Die !important sichern gegen weitere Tag-Selektoren des Themes ab. */
 	.cc-group {
 		display: block;
 		border: 1px solid #d5d5d5 !important;
@@ -114,9 +82,8 @@
 		margin: 0 0 8px 0 !important;
 		padding: 0;
 	}
-	/* Felder links, Hilfetext rechts daneben - vorher lag der Hilfetext in einer
-	   eigenen Tabellenspalte. flex-wrap sorgt dafuer, dass er auf schmalen Schirmen
-	   (Handy/Tablet) unter die Felder rutscht statt sie zu quetschen. */
+	/* Felder links, Hilfetext rechts. flex-wrap laesst ihn auf schmalen Schirmen
+	   darunter rutschen. */
 	.cc-group-body {
 		display: flex;
 		flex-wrap: wrap;
@@ -133,19 +100,15 @@
 		max-width: 420px;
 	}
 
-	/* Zeilen, die von einer uebergeordneten Checkbox abhaengen (siehe
-	   update_sensorwatch_fields unten). Das disabled-Attribut alleine graut zwar das
-	   Eingabefeld aus, nicht aber dessen Label - ohne diese Regel sieht die Zeile
-	   halb aktiv aus. Rein optisch: die eigentliche Sperre macht das disabled-Attribut,
-	   nicht diese Klasse. */
+	/* Von einer uebergeordneten Checkbox abhaengige Zeilen. Rein optisch - die
+	   Sperre selbst macht das disabled-Attribut. */
 	.cc-dependent.cc-disabled label,
 	.cc-dependent.cc-disabled input {
 		opacity: 0.45;
 	}
 
-	/* Diagnosetabelle. Bewusst zurueckhaltend gestaltet: Das sind Hinweise fuer
-	   den Fehlerfall, keine Betriebsanzeige - sie sollen nicht mit der
-	   Statuszeile oben um Aufmerksamkeit konkurrieren. */
+	/* Diagnosetabelle. Bewusst zurueckhaltend - Hinweise fuer den Fehlerfall,
+	   keine Betriebsanzeige. */
 	.cc-diag-runtime {
 		font-size: 0.9em;
 		color: #555;
@@ -262,10 +225,8 @@
 		padding: 1px 10px 1px 0;
 		border-bottom: 1px solid #f2f2f2;
 		vertical-align: middle;
-		/* Siehe die gleichlautende Regel bei table.cc-cmds: gemeinsame Zeilenhoehe,
-		   damit Schreibmaschinen- und Proportionalschrift auf derselben Grundlinie
-		   sitzen. */
-		line-height: 1.7;
+		/* Fester Wert, siehe die gleichlautende Regel bei table.cc-cmds. */
+		line-height: 20px;
 	}
 	table.cc-sensors td * { line-height: inherit; }
 	/* Abgewaehlte Zeilen blass, aber lesbar - sie sollen als "aus" erkennbar
@@ -278,23 +239,16 @@
 	}
 	.cc-sensor-name-fix { font-family: monospace; width: 230px; }
 	.cc-sensor-push-fix { color: #888; width: 62px; }
-	/* Feste Breite fuer die Hakenspalte: Die Kopfzeile steht in einer eigenen
-	   Tabelle (wegen der Gruppenueberschriften dazwischen), ohne feste Breite
-	   wuerde sie anders umbrechen als die Datentabellen darunter. Breit genug
-	   fuer die Ueberschrift "Aktiv", der Haken sitzt darunter linksbuendig. */
-	/* Eingerueckt gegenueber dem Haken in der Gruppenkopfzeile. Ohne diese
-	   Einrueckung stehen beide auf derselben senkrechten Linie, und die
-	   Verschachtelung ist nicht zu sehen - genau das war der Grund, warum der
-	   Gruppenhaken vorher missverstanden wurde. Die Ueberschrift "Aktiv" traegt
-	   dieselbe Klasse und wird deshalb mit eingerueckt. */
+	/* Feste Breite, weil die Kopfzeile in einer eigenen Tabelle steht. Die
+	   Einrueckung setzt die Zeilenhaken sichtbar unter den Gruppenhaken; die
+	   Ueberschrift "Aktiv" traegt dieselbe Klasse und rueckt mit. */
 	.cc-sensor-hak {
 		width: 42px;
 		padding-left: 18px !important;
 	}
-	/* Groesse und Abstaende ausdruecklich setzen, zusaetzlich zum data-role="none"
-	   im Markup. Ein Kaestchen ohne feste Masse richtet sich nach der Schriftgroesse
-	   des Themes und kann dadurch hoeher werden als die Tabellenzeile - dann schiebt
-	   es sich ueber die Gruppenueberschrift darueber. */
+	/* Masse ausdruecklich setzen, zusaetzlich zum data-role="none" im Markup:
+	   Sonst richtet sich das Kaestchen nach der Schrift des Themes und wird
+	   hoeher als die Tabellenzeile. */
 	table.cc-sensors input[type="checkbox"],
 	.cc-sgruppe-kopf input[type="checkbox"] {
 		width: 15px;
@@ -319,9 +273,8 @@
 		margin-bottom: 10px;
 		overflow: hidden;
 	}
-	/* Abgesetzte Kopfzeile. Sie ist der Grund fuer den ganzen Rahmen: Ohne sie
-	   stand der Gruppenhaken senkrecht fast genau ueber dem Haken der ersten
-	   Zeile, und beide lasen sich als Paar statt als Ebene und Unterebene. */
+	/* Kopfzeile der Gruppe. Abgesetzt, damit der Gruppenhaken nicht auf einer Linie
+	   mit den Haken der einzelnen Zeilen steht. */
 	.cc-sgruppe-kopf {
 		display: flex;
 		align-items: center;
@@ -374,14 +327,11 @@
 		padding: 1px 10px 1px 0;
 		border-bottom: 1px solid #f2f2f2;
 		vertical-align: top;
-		/* Feste Zeilenhoehe fuer ALLE Zellen, und die Kindelemente erben sie.
-		   Ohne das sitzt jede Zelle auf einer eigenen Grundlinie: Die Spalte
-		   "Empfangen" verschachtelt drei Schriftgroessen (0.86em Tabelle x 0.92em
-		   Zelle x 0.9em fuer die Zeitspanne), daneben stehen Schreibmaschinen- und
-		   Proportionalschrift. Bei "vertical-align: top" richten sich zwar die
-		   Zellenkanten aus, die Textzeilen darin aber nicht - besonders auffaellig
-		   in der Zeile mit der Uhrzeit. */
-		line-height: 1.7;
+		/* Fester Wert, KEIN Faktor: Ein Faktor wird von jedem Kindelement mit der
+		   eigenen Schriftgroesse neu gerechnet, und die Spalte "Empfangen" ist
+		   kleiner gesetzt als die Bedeutung daneben. Die Zeilenkaesten waeren dann
+		   bis zu 4 px unterschiedlich hoch und die Zellen saessen versetzt. */
+		line-height: 20px;
 	}
 	table.cc-cmds td * { line-height: inherit; }
 	/* Die Kopfzeile liegt in einer eigenen Tabelle (siehe getCommandTable), traegt
@@ -393,11 +343,8 @@
 		color: #555;
 		padding: 2px 10px 4px 0;
 		border-bottom: 1px solid #ddd;
-		/* Die Kopfzellen tragen dieselben Spaltenklassen wie die Datenzellen, damit
-		   die Breiten uebereinstimmen - dabei erben sie aber auch deren
-		   Schreibmaschinenschrift. Die gehoert zu den Werten, nicht zur
-		   Ueberschrift: Sonst steht "Topic" in einer anderen Schrift da als
-		   "Bedeutung" daneben, und die Kopfzeile passt nicht mehr zur Sensorliste. */
+		/* Kopfzellen tragen die Spaltenklassen wegen der Breiten - die Schrift daraus
+		   gehoert aber zu den Werten, nicht zur Ueberschrift. */
 		font-family: inherit;
 	}
 	table.cc-cmds th.cc-cmd-last { text-align: right; }
@@ -642,12 +589,9 @@
 	<div class="cc-group">
 		<div class="cc-group-title">Diagnose</div>
 		<div id="diagbox"><TMPL_VAR NAME=DIAGNOSTICS></div>
-		<!-- Gleiche Auszeichnung wie Abbrechen/Speichern unten (jQuery-Mobile-Button,
-		     data-mini), damit die Seite einheitlich aussieht.
-
-		     Bewusst ein <a> und KEIN <button>: Ein button innerhalb des Formulars
-		     wuerde beim Klick absenden - und damit ausgerechnet einen Neustart des
-		     Plugins ausloesen, waehrend das Zuruecksetzen laeuft. -->
+		<!-- Gleiche Auszeichnung wie Abbrechen/Speichern.
+	     Bewusst ein a und kein button: Ein button im Formular wuerde beim Klick
+	     absenden und damit das Plugin neu starten. -->
 		<div class="cc-diag-reset-zeile">
 			<a href="#" id="btnresetstats" data-role="button" data-inline="true"
 				data-mini="true" data-icon="refresh">Statistik zurücksetzen</a>
