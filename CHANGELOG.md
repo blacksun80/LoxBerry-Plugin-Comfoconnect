@@ -1,3 +1,24 @@
+# Version 0.4.1
+
+Änderungen gegenüber Version 0.4.
+
+## Behobene Fehler
+
+**Störungsmeldungen sperrten das Log-Snapshot-System zu.** Meldungen wie „Der
+Servicemodus ist aktiv" sind ein Dauerzustand der Anlage, kein Fehler. Sie liefen
+bisher als Störung und lösten damit alle paar Minuten einen neuen Log-Snapshot
+aus — echte Ausfälle (Timeouts, Verbindungsabbrüche) wurden dadurch verdrängt und
+waren im Nachhinein nicht mehr auffindbar. Solche Dauerzustände heißen jetzt
+„Hinweis" statt „Störung" und lösen keinen Snapshot mehr aus.
+
+**Eine unerwartete Störungsmeldung konnte Befehle wirkungslos machen.** Die
+Verarbeitung einer Störungsmeldung lief ungeschützt im selben Programmteil, der
+auch Sensordaten empfängt. Ein Fehler dabei hätte diesen Programmteil beendet;
+das Plugin liefe nach außen weiter, Befehle kämen aber nicht mehr bei der Anlage
+an. Jetzt abgesichert wie die Sensorverarbeitung.
+
+---
+
 # Version 0.4
 
 Änderungen gegenüber Version 0.3.
