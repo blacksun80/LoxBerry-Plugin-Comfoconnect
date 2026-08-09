@@ -12,7 +12,7 @@ from .zehnder_pb2 import *
 # Gezielt und namentlich, nicht per *: const.py enthaelt auch Namen wie
 # SENSOR_* und FAN_MODE_*, die sich sonst mit denen aus zehnder_pb2 ins Gehege
 # kommen koennten. const.py importiert selbst nichts, es gibt also keinen Zirkel.
-from .const import ALARM_ERRORS, ALARM_ERRORS_140, ALARM_FIRMWARE_140
+from .const import alarm_tabellen
 
 KEEPALIVE = 60
 
@@ -955,18 +955,25 @@ class ComfoConnect(object):
         """Wertet eine Stoerungsmeldung aus und uebersetzt die Fehlerbits in Klartext."""
 
         errors = {}
+        warnungen = {}
         try:
             rohbits = getattr(message.msg, 'errors', b'') or b''
 
             # Ab Firmware 1.4.0 haben sich die Bedeutungen ab Bit 70 verschoben.
             version = getattr(message.msg, 'swProgramVersion', 0) or 0
-            tabelle = ALARM_ERRORS_140 if version <= ALARM_FIRMWARE_140 else ALARM_ERRORS
+            tabelle, warnbits = alarm_tabellen(version)
 
             nummer = 0
             for byte in rohbits:
                 for bit in range(8):
                     if byte & (1 << bit):
-                        errors[nummer] = tabelle.get(nummer, "Unbekannter Fehler %d" % nummer)
+                        text = tabelle.get(nummer, "Unbekannter Fehler %d" % nummer)
+                        # Nur ausdruecklich als Warnung gefuehrte Bits werden
+                        # heruntergestuft, alles Uebrige bleibt Fehler.
+                        if nummer in warnbits:
+                            warnungen[nummer] = text
+                        else:
+                            errors[nummer] = text
                     nummer += 1
 
         except Exception as e:
@@ -980,14 +987,20 @@ class ComfoConnect(object):
 
         node_id = getattr(message.msg, 'nodeId', 0)
 
-        if errors:
-            for nummer, text in sorted(errors.items()):
-                _LOGGER.error("Störung der Lüftungsanlage (Fehler %d): %s" % (nummer, text))
-        else:
+        # WARNING statt ERROR: Ab ERROR schreibt der Snapshot-Schreiber einen
+        # Log-Bericht (siehe SnapshotSchreiber.emit in cfc.py). Ein Dauerzustand wie
+        # der Servicemodus haette sonst laufend Berichte erzeugt.
+        for nummer, text in sorted(warnungen.items()):
+            _LOGGER.warning("Hinweis der Lüftungsanlage (Meldung %d): %s" % (nummer, text))
+
+        for nummer, text in sorted(errors.items()):
+            _LOGGER.error("Störung der Lüftungsanlage (Fehler %d): %s" % (nummer, text))
+
+        if not errors and not warnungen:
             _LOGGER.info("Lüftungsanlage meldet keine Störungen mehr.")
 
         if self.callback_alarm:
-            self.callback_alarm(node_id, errors)
+            self.callback_alarm(node_id, errors, warnungen)
 
     def cmd_clear_errors(self):
         """Quittiert die an der Anlage anstehenden Stoerungen."""

@@ -133,7 +133,17 @@ verbundener Client sieht den aktuellen Stand also sofort.
 | `AWAY_REMAINING` | Sekunden | Restdauer der Abwesenheit, `/86400` = Tage. `0` wenn keine läuft |
 | `ERROR_COUNT` | Anzahl | Anstehende Störungen, `0` = keine |
 | `ERROR_TEXT` | Text | Störungen im Klartext, mehrere durch ` \| ` getrennt |
+| `WARNING_COUNT` | Anzahl | Anstehende Warnungen, `0` = keine |
+| `WARNING_TEXT` | Text | Warnungen im Klartext, mehrere durch ` \| ` getrennt |
 | `SENSOR_TIMEOUT` | `0` / `1` | `1` = seit der eingestellten Zeit keine Sensordaten mehr. Nur aktiv, wenn die Überwachung in den Plugin-Einstellungen eingeschaltet ist |
+
+Die Anlage sendet keinen Schweregrad mit — welche Meldung als Warnung gilt, legt das
+Plugin in `ALARM_WARNUNGEN` (`bin/pycomfoconnect/const.py`) fest. Als Warnung gelten
+nur Zustands- und Wartungsmeldungen ohne Defekt: Servicemodus, Filterwechsel und
+Filterbestellung, Bypass im Handbetrieb, aktivierte ComfoHood, laufende Fehleranalyse
+und offene Fronttür. Alles andere — auch eine unbekannte Meldung — bleibt eine Störung
+in `ERROR_*`. Warnungen werden im Log als `WARNING` geführt und lösen damit **keinen**
+Log-Snapshot mehr aus.
 
 `AWAY_ACTIVE` und `AWAY_REMAINING` werden alle 15 Sekunden von der Anlage
 abgeholt — nach einem Schaltbefehl dauert die Rückmeldung also bis zu 15s.

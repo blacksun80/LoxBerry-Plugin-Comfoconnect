@@ -212,3 +212,50 @@ ALARM_ERRORS_140.update({
 # Firmware-Grenze: alles darueber benutzt ALARM_ERRORS, alles bis einschliesslich
 # diesen Wert die 1.4.0-Tabelle.
 ALARM_FIRMWARE_140 = 3222278144
+
+# ======================================================================================
+# Einstufung: Warnung oder Fehler
+# ======================================================================================
+# Die Anlage sendet in der CnAlarmNotification KEINEN Schweregrad mit - nur, welches
+# Bit gesetzt ist. Die Aufteilung hier ist deshalb eine Festlegung dieses Plugins und
+# keine Protokollinformation.
+#
+# Aufgenommen sind ausschliesslich Bits, die einen Betriebszustand oder eine faellige
+# Wartung melden, aber keinen Defekt. Alles, was hier NICHT steht, gilt als Fehler -
+# eine unbekannte Meldung wird also nie versehentlich zur Warnung heruntergestuft.
+#
+# Die Bitnummern der beiden Firmware-Tabellen bedeuten ab Bit 70 Unterschiedliches
+# (Bit 80 = Servicemodus in ALARM_ERRORS, aber Aussentemperaturfehler des ComfoFond in
+# ALARM_ERRORS_140). Deshalb je Tabelle eine eigene Menge.
+
+# In beiden Tabellen dieselbe Bedeutung (aus ALARM_ERRORS_BASE).
+ALARM_WARNUNGEN_BASE = {
+    34,     # Die Fronttuer ist offen
+}
+
+# Passend zu ALARM_ERRORS (Firmware neuer als 1.4.0)
+ALARM_WARNUNGEN = ALARM_WARNUNGEN_BASE | {
+    77,     # Filter muessen jetzt gewechselt werden
+    78,     # Externer Filter ersetzen oder reinigen
+    79,     # Neue Filter bestellen
+    80,     # Servicemodus aktiv
+    89,     # Bypass im Handbetrieb
+    96,     # ComfoHood ist aktiviert
+    100,    # Fehleranalyse laeuft
+}
+
+# Passend zu ALARM_ERRORS_140 (Firmware 1.4.0 und aelter)
+ALARM_WARNUNGEN_140 = ALARM_WARNUNGEN_BASE | {
+    73,     # Filter muessen jetzt gewechselt werden
+    74,     # Externer Filter ersetzen oder reinigen
+    75,     # Neue Filter bestellen
+    76,     # Servicemodus aktiv
+    81,     # Bypass im Handbetrieb
+}
+
+
+def alarm_tabellen(swprogramversion):
+    """Liefert zur Firmwareversion die passende Texttabelle und Warnungsmenge."""
+    if (swprogramversion or 0) <= ALARM_FIRMWARE_140:
+        return ALARM_ERRORS_140, ALARM_WARNUNGEN_140
+    return ALARM_ERRORS, ALARM_WARNUNGEN

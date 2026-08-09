@@ -666,18 +666,28 @@ def seconds_to_timerfield(seconds):
         seconds = 0xFFFFFFFE
     return seconds.to_bytes(4, byteorder='little')
 
-def callback_alarm(node_id, errors):
-    """Veroeffentlicht die von der Anlage gemeldeten Stoerungen per MQTT.
+def callback_alarm(node_id, errors, warnungen=None):
+    """Veroeffentlicht die von der Anlage gemeldeten Meldungen per MQTT.
 
-    Sendet ERROR_COUNT und ERROR_TEXT; ohne anstehende Fehler 0 und Leerstring.
+    Sendet ERROR_COUNT/ERROR_TEXT fuer echte Stoerungen und WARNING_COUNT/WARNING_TEXT
+    fuer Zustands- und Wartungsmeldungen (Einstufung siehe ALARM_WARNUNGEN in const.py);
+    ohne anstehende Meldungen jeweils 0 und Leerstring.
     """
+    warnungen = warnungen or {}
     try:
         anzahl = len(errors)
         text = " | ".join("Fehler %d: %s" % (n, t) for n, t in sorted(errors.items())) if errors else ""
 
+        warn_anzahl = len(warnungen)
+        warn_text = " | ".join("Meldung %d: %s" % (n, t)
+                               for n, t in sorted(warnungen.items())) if warnungen else ""
+
         client.publish(mqtt_topic + "ERROR_COUNT", anzahl, qos=0, retain=True)
         client.publish(mqtt_topic + "ERROR_TEXT", text, qos=0, retain=True)
-        _LOGGER.debug("to MQTT %sERROR_COUNT = %d" % (mqtt_topic, anzahl))
+        client.publish(mqtt_topic + "WARNING_COUNT", warn_anzahl, qos=0, retain=True)
+        client.publish(mqtt_topic + "WARNING_TEXT", warn_text, qos=0, retain=True)
+        _LOGGER.debug("to MQTT %sERROR_COUNT = %d, %sWARNING_COUNT = %d"
+                      % (mqtt_topic, anzahl, mqtt_topic, warn_anzahl))
     except Exception as e:
         _LOGGER.error("Konnte Störungsmeldung nicht per MQTT senden: " + fehlertext(e))
 
