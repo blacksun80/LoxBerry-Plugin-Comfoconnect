@@ -1000,7 +1000,18 @@ class ComfoConnect(object):
             _LOGGER.info("Lüftungsanlage meldet keine Störungen mehr.")
 
         if self.callback_alarm:
-            self.callback_alarm(node_id, errors, warnungen)
+            # Abgesichert wie bei callback_sensor: Dieser Aufruf laeuft im
+            # NACHRICHTEN-THREAD. Eine Ausnahme aus dem Rueckruf beendet den Thread,
+            # der Verbindungs-Thread baut daraufhin die Verbindung neu auf - und die
+            # Anlage schickt die Stoerungsmeldung nach jedem Verbindungsaufbau
+            # erneut. Das ergibt eine Endlosschleife, in der das Plugin nach aussen
+            # laeuft, aber kein Befehl mehr bei der Anlage ankommt.
+            try:
+                self.callback_alarm(node_id, errors, warnungen)
+            except Exception as e:
+                _LOGGER.error("Verarbeitung der Alarmmeldung fehlgeschlagen (%s: %s) - "
+                              "übersprungen, die Verbindung bleibt bestehen."
+                              % (type(e).__name__, e))
 
     def cmd_clear_errors(self):
         """Quittiert die an der Anlage anstehenden Stoerungen."""
